@@ -1,0 +1,41 @@
+import {
+  AUTONOMY_LEVELS,
+  SPRINT_DEPTHS,
+  type AutonomyLevel,
+  type SprintDepth
+} from "@/lib/domain";
+import { prisma } from "@/lib/db";
+
+export function validateDispatchSettings(sprintDepth: string, autonomyLevel: string) {
+  if (!SPRINT_DEPTHS.includes(sprintDepth as SprintDepth)) {
+    throw new Error("Invalid sprint depth");
+  }
+
+  if (!AUTONOMY_LEVELS.includes(autonomyLevel as AutonomyLevel)) {
+    throw new Error("Invalid autonomy level");
+  }
+
+  return {
+    sprintDepth: sprintDepth as SprintDepth,
+    autonomyLevel: autonomyLevel as AutonomyLevel
+  };
+}
+
+export async function createViabilityJob(input: {
+  userId: string;
+  ideaId: string;
+  sprintDepth: string;
+  autonomyLevel: string;
+}) {
+  const settings = validateDispatchSettings(input.sprintDepth, input.autonomyLevel);
+
+  return prisma.viabilityJob.create({
+    data: {
+      userId: input.userId,
+      ideaId: input.ideaId,
+      sprintDepth: settings.sprintDepth,
+      autonomyLevel: settings.autonomyLevel,
+      status: "queued"
+    }
+  });
+}
