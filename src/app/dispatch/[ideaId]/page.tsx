@@ -2,7 +2,46 @@ import { notFound } from "next/navigation";
 
 import { DispatchForm } from "@/components/DispatchForm";
 import { prisma } from "@/lib/db";
-import type { InboxReasoning } from "@/lib/inbox/service";
+import {
+  AUTONOMY_LEVELS,
+  SPRINT_DEPTHS,
+  type AutonomyLevel,
+  type SprintDepth
+} from "@/lib/domain";
+
+type DispatchSuggestion = {
+  suggestedDepth: SprintDepth;
+  suggestedAutonomy: AutonomyLevel;
+};
+
+const fallbackSuggestion: DispatchSuggestion = {
+  suggestedDepth: "default",
+  suggestedAutonomy: "medium"
+};
+
+function parseDispatchSuggestion(reasoningJson: string): DispatchSuggestion {
+  try {
+    const parsed = JSON.parse(reasoningJson) as {
+      suggestedDepth?: unknown;
+      suggestedAutonomy?: unknown;
+    } | null;
+
+    if (!parsed || typeof parsed !== "object") {
+      return fallbackSuggestion;
+    }
+
+    const suggestedDepth = SPRINT_DEPTHS.includes(parsed.suggestedDepth as SprintDepth)
+      ? (parsed.suggestedDepth as SprintDepth)
+      : fallbackSuggestion.suggestedDepth;
+    const suggestedAutonomy = AUTONOMY_LEVELS.includes(parsed.suggestedAutonomy as AutonomyLevel)
+      ? (parsed.suggestedAutonomy as AutonomyLevel)
+      : fallbackSuggestion.suggestedAutonomy;
+
+    return { suggestedDepth, suggestedAutonomy };
+  } catch {
+    return fallbackSuggestion;
+  }
+}
 
 export default async function DispatchPage({ params }: { params: Promise<{ ideaId: string }> }) {
   const { ideaId } = await params;
@@ -22,7 +61,7 @@ export default async function DispatchPage({ params }: { params: Promise<{ ideaI
   }
 
   const inboxItem = idea.inboxItems[0];
-  const reasoning = JSON.parse(inboxItem.reasoningJson) as InboxReasoning;
+  const suggestion = parseDispatchSuggestion(inboxItem.reasoningJson);
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
@@ -41,8 +80,8 @@ export default async function DispatchPage({ params }: { params: Promise<{ ideaI
       <DispatchForm
         ideaId={idea.id}
         userId={inboxItem.userId}
-        suggestedDepth={reasoning.suggestedDepth}
-        suggestedAutonomy={reasoning.suggestedAutonomy}
+        suggestedDepth={suggestion.suggestedDepth}
+        suggestedAutonomy={suggestion.suggestedAutonomy}
       />
     </div>
   );

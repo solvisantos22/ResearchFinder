@@ -1,11 +1,18 @@
 import { startDispatch } from "@/app/dispatch/[ideaId]/actions";
-import { autonomyConfig, sprintDepthConfig } from "@/lib/domain";
+import {
+  AUTONOMY_LEVELS,
+  SPRINT_DEPTHS,
+  autonomyConfig,
+  sprintDepthConfig,
+  type AutonomyLevel,
+  type SprintDepth
+} from "@/lib/domain";
 
 type DispatchFormProps = {
   ideaId: string;
   userId: string;
-  suggestedDepth: string;
-  suggestedAutonomy: string;
+  suggestedDepth: SprintDepth;
+  suggestedAutonomy: AutonomyLevel;
 };
 
 export function DispatchForm({
@@ -22,39 +29,45 @@ export function DispatchForm({
       <section>
         <h2 className="text-lg font-semibold">Sprint depth</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          {Object.entries(sprintDepthConfig).map(([key, config]) => (
-            <label key={key} className="rounded-md border border-line p-3">
-              <input
-                className="mr-2"
-                type="radio"
-                name="sprintDepth"
-                value={key}
-                defaultChecked={key === suggestedDepth}
-              />
-              <span className="font-semibold capitalize">{key}</span>
-              <p className="mt-1 text-sm text-slate-600">{config.expectedDuration}</p>
-              <p className="mt-1 text-sm text-slate-500">{config.description}</p>
-            </label>
-          ))}
+          {SPRINT_DEPTHS.map((key) => {
+            const config = sprintDepthConfig[key];
+            return (
+              <label key={key} className="rounded-md border border-line p-3">
+                <input
+                  className="mr-2"
+                  type="radio"
+                  name="sprintDepth"
+                  value={key}
+                  defaultChecked={key === suggestedDepth}
+                />
+                <span className="font-semibold capitalize">{key}</span>
+                <p className="mt-1 text-sm text-slate-600">{config.expectedDuration}</p>
+                <p className="mt-1 text-sm text-slate-500">{config.description}</p>
+              </label>
+            );
+          })}
         </div>
       </section>
 
       <section>
         <h2 className="text-lg font-semibold">Autonomy</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          {Object.entries(autonomyConfig).map(([key, config]) => (
-            <label key={key} className="rounded-md border border-line p-3">
-              <input
-                className="mr-2"
-                type="radio"
-                name="autonomyLevel"
-                value={key}
-                defaultChecked={key === suggestedAutonomy}
-              />
-              <span className="font-semibold capitalize">{key}</span>
-              <p className="mt-1 text-sm text-slate-500">{config.description}</p>
-            </label>
-          ))}
+          {AUTONOMY_LEVELS.map((key) => {
+            const config = autonomyConfig[key];
+            return (
+              <label key={key} className="rounded-md border border-line p-3">
+                <input
+                  className="mr-2"
+                  type="radio"
+                  name="autonomyLevel"
+                  value={key}
+                  defaultChecked={key === suggestedAutonomy}
+                />
+                <span className="font-semibold capitalize">{key}</span>
+                <p className="mt-1 text-sm text-slate-500">{config.description}</p>
+              </label>
+            );
+          })}
         </div>
       </section>
 
