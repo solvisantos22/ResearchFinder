@@ -60,15 +60,42 @@ export function scorePaperForProfile(paper: PaperLike, profile: ProfileLike): Ra
 }
 
 function resolveRankingWeights(profile: ProfileLike): RankingWeights | undefined {
-  if (profile.rankingWeights) {
+  if (isValidRankingWeights(profile.rankingWeights)) {
     return profile.rankingWeights;
   }
 
   if (profile.rankingWeightsJson) {
-    return JSON.parse(profile.rankingWeightsJson) as RankingWeights;
+    try {
+      const parsed = JSON.parse(profile.rankingWeightsJson) as Partial<RankingWeights>;
+      if (isValidRankingWeights(parsed)) {
+        return parsed;
+      }
+    } catch {
+      return undefined;
+    }
   }
 
   return undefined;
+}
+
+function isValidRankingWeights(weights: Partial<RankingWeights> | undefined): weights is RankingWeights {
+  if (!weights) {
+    return false;
+  }
+
+  const { paperQuality, projectOpportunity, dispatchLikelihood } = weights;
+  return (
+    typeof paperQuality === "number" &&
+    Number.isFinite(paperQuality) &&
+    paperQuality >= 0 &&
+    typeof projectOpportunity === "number" &&
+    Number.isFinite(projectOpportunity) &&
+    projectOpportunity >= 0 &&
+    typeof dispatchLikelihood === "number" &&
+    Number.isFinite(dispatchLikelihood) &&
+    dispatchLikelihood >= 0 &&
+    paperQuality + projectOpportunity + dispatchLikelihood > 0
+  );
 }
 
 function tokenize(text: string): string[] {

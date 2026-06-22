@@ -81,6 +81,38 @@ describe("ranking", () => {
     expect(jsonScore.overall).toBe(parsedScore.overall);
   });
 
+  it("falls back to default scoring when ranking weights json is invalid", () => {
+    const defaultScore = scorePaperForProfile(dispatchFriendlyPaper, irrelevantProfile);
+
+    expect(() =>
+      scorePaperForProfile(dispatchFriendlyPaper, {
+        ...irrelevantProfile,
+        rankingWeightsJson: "{not-json"
+      })
+    ).not.toThrow();
+
+    const invalidJsonScore = scorePaperForProfile(dispatchFriendlyPaper, {
+      ...irrelevantProfile,
+      rankingWeightsJson: "{not-json"
+    });
+
+    expect(invalidJsonScore.overall).toBe(defaultScore.overall);
+  });
+
+  it("falls back to default scoring when ranking weights json is partial", () => {
+    const defaultScore = scorePaperForProfile(dispatchFriendlyPaper, irrelevantProfile);
+    const partialJsonScore = scorePaperForProfile(dispatchFriendlyPaper, {
+      ...irrelevantProfile,
+      rankingWeightsJson: JSON.stringify({
+        paperQuality: 0.1,
+        dispatchLikelihood: 0.9
+      })
+    });
+
+    expect(partialJsonScore.overall).toBe(defaultScore.overall);
+    expect(partialJsonScore.overall).toBeGreaterThan(0);
+  });
+
   it("scores a poor fit lower than a favorable paper", () => {
     const favorableScore = scorePaperForProfile(favorablePaper, relevantProfile);
     const poorFitScore = scorePaperForProfile(
