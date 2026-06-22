@@ -7,11 +7,19 @@ import { describe, expect, it } from "vitest";
 import { defaultRankingWeights } from "@/lib/domain";
 import { buildProfileSeedData, encodeJsonField, parseJsonField, seed } from "@/lib/seed";
 
-const canonicalInterests = [
-  "mechanistic interpretability",
-  "reasoning evals",
-  "agent evaluation",
-  "AI safety"
+const solviInterests = [
+  "LLM evaluation",
+  "multi-agent systems",
+  "benchmark design",
+  "agentic research workflows",
+  "reasoning under constraints"
+];
+
+const collaboratorInterests = [
+  "automated research agents",
+  "scientific discovery systems",
+  "evaluation harnesses",
+  "paper reproduction"
 ];
 
 const profileSelect = {
@@ -71,7 +79,7 @@ describe("profile JSON helpers", () => {
   });
 
   it("builds the full profile seed payload", () => {
-    const profile = buildProfileSeedData();
+    const profile = buildProfileSeedData(solviInterests);
 
     expect(Object.keys(profile).sort()).toEqual(
       [
@@ -83,17 +91,22 @@ describe("profile JSON helpers", () => {
         "rankingWeightsJson"
       ].sort()
     );
-    expect(parseJsonField<string[]>(profile.interestsJson)).toEqual(canonicalInterests);
+    expect(parseJsonField<string[]>(profile.interestsJson)).toEqual(solviInterests);
     expect(parseJsonField<string[]>(profile.constraintsJson)).toEqual([
-      "one-week prototype",
-      "open-source models preferred"
+      "Prefer credible prototypes in 1-3 weeks",
+      "Prefer projects that can become papers after experiments",
+      "Avoid frontier-scale model training"
     ]);
     expect(parseJsonField<string[]>(profile.preferredOutputsJson)).toEqual([
-      "prototype",
-      "paper draft"
+      "benchmark",
+      "evaluation harness",
+      "open-source tool",
+      "paper with reproducible experiments"
     ]);
     expect(parseJsonField(profile.rankingWeightsJson)).toEqual(defaultRankingWeights);
-    expect(profile.arxivQuery).toBe("cat:cs.AI OR cat:cs.CL OR cat:cs.LG");
+    expect(profile.arxivQuery).toBe(
+      "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)"
+    );
     expect(profile.maxDailyPapers).toBe(10);
   });
 });
@@ -109,7 +122,7 @@ describe("seed", () => {
           select: { id: true, email: true }
         }),
         client.user.findUniqueOrThrow({
-          where: { id: "demo-colleague" },
+          where: { id: "demo-collaborator" },
           select: { id: true, email: true }
         })
       ]);
@@ -143,10 +156,10 @@ describe("seed", () => {
         })
       ]);
 
-      expect(solviProfile).toEqual(buildProfileSeedData());
-      expect(collaboratorProfile).toEqual(buildProfileSeedData());
+      expect(solviProfile).toEqual(buildProfileSeedData(solviInterests));
+      expect(collaboratorProfile).toEqual(buildProfileSeedData(collaboratorInterests));
       expect(solvi.email).toBe("solvi@example.com");
-      expect(collaborator.email).toBe("colleague@example.com");
+      expect(collaborator.email).toBe("collaborator@example.com");
     });
   });
 
@@ -198,8 +211,56 @@ describe("seed", () => {
 
       expect(canonicalUser).toEqual({ id: "demo-solvi", name: "Solvi" });
       expect(staleIdUser).toBeNull();
-      expect(canonicalProfile).toEqual(buildProfileSeedData());
+      expect(canonicalProfile).toEqual(buildProfileSeedData(solviInterests));
       expect(staleProfile).toBeNull();
+    });
+  });
+
+  it("reconciles an existing canonical id with a wrong email", async () => {
+    await withTestDatabase(async (client) => {
+      await client.user.create({
+        data: {
+          id: "demo-solvi",
+          email: "drifted@example.com",
+          name: "Drifted Solvi"
+        }
+      });
+      await client.researchProfile.create({
+        data: {
+          userId: "demo-solvi",
+          interestsJson: encodeJsonField(["stale interest"]),
+          constraintsJson: encodeJsonField(["stale constraint"]),
+          preferredOutputsJson: encodeJsonField(["stale output"]),
+          rankingWeightsJson: encodeJsonField({
+            paperQuality: 1,
+            projectOpportunity: 0,
+            dispatchLikelihood: 0
+          }),
+          arxivQuery: "stale query",
+          maxDailyPapers: 1
+        }
+      });
+
+      await seed(client);
+
+      const [canonicalUser, driftedUser, profile] = await Promise.all([
+        client.user.findUniqueOrThrow({
+          where: { id: "demo-solvi" },
+          select: { email: true, name: true }
+        }),
+        client.user.findUnique({
+          where: { email: "drifted@example.com" },
+          select: { id: true }
+        }),
+        client.researchProfile.findUniqueOrThrow({
+          where: { userId: "demo-solvi" },
+          select: profileSelect
+        })
+      ]);
+
+      expect(canonicalUser).toEqual({ email: "solvi@example.com", name: "Solvi" });
+      expect(driftedUser).toBeNull();
+      expect(profile).toEqual(buildProfileSeedData(solviInterests));
     });
   });
 
@@ -210,12 +271,20 @@ describe("seed", () => {
           {
             id: "demo-solvi",
             email: "solvi@example.com",
-            name: "Solvi"
+            name: "Solvi",
+            interests: solviInterests
+          },
+          {
+            id: "demo-collaborator",
+            email: "collaborator@example.com",
+            name: "Research Collaborator",
+            interests: collaboratorInterests
           },
           {
             id: "demo-solvi",
-            email: "colleague@example.com",
-            name: "Conflicting Colleague"
+            email: "collaborator@example.com",
+            name: "Conflicting Collaborator",
+            interests: collaboratorInterests
           }
         ])
       ).rejects.toThrow();
