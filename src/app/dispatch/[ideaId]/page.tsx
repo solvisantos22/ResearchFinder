@@ -8,38 +8,54 @@ import {
   type AutonomyLevel,
   type SprintDepth
 } from "@/lib/domain";
+import type { InboxReasoning } from "@/lib/inbox/service";
 
-type DispatchSuggestion = {
-  suggestedDepth: SprintDepth;
-  suggestedAutonomy: AutonomyLevel;
-};
-
-const fallbackSuggestion: DispatchSuggestion = {
+const fallbackReasoning: InboxReasoning = {
+  whyPaperMatters: "",
+  whyIdeaPromising: "",
+  whyItMightBeTrap: "",
+  smallestSprint: "",
   suggestedDepth: "default",
   suggestedAutonomy: "medium"
 };
 
-function parseDispatchSuggestion(reasoningJson: string): DispatchSuggestion {
+function parseInboxReasoning(reasoningJson: string): InboxReasoning {
   try {
-    const parsed = JSON.parse(reasoningJson) as {
-      suggestedDepth?: unknown;
-      suggestedAutonomy?: unknown;
-    } | null;
+    const parsed = JSON.parse(reasoningJson) as Partial<InboxReasoning> | null;
 
     if (!parsed || typeof parsed !== "object") {
-      return fallbackSuggestion;
+      return fallbackReasoning;
     }
 
     const suggestedDepth = SPRINT_DEPTHS.includes(parsed.suggestedDepth as SprintDepth)
       ? (parsed.suggestedDepth as SprintDepth)
-      : fallbackSuggestion.suggestedDepth;
+      : fallbackReasoning.suggestedDepth;
     const suggestedAutonomy = AUTONOMY_LEVELS.includes(parsed.suggestedAutonomy as AutonomyLevel)
       ? (parsed.suggestedAutonomy as AutonomyLevel)
-      : fallbackSuggestion.suggestedAutonomy;
+      : fallbackReasoning.suggestedAutonomy;
 
-    return { suggestedDepth, suggestedAutonomy };
+    return {
+      whyPaperMatters:
+        typeof parsed.whyPaperMatters === "string"
+          ? parsed.whyPaperMatters
+          : fallbackReasoning.whyPaperMatters,
+      whyIdeaPromising:
+        typeof parsed.whyIdeaPromising === "string"
+          ? parsed.whyIdeaPromising
+          : fallbackReasoning.whyIdeaPromising,
+      whyItMightBeTrap:
+        typeof parsed.whyItMightBeTrap === "string"
+          ? parsed.whyItMightBeTrap
+          : fallbackReasoning.whyItMightBeTrap,
+      smallestSprint:
+        typeof parsed.smallestSprint === "string"
+          ? parsed.smallestSprint
+          : fallbackReasoning.smallestSprint,
+      suggestedDepth,
+      suggestedAutonomy
+    };
   } catch {
-    return fallbackSuggestion;
+    return fallbackReasoning;
   }
 }
 
@@ -61,7 +77,7 @@ export default async function DispatchPage({ params }: { params: Promise<{ ideaI
   }
 
   const inboxItem = idea.inboxItems[0];
-  const suggestion = parseDispatchSuggestion(inboxItem.reasoningJson);
+  const reasoning = parseInboxReasoning(inboxItem.reasoningJson);
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
@@ -80,8 +96,8 @@ export default async function DispatchPage({ params }: { params: Promise<{ ideaI
       <DispatchForm
         ideaId={idea.id}
         userId={inboxItem.userId}
-        suggestedDepth={suggestion.suggestedDepth}
-        suggestedAutonomy={suggestion.suggestedAutonomy}
+        suggestedDepth={reasoning.suggestedDepth}
+        suggestedAutonomy={reasoning.suggestedAutonomy}
       />
     </div>
   );
