@@ -134,14 +134,21 @@ export async function processNextViabilityJob(): Promise<string | null> {
     return null;
   }
 
-  await prisma.viabilityJob.update({
-    where: { id: job.id },
+  const claim = await prisma.viabilityJob.updateMany({
+    where: {
+      id: job.id,
+      status: "queued"
+    },
     data: {
       status: "running",
       startedAt: new Date(),
       errorMessage: null
     }
   });
+
+  if (claim.count !== 1) {
+    return null;
+  }
 
   try {
     const decision = buildViabilityDecision({
