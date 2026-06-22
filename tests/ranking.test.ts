@@ -25,8 +25,27 @@ describe("ranking", () => {
 
   it("generates project ideas with dispatch framing", () => {
     const ideas = generateIdeasForPaper(paper, profile);
+
     expect(ideas).toHaveLength(3);
+
+    for (const idea of ideas) {
+      expect(idea.generatedBy).toBe("heuristic:v1");
+      expect(idea.summary).toBeTruthy();
+      expect(idea.rationale).toBeTruthy();
+      expect(idea.approach).toBeTruthy();
+      expect(idea.risks).toHaveLength(2);
+      expect(idea.nextSteps).toHaveLength(3);
+      expect(idea.tags.length).toBeGreaterThan(0);
+    }
+
     expect(ideas[0].title).toContain("evaluation");
     expect(ideas[0].nextSteps[0]).toContain("minimal");
+    expect(ideas[0].tags).toEqual(expect.arrayContaining(["evaluation", "benchmark", "viability"]));
+    expect(ideas[1].tags).toEqual(
+      expect.arrayContaining(["dataset", "failure analysis", "benchmark design"])
+    );
+    expect(ideas[2].tags).toEqual(
+      expect.arrayContaining(["research agents", "planning", "evaluation"])
+    );
   });
 });
