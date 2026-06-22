@@ -5,7 +5,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { defaultRankingWeights } from "@/lib/domain";
 
-export function encodeJsonField(value: unknown): string {
+export function encodeJsonField<T>(value: T): string {
   return JSON.stringify(value);
 }
 
