@@ -50,15 +50,21 @@ export function parseArxivAtom(xml: string): ArxivPaperInput[] {
       ? [parsed.feed.entry]
       : [];
 
-  return entries.map((entry) => {
-    const url = normalizeText(entry.id);
+  return entries.map((entry, index) => {
+    const url = readRequiredText(entry.id, index, "missing id");
+    const arxivId = url.split("/").at(-1)?.trim() ?? "";
+
+    if (!arxivId) {
+      throw new Error(`Invalid arXiv entry at index ${index}: missing arxivId`);
+    }
+
     return {
-      arxivId: url.split("/").at(-1) ?? url,
-      title: cleanWhitespace(normalizeText(entry.title)),
-      abstract: cleanWhitespace(normalizeText(entry.summary)),
+      arxivId,
+      title: readRequiredText(entry.title, index, "missing title"),
+      abstract: readRequiredText(entry.summary, index, "missing summary"),
       url,
-      publishedAt: new Date(normalizeText(entry.published)),
-      updatedAt: new Date(normalizeText(entry.updated)),
+      publishedAt: readRequiredDate(entry.published, index, "invalid published date"),
+      updatedAt: readRequiredDate(entry.updated, index, "invalid updated date"),
       authors: normalizeArray(entry.author).map((author) => cleanWhitespace(normalizeText(author.name))),
       categories: normalizeArray(entry.category)
         .map((category) => String(category.term ?? ""))
@@ -67,7 +73,7 @@ export function parseArxivAtom(xml: string): ArxivPaperInput[] {
   });
 }
 
-export async function fetchArxivPapers(query: string, maxResults: number) {
+export async function fetchArxivPapers(query: string, maxResults: number): Promise<ArxivPaperInput[]> {
   const params = new URLSearchParams({
     search_query: query,
     start: "0",
@@ -91,6 +97,24 @@ export async function fetchArxivPapers(query: string, maxResults: number) {
 
 function cleanWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function readRequiredText(value: unknown, index: number, message: string): string {
+  const normalized = cleanWhitespace(normalizeText(value));
+  if (!normalized) {
+    throw new Error(`Invalid arXiv entry at index ${index}: ${message}`);
+  }
+
+  return normalized;
+}
+
+function readRequiredDate(value: unknown, index: number, message: string): Date {
+  const date = new Date(normalizeText(value));
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid arXiv entry at index ${index}: ${message}`);
+  }
+
+  return date;
 }
 
 function normalizeArray<T>(value: T | T[] | undefined): T[] {
