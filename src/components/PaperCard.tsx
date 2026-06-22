@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import type { Route } from "next";
 
 import { ScorePill } from "@/components/ScorePill";
 import type { InboxReasoning } from "@/lib/inbox/service";
@@ -12,6 +13,7 @@ type PaperCardProps = {
     projectOpportunity: number;
     dispatchLikelihood: number;
     reasoningJson: string;
+    userId: string;
     paper: {
       title: string;
       abstract: string;
@@ -94,6 +96,8 @@ export function PaperCard({ item }: PaperCardProps) {
   const reasoning = parseReasoning(item.reasoningJson);
   const authors = parseStringArray(item.paper.authorsJson);
   const categories = parseStringArray(item.paper.categoriesJson);
+  const dispatchHref =
+    `/dispatch/${item.bestIdea.id}?userId=${encodeURIComponent(item.userId)}` as Route;
 
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -158,7 +162,7 @@ export function PaperCard({ item }: PaperCardProps) {
       <div className="mt-4 flex flex-wrap gap-3">
         <Link
           className="rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-teal-800"
-          href={`/dispatch/${item.bestIdea.id}`}
+          href={dispatchHref}
         >
           Dispatch viability sprint
         </Link>

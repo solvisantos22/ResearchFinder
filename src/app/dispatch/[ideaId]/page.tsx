@@ -59,13 +59,22 @@ function parseInboxReasoning(reasoningJson: string): InboxReasoning {
   }
 }
 
-export default async function DispatchPage({ params }: { params: Promise<{ ideaId: string }> }) {
-  const { ideaId } = await params;
+export default async function DispatchPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ ideaId: string }>;
+  searchParams: Promise<{ userId?: string | string[] }>;
+}) {
+  const [{ ideaId }, query] = await Promise.all([params, searchParams]);
+  const requestedUserId = typeof query.userId === "string" ? query.userId : undefined;
   const idea = await prisma.idea.findUnique({
     where: { id: ideaId },
     include: {
       paper: true,
       inboxItems: {
+        ...(requestedUserId ? { where: { userId: requestedUserId } } : {}),
+        orderBy: [{ inboxDate: "desc" }, { createdAt: "desc" }],
         take: 1,
         include: { user: true }
       }

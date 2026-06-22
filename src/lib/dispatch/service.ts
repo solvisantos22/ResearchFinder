@@ -28,6 +28,17 @@ export async function createViabilityJob(input: {
   autonomyLevel: string;
 }) {
   const settings = validateDispatchSettings(input.sprintDepth, input.autonomyLevel);
+  const inboxItem = await prisma.inboxItem.findFirst({
+    where: {
+      userId: input.userId,
+      bestIdeaId: input.ideaId
+    },
+    select: { id: true }
+  });
+
+  if (!inboxItem) {
+    throw new Error("Idea is not available in this user's inbox");
+  }
 
   return prisma.viabilityJob.create({
     data: {

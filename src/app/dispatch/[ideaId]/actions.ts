@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import type { Route } from "next";
 
 import { createViabilityJob } from "@/lib/dispatch/service";
 
@@ -17,5 +18,5 @@ export async function startDispatch(formData: FormData) {
     autonomyLevel
   });
 
-  redirect(`/jobs/${job.id}`);
+  redirect(`/jobs/${job.id}` as Route);
 }
