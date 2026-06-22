@@ -1,6 +1,7 @@
 .worktrees/
 node_modules/
 .next/
+tsconfig.tsbuildinfo
 .env
 prisma/dev.db
 prisma/dev.db-journal
