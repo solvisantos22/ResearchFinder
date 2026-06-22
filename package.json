@@ -16,6 +16,9 @@
     "ingest:daily": "tsx scripts/ingest-daily.ts",
     "worker:once": "tsx scripts/process-viability-once.ts"
   },
+  "prisma": {
+    "seed": "tsx src/lib/seed.ts"
+  },
   "dependencies": {
     "@prisma/client": "^6.0.0",
     "fast-xml-parser": "^4.5.0",

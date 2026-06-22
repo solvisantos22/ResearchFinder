@@ -57,7 +57,7 @@ export async function seed() {
     },
     {
       id: "demo-collaborator",
-      email: "collaborator@example.com",
+      email: "colleague@example.com",
       name: "Research Collaborator",
       interests: [
         "automated research agents",

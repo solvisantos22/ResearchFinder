@@ -1,6 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { prisma } from "@/lib/db";
 import { defaultRankingWeights } from "@/lib/domain";
-import { buildProfileSeedData, encodeJsonField, parseJsonField } from "@/lib/seed";
+import { buildProfileSeedData, encodeJsonField, parseJsonField, seed } from "@/lib/seed";
+
+const solviInterests = [
+  "LLM evaluation",
+  "multi-agent systems",
+  "benchmark design",
+  "agentic research workflows",
+  "reasoning under constraints"
+];
+
+const profileSelect = {
+  interestsJson: true,
+  constraintsJson: true,
+  preferredOutputsJson: true,
+  rankingWeightsJson: true,
+  arxivQuery: true,
+  maxDailyPapers: true
+};
+
+afterAll(async () => {
+  await prisma.$disconnect();
+});
 
 describe("profile JSON helpers", () => {
   it("round-trips arrays and objects", () => {
@@ -43,5 +65,47 @@ describe("profile JSON helpers", () => {
       "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)"
     );
     expect(profile.maxDailyPapers).toBe(10);
+  });
+});
+
+describe("seed", () => {
+  it("refreshes an existing research profile with the full seed payload", async () => {
+    await seed();
+
+    try {
+      await prisma.researchProfile.update({
+        where: { userId: "demo-solvi" },
+        data: {
+          interestsJson: encodeJsonField(["stale interest"]),
+          constraintsJson: encodeJsonField(["stale constraint"]),
+          preferredOutputsJson: encodeJsonField(["stale output"]),
+          rankingWeightsJson: encodeJsonField({
+            paperQuality: 1,
+            projectOpportunity: 0,
+            dispatchLikelihood: 0
+          }),
+          arxivQuery: "stale query",
+          maxDailyPapers: 1
+        }
+      });
+
+      await seed();
+
+      const [profile, collaborator] = await Promise.all([
+        prisma.researchProfile.findUniqueOrThrow({
+          where: { userId: "demo-solvi" },
+          select: profileSelect
+        }),
+        prisma.user.findUniqueOrThrow({
+          where: { id: "demo-collaborator" },
+          select: { email: true }
+        })
+      ]);
+
+      expect(profile).toEqual(buildProfileSeedData(solviInterests));
+      expect(collaborator.email).toBe("colleague@example.com");
+    } finally {
+      await seed();
+    }
   });
 });
