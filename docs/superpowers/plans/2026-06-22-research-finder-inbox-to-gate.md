@@ -527,7 +527,7 @@ model Paper {
   abstract    String
   url         String
   publishedAt DateTime
-  updatedAt   DateTime
+  arxivUpdatedAt DateTime
   authorsJson String
   categoriesJson String
   createdAt   DateTime @default(now())
@@ -621,6 +621,8 @@ model Evidence {
   job ViabilityJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 }
 ```
+
+Note: arXiv parser input may still expose the source metadata timestamp as `updatedAt`, but persistence must write it to `Paper.arxivUpdatedAt`; `Paper.updatedAt` is reserved for Prisma row mutation time via `@updatedAt`.
 
 - [ ] **Step 2: Add database environment defaults**
 
@@ -1349,7 +1351,7 @@ export async function buildDailyInboxForUser(userId: string, inboxDate: string) 
         title: paperInput.title,
         abstract: paperInput.abstract,
         url: paperInput.url,
-        updatedAt: paperInput.updatedAt,
+        arxivUpdatedAt: paperInput.updatedAt,
         authorsJson: JSON.stringify(paperInput.authors),
         categoriesJson: JSON.stringify(paperInput.categories)
       },
@@ -1359,7 +1361,7 @@ export async function buildDailyInboxForUser(userId: string, inboxDate: string) 
         abstract: paperInput.abstract,
         url: paperInput.url,
         publishedAt: paperInput.publishedAt,
-        updatedAt: paperInput.updatedAt,
+        arxivUpdatedAt: paperInput.updatedAt,
         authorsJson: JSON.stringify(paperInput.authors),
         categoriesJson: JSON.stringify(paperInput.categories)
       }
