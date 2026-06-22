@@ -100,8 +100,9 @@ export function PaperCard({ item }: PaperCardProps) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 max-w-3xl flex-1">
           <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
-            <span>{item.paper.publishedAt.toISOString().slice(0, 10)}</span>
             <span className="min-w-0 truncate">{authors.slice(0, 3).join(", ")}</span>
+            <span>Source: arXiv</span>
+            <span>{item.paper.publishedAt.toISOString().slice(0, 10)}</span>
             <span className="min-w-0 truncate">{categories.join(", ")}</span>
           </div>
           <h2 className="text-xl font-semibold leading-tight text-slate-900">{item.paper.title}</h2>
@@ -144,6 +145,12 @@ export function PaperCard({ item }: PaperCardProps) {
           </p>
           <p>
             <strong>Smallest sprint:</strong> {reasoning.smallestSprint}
+          </p>
+          <p>
+            <strong>Suggested depth:</strong> {reasoning.suggestedDepth}
+          </p>
+          <p>
+            <strong>Suggested autonomy:</strong> {reasoning.suggestedAutonomy}
           </p>
         </div>
       </details>
