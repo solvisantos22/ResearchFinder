@@ -11,6 +11,36 @@ export function parseJsonField<T>(value: string): T {
   return JSON.parse(value) as T;
 }
 
+type ProfileSeedData = {
+  interestsJson: string;
+  constraintsJson: string;
+  preferredOutputsJson: string;
+  rankingWeightsJson: string;
+  arxivQuery: string;
+  maxDailyPapers: number;
+};
+
+export function buildProfileSeedData(interests: string[]): ProfileSeedData {
+  return {
+    interestsJson: encodeJsonField(interests),
+    constraintsJson: encodeJsonField([
+      "Prefer credible prototypes in 1-3 weeks",
+      "Prefer projects that can become papers after experiments",
+      "Avoid frontier-scale model training"
+    ]),
+    preferredOutputsJson: encodeJsonField([
+      "benchmark",
+      "evaluation harness",
+      "open-source tool",
+      "paper with reproducible experiments"
+    ]),
+    rankingWeightsJson: encodeJsonField(defaultRankingWeights),
+    arxivQuery:
+      "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)",
+    maxDailyPapers: 10
+  };
+}
+
 export async function seed() {
   const users = [
     {
@@ -39,6 +69,8 @@ export async function seed() {
   ];
 
   for (const user of users) {
+    const profileData = buildProfileSeedData(user.interests);
+
     await prisma.user.upsert({
       where: { id: user.id },
       update: {
@@ -54,27 +86,10 @@ export async function seed() {
 
     await prisma.researchProfile.upsert({
       where: { userId: user.id },
-      update: {
-        interestsJson: encodeJsonField(user.interests)
-      },
+      update: profileData,
       create: {
         userId: user.id,
-        interestsJson: encodeJsonField(user.interests),
-        constraintsJson: encodeJsonField([
-          "Prefer credible prototypes in 1-3 weeks",
-          "Prefer projects that can become papers after experiments",
-          "Avoid frontier-scale model training"
-        ]),
-        preferredOutputsJson: encodeJsonField([
-          "benchmark",
-          "evaluation harness",
-          "open-source tool",
-          "paper with reproducible experiments"
-        ]),
-        rankingWeightsJson: encodeJsonField(defaultRankingWeights),
-        arxivQuery:
-          "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)",
-        maxDailyPapers: 10
+        ...profileData
       }
     });
   }
