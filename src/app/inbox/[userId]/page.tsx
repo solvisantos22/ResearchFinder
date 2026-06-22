@@ -1,4 +1,6 @@
 import React from "react";
+import { notFound } from "next/navigation";
+
 import { PaperCard } from "@/components/PaperCard";
 import { prisma } from "@/lib/db";
 import { getInboxItems } from "@/lib/inbox/service";
@@ -10,6 +12,11 @@ function todayIsoDate() {
 export default async function InboxPage({ params }: { params: Promise<{ userId: string }> }) {
   const { userId } = await params;
   const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  if (!user) {
+    notFound();
+  }
+
   const inboxDate = todayIsoDate();
   const items = await getInboxItems(userId, inboxDate);
 
@@ -20,10 +27,10 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
           Morning inbox
         </p>
         <h1 className="text-3xl font-semibold text-slate-900">
-          {user ? `${user.name}'s research inbox` : "Research inbox"}
+          {user.name}&apos;s research inbox
         </h1>
         <p className="mt-2 text-slate-600">
-          Ten papers ranked by paper quality, project opportunity, and dispatch likelihood.
+          Papers ranked by paper quality, project opportunity, and dispatch likelihood.
         </p>
       </header>
 

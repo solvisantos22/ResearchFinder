@@ -30,10 +30,70 @@ type PaperCardProps = {
   };
 };
 
+const fallbackReasoning: InboxReasoning = {
+  whyPaperMatters: "Reasoning unavailable.",
+  whyIdeaPromising: "Reasoning unavailable.",
+  whyItMightBeTrap: "Reasoning unavailable.",
+  smallestSprint: "Reasoning unavailable.",
+  suggestedDepth: "fast",
+  suggestedAutonomy: "low"
+};
+
+function parseStringArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseReasoning(value: string): InboxReasoning {
+  try {
+    const parsed = JSON.parse(value) as Partial<InboxReasoning> | null;
+    if (!parsed || typeof parsed !== "object") {
+      return fallbackReasoning;
+    }
+
+    return {
+      whyPaperMatters:
+        typeof parsed.whyPaperMatters === "string"
+          ? parsed.whyPaperMatters
+          : fallbackReasoning.whyPaperMatters,
+      whyIdeaPromising:
+        typeof parsed.whyIdeaPromising === "string"
+          ? parsed.whyIdeaPromising
+          : fallbackReasoning.whyIdeaPromising,
+      whyItMightBeTrap:
+        typeof parsed.whyItMightBeTrap === "string"
+          ? parsed.whyItMightBeTrap
+          : fallbackReasoning.whyItMightBeTrap,
+      smallestSprint:
+        typeof parsed.smallestSprint === "string"
+          ? parsed.smallestSprint
+          : fallbackReasoning.smallestSprint,
+      suggestedDepth:
+        parsed.suggestedDepth === "fast" ||
+        parsed.suggestedDepth === "default" ||
+        parsed.suggestedDepth === "deep"
+          ? parsed.suggestedDepth
+          : fallbackReasoning.suggestedDepth,
+      suggestedAutonomy:
+        parsed.suggestedAutonomy === "low" ||
+        parsed.suggestedAutonomy === "medium" ||
+        parsed.suggestedAutonomy === "high"
+          ? parsed.suggestedAutonomy
+          : fallbackReasoning.suggestedAutonomy
+    };
+  } catch {
+    return fallbackReasoning;
+  }
+}
+
 export function PaperCard({ item }: PaperCardProps) {
-  const reasoning = JSON.parse(item.reasoningJson) as InboxReasoning;
-  const authors = JSON.parse(item.paper.authorsJson) as string[];
-  const categories = JSON.parse(item.paper.categoriesJson) as string[];
+  const reasoning = parseReasoning(item.reasoningJson);
+  const authors = parseStringArray(item.paper.authorsJson);
+  const categories = parseStringArray(item.paper.categoriesJson);
 
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -56,7 +116,7 @@ export function PaperCard({ item }: PaperCardProps) {
           </div>
         </div>
 
-        <div className="grid w-full grid-cols-2 gap-2 sm:max-w-64 lg:w-64 lg:flex-none">
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-64 lg:w-64 lg:flex-none">
           <ScorePill label="Overall" value={item.overallScore} tone="strong" />
           <ScorePill label="Paper" value={item.paperQuality} />
           <ScorePill label="Opportunity" value={item.projectOpportunity} />

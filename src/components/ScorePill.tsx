@@ -15,7 +15,7 @@ const toneClass = {
 export function ScorePill({ label, value, tone = "neutral" }: ScorePillProps) {
   return (
     <div
-      className={`min-h-16 min-w-0 rounded-md border px-3 py-2 ${toneClass[tone]}`}
+      className={`min-h-16 min-w-[7rem] rounded-md border px-3 py-2 ${toneClass[tone]}`}
       data-tone={tone}
     >
       <div className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-500">
