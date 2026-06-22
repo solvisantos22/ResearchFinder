@@ -59,6 +59,28 @@ describe("ranking", () => {
     expect(weightedScore.overall).toBeGreaterThan(defaultScore.overall);
   });
 
+  it("applies persisted ranking weights json the same as parsed ranking weights", () => {
+    const customWeights = {
+      paperQuality: 0.1,
+      projectOpportunity: 0.1,
+      dispatchLikelihood: 0.8
+    };
+
+    const parsedScore = scorePaperForProfile(dispatchFriendlyPaper, {
+      ...irrelevantProfile,
+      rankingWeights: customWeights
+    });
+    const jsonScore = scorePaperForProfile(dispatchFriendlyPaper, {
+      ...irrelevantProfile,
+      rankingWeightsJson: JSON.stringify(customWeights)
+    });
+
+    expect(jsonScore.paperQuality).toBe(parsedScore.paperQuality);
+    expect(jsonScore.projectOpportunity).toBe(parsedScore.projectOpportunity);
+    expect(jsonScore.dispatchLikelihood).toBe(parsedScore.dispatchLikelihood);
+    expect(jsonScore.overall).toBe(parsedScore.overall);
+  });
+
   it("scores a poor fit lower than a favorable paper", () => {
     const favorableScore = scorePaperForProfile(favorablePaper, relevantProfile);
     const poorFitScore = scorePaperForProfile(

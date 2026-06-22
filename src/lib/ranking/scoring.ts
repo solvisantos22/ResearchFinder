@@ -10,6 +10,7 @@ type ProfileLike = {
   interests: string[];
   preferredOutputs: string[];
   rankingWeights?: RankingWeights;
+  rankingWeightsJson?: string;
 };
 
 const qualityTerms = [
@@ -54,8 +55,20 @@ export function scorePaperForProfile(paper: PaperLike, profile: ProfileLike): Ra
   const scores = { paperQuality, projectOpportunity, dispatchLikelihood };
   return {
     ...scores,
-    overall: computeOverallScore(scores, profile.rankingWeights)
+    overall: computeOverallScore(scores, resolveRankingWeights(profile))
   };
+}
+
+function resolveRankingWeights(profile: ProfileLike): RankingWeights | undefined {
+  if (profile.rankingWeights) {
+    return profile.rankingWeights;
+  }
+
+  if (profile.rankingWeightsJson) {
+    return JSON.parse(profile.rankingWeightsJson) as RankingWeights;
+  }
+
+  return undefined;
 }
 
 function tokenize(text: string): string[] {
