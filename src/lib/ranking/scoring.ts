@@ -1,4 +1,4 @@
-import { ScoreBreakdown, clampScore, computeOverallScore } from "@/lib/domain";
+import { type RankingWeights, ScoreBreakdown, clampScore, computeOverallScore } from "@/lib/domain";
 
 type PaperLike = {
   title: string;
@@ -9,6 +9,7 @@ type PaperLike = {
 type ProfileLike = {
   interests: string[];
   preferredOutputs: string[];
+  rankingWeights?: RankingWeights;
 };
 
 const qualityTerms = [
@@ -53,7 +54,7 @@ export function scorePaperForProfile(paper: PaperLike, profile: ProfileLike): Ra
   const scores = { paperQuality, projectOpportunity, dispatchLikelihood };
   return {
     ...scores,
-    overall: computeOverallScore(scores)
+    overall: computeOverallScore(scores, profile.rankingWeights)
   };
 }
 
