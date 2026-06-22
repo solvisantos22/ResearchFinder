@@ -270,6 +270,108 @@ describe("daily inbox persistence", () => {
     },
     15000
   );
+
+  it(
+    "reads the configured inbox size instead of truncating to ten",
+    async () => {
+      const { getInboxItems } = await serviceModulePromise;
+
+      await withTestDatabase(async (client) => {
+        await client.user.create({
+          data: {
+            id: "user-2",
+            email: "user-2@example.com",
+            name: "User Two"
+          }
+        });
+
+        await client.researchProfile.create({
+          data: {
+            userId: "user-2",
+            interestsJson: encodeJsonField(["LLM evaluation"]),
+            constraintsJson: encodeJsonField(["Keep it concrete"]),
+            preferredOutputsJson: encodeJsonField(["benchmark"]),
+            rankingWeightsJson: encodeJsonField({
+              paperQuality: 0.35,
+              projectOpportunity: 0.4,
+              dispatchLikelihood: 0.25
+            }),
+            arxivQuery: "all:llm",
+            maxDailyPapers: 12
+          }
+        });
+
+        for (let index = 0; index < 12; index += 1) {
+          const paper = await client.paper.create({
+            data: {
+              arxivId: `bulk-paper-${index}`,
+              title: `Bulk Paper ${index}`,
+              abstract: `Abstract ${index}`,
+              url: `https://arxiv.org/abs/bulk-paper-${index}`,
+              publishedAt: new Date("2026-06-01T00:00:00.000Z"),
+              arxivUpdatedAt: new Date("2026-06-01T00:00:00.000Z"),
+              authorsJson: encodeJsonField([`Author ${index}`]),
+              categoriesJson: encodeJsonField(["cs.AI"])
+            }
+          });
+
+          const idea = await client.idea.create({
+            data: {
+              paperId: paper.id,
+              title: `Idea ${index}`,
+              summary: `Summary ${index}`,
+              rationale: `Rationale ${index}`,
+              approach: `Approach ${index}`,
+              risksJson: encodeJsonField([`Risk ${index}`]),
+              nextStepsJson: encodeJsonField([`Step ${index}`]),
+              tagsJson: encodeJsonField([`tag-${index}`]),
+              generatedBy: "test"
+            }
+          });
+
+          await client.inboxItem.create({
+            data: {
+              userId: "user-2",
+              paperId: paper.id,
+              bestIdeaId: idea.id,
+              inboxDate: "2026-06-23",
+              overallScore: 1 - index * 0.01,
+              paperQuality: 1 - index * 0.01,
+              projectOpportunity: 1 - index * 0.01,
+              dispatchLikelihood: 1 - index * 0.01,
+              reasoningJson: encodeJsonField({
+                whyPaperMatters: "matters",
+                whyIdeaPromising: "promising",
+                whyItMightBeTrap: "trap",
+                smallestSprint: "sprint",
+                suggestedDepth: "fast",
+                suggestedAutonomy: "low"
+              })
+            }
+          });
+        }
+
+        const items = await getInboxItems("user-2", "2026-06-23");
+
+        expect(items).toHaveLength(12);
+        expect(items.map((item) => item.paper.arxivId)).toEqual([
+          "bulk-paper-0",
+          "bulk-paper-1",
+          "bulk-paper-2",
+          "bulk-paper-3",
+          "bulk-paper-4",
+          "bulk-paper-5",
+          "bulk-paper-6",
+          "bulk-paper-7",
+          "bulk-paper-8",
+          "bulk-paper-9",
+          "bulk-paper-10",
+          "bulk-paper-11"
+        ]);
+      });
+    },
+    15000
+  );
 });
 
 function buildPaperInput(arxivId: string, title: string, updatedAt: string) {

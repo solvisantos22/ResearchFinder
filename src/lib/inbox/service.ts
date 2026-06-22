@@ -219,13 +219,18 @@ export async function buildDailyInboxForUser(userId: string, inboxDate: string) 
 }
 
 export async function getInboxItems(userId: string, inboxDate: string) {
+  const profile = await prisma.researchProfile.findUnique({
+    where: { userId },
+    select: { maxDailyPapers: true }
+  });
+
   return prisma.inboxItem.findMany({
     where: {
       userId,
       inboxDate
     },
     orderBy: [{ overallScore: "desc" }],
-    take: 10,
+    take: profile?.maxDailyPapers ?? 10,
     include: {
       paper: true,
       bestIdea: true
