@@ -264,6 +264,59 @@ describe("seed", () => {
     });
   });
 
+  it("rejects split rows for the same canonical id and email", async () => {
+    await withTestDatabase(async (client) => {
+      await client.user.createMany({
+        data: [
+          {
+            id: "demo-solvi",
+            email: "drifted@example.com",
+            name: "Drifted Solvi"
+          },
+          {
+            id: "other-solvi",
+            email: "solvi@example.com",
+            name: "Other Solvi"
+          }
+        ]
+      });
+
+      await expect(seed(client)).rejects.toThrow(
+        /canonical id demo-solvi and email belong to different users/
+      );
+
+      const [users, profiles] = await Promise.all([
+        client.user.findMany({
+          where: {
+            id: { in: ["demo-solvi", "other-solvi"] }
+          },
+          orderBy: { id: "asc" },
+          select: { id: true, email: true, name: true }
+        }),
+        client.researchProfile.findMany({
+          where: {
+            userId: { in: ["demo-solvi", "other-solvi"] }
+          },
+          select: { userId: true }
+        })
+      ]);
+
+      expect(users).toEqual([
+        {
+          id: "demo-solvi",
+          email: "drifted@example.com",
+          name: "Drifted Solvi"
+        },
+        {
+          id: "other-solvi",
+          email: "solvi@example.com",
+          name: "Other Solvi"
+        }
+      ]);
+      expect(profiles).toEqual([]);
+    });
+  });
+
   it("rolls back all seed writes when one user fails", async () => {
     await withTestDatabase(async (client) => {
       await expect(
