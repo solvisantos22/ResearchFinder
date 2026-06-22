@@ -3,12 +3,11 @@ import { prisma } from "@/lib/db";
 import { defaultRankingWeights } from "@/lib/domain";
 import { buildProfileSeedData, encodeJsonField, parseJsonField, seed } from "@/lib/seed";
 
-const solviInterests = [
-  "LLM evaluation",
-  "multi-agent systems",
-  "benchmark design",
-  "agentic research workflows",
-  "reasoning under constraints"
+const canonicalInterests = [
+  "mechanistic interpretability",
+  "reasoning evals",
+  "agent evaluation",
+  "AI safety"
 ];
 
 const profileSelect = {
@@ -35,8 +34,7 @@ describe("profile JSON helpers", () => {
   });
 
   it("builds the full profile seed payload", () => {
-    const interests = ["LLM evaluation", "agent workflows"];
-    const profile = buildProfileSeedData(interests);
+    const profile = buildProfileSeedData();
 
     expect(Object.keys(profile).sort()).toEqual(
       [
@@ -48,22 +46,17 @@ describe("profile JSON helpers", () => {
         "rankingWeightsJson"
       ].sort()
     );
-    expect(parseJsonField<string[]>(profile.interestsJson)).toEqual(interests);
+    expect(parseJsonField<string[]>(profile.interestsJson)).toEqual(canonicalInterests);
     expect(parseJsonField<string[]>(profile.constraintsJson)).toEqual([
-      "Prefer credible prototypes in 1-3 weeks",
-      "Prefer projects that can become papers after experiments",
-      "Avoid frontier-scale model training"
+      "one-week prototype",
+      "open-source models preferred"
     ]);
     expect(parseJsonField<string[]>(profile.preferredOutputsJson)).toEqual([
-      "benchmark",
-      "evaluation harness",
-      "open-source tool",
-      "paper with reproducible experiments"
+      "prototype",
+      "paper draft"
     ]);
     expect(parseJsonField(profile.rankingWeightsJson)).toEqual(defaultRankingWeights);
-    expect(profile.arxivQuery).toBe(
-      "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)"
-    );
+    expect(profile.arxivQuery).toBe("cat:cs.AI OR cat:cs.CL OR cat:cs.LG");
     expect(profile.maxDailyPapers).toBe(10);
   });
 });
@@ -91,9 +84,13 @@ describe("seed", () => {
 
       await seed();
 
-      const [profile, collaborator] = await Promise.all([
+      const [solviProfile, collaboratorProfile, collaborator] = await Promise.all([
         prisma.researchProfile.findUniqueOrThrow({
           where: { userId: "demo-solvi" },
+          select: profileSelect
+        }),
+        prisma.researchProfile.findUniqueOrThrow({
+          where: { userId: "demo-collaborator" },
           select: profileSelect
         }),
         prisma.user.findUniqueOrThrow({
@@ -102,7 +99,8 @@ describe("seed", () => {
         })
       ]);
 
-      expect(profile).toEqual(buildProfileSeedData(solviInterests));
+      expect(solviProfile).toEqual(buildProfileSeedData());
+      expect(collaboratorProfile).toEqual(buildProfileSeedData());
       expect(collaborator.email).toBe("colleague@example.com");
     } finally {
       await seed();

@@ -20,23 +20,26 @@ type ProfileSeedData = {
   maxDailyPapers: number;
 };
 
-export function buildProfileSeedData(interests: string[]): ProfileSeedData {
+const canonicalInterests = [
+  "mechanistic interpretability",
+  "reasoning evals",
+  "agent evaluation",
+  "AI safety"
+];
+
+export function buildProfileSeedData(): ProfileSeedData {
   return {
-    interestsJson: encodeJsonField(interests),
+    interestsJson: encodeJsonField(canonicalInterests),
     constraintsJson: encodeJsonField([
-      "Prefer credible prototypes in 1-3 weeks",
-      "Prefer projects that can become papers after experiments",
-      "Avoid frontier-scale model training"
+      "one-week prototype",
+      "open-source models preferred"
     ]),
     preferredOutputsJson: encodeJsonField([
-      "benchmark",
-      "evaluation harness",
-      "open-source tool",
-      "paper with reproducible experiments"
+      "prototype",
+      "paper draft"
     ]),
     rankingWeightsJson: encodeJsonField(defaultRankingWeights),
-    arxivQuery:
-      "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)",
+    arxivQuery: "cat:cs.AI OR cat:cs.CL OR cat:cs.LG",
     maxDailyPapers: 10
   };
 }
@@ -46,30 +49,17 @@ export async function seed() {
     {
       id: "demo-solvi",
       email: "solvi@example.com",
-      name: "Solvi",
-      interests: [
-        "LLM evaluation",
-        "multi-agent systems",
-        "benchmark design",
-        "agentic research workflows",
-        "reasoning under constraints"
-      ]
+      name: "Solvi"
     },
     {
       id: "demo-collaborator",
       email: "colleague@example.com",
-      name: "Research Collaborator",
-      interests: [
-        "automated research agents",
-        "scientific discovery systems",
-        "evaluation harnesses",
-        "paper reproduction"
-      ]
+      name: "Research Collaborator"
     }
   ];
 
   for (const user of users) {
-    const profileData = buildProfileSeedData(user.interests);
+    const profileData = buildProfileSeedData();
 
     await prisma.user.upsert({
       where: { id: user.id },
