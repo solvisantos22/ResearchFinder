@@ -74,6 +74,23 @@ describe("parseArxivAtom", () => {
     });
   });
 
+  it("preserves legacy arxiv identifiers with embedded slashes", () => {
+    const papers = parseArxivAtom(`<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/hep-th/9901001v1</id>
+    <updated>2026-06-21T12:00:00Z</updated>
+    <published>2026-06-21T12:00:00Z</published>
+    <title>Legacy identifier</title>
+    <summary>Legacy abstract</summary>
+    <author><name>Example Author</name></author>
+    <category term="hep-th"/>
+  </entry>
+</feed>`);
+
+    expect(papers[0]?.arxivId).toBe("hep-th/9901001v1");
+  });
+
   it("throws for a missing required field", () => {
     expect(() =>
       parseArxivAtom(`<?xml version="1.0" encoding="UTF-8"?>

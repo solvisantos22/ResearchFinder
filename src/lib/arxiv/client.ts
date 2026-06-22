@@ -52,7 +52,7 @@ export function parseArxivAtom(xml: string): ArxivPaperInput[] {
 
   return entries.map((entry, index) => {
     const url = readRequiredText(entry.id, index, "missing id");
-    const arxivId = url.split("/").at(-1)?.trim() ?? "";
+    const arxivId = extractArxivId(url);
 
     if (!arxivId) {
       throw new Error(`Invalid arXiv entry at index ${index}: missing arxivId`);
@@ -97,6 +97,16 @@ export async function fetchArxivPapers(query: string, maxResults: number): Promi
 
 function cleanWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function extractArxivId(url: string): string {
+  const absPrefix = "/abs/";
+  const absIndex = url.indexOf(absPrefix);
+  if (absIndex >= 0) {
+    return url.slice(absIndex + absPrefix.length).trim();
+  }
+
+  return url.split("/").at(-1)?.trim() ?? "";
 }
 
 function readRequiredText(value: unknown, index: number, message: string): string {
