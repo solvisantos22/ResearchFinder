@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { defaultRankingWeights } from "@/lib/domain";
@@ -18,6 +20,11 @@ type ProfileSeedData = {
   rankingWeightsJson: string;
   arxivQuery: string;
   maxDailyPapers: number;
+};
+
+type SeedUser = {
+  email: string;
+  name: string;
 };
 
 const canonicalInterests = [
@@ -44,45 +51,46 @@ export function buildProfileSeedData(): ProfileSeedData {
   };
 }
 
-export async function seed() {
-  const users = [
+export async function seed(client: PrismaClient = prisma) {
+  const users: SeedUser[] = [
     {
-      id: "demo-solvi",
       email: "solvi@example.com",
       name: "Solvi"
     },
     {
-      id: "demo-collaborator",
       email: "colleague@example.com",
       name: "Research Collaborator"
     }
   ];
 
-  for (const user of users) {
-    const profileData = buildProfileSeedData();
+  await client.$transaction(async (tx) => {
+    for (const user of users) {
+      await seedUser(tx, user);
+    }
+  });
+}
 
-    await prisma.user.upsert({
-      where: { id: user.id },
-      update: {
-        email: user.email,
-        name: user.name
-      },
-      create: {
-        id: user.id,
-        email: user.email,
-        name: user.name
-      }
-    });
+async function seedUser(tx: Prisma.TransactionClient, user: SeedUser) {
+  const seededUser = await tx.user.upsert({
+    where: { email: user.email },
+    update: { name: user.name },
+    create: {
+      id: randomUUID(),
+      email: user.email,
+      name: user.name
+    },
+    select: { id: true }
+  });
+  const profileData = buildProfileSeedData();
 
-    await prisma.researchProfile.upsert({
-      where: { userId: user.id },
-      update: profileData,
-      create: {
-        userId: user.id,
-        ...profileData
-      }
-    });
-  }
+  await tx.researchProfile.upsert({
+    where: { userId: seededUser.id },
+    update: profileData,
+    create: {
+      userId: seededUser.id,
+      ...profileData
+    }
+  });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
