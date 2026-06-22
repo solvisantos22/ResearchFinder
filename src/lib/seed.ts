@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
@@ -23,6 +22,7 @@ type ProfileSeedData = {
 };
 
 type SeedUser = {
+  id: string;
   email: string;
   name: string;
 };
@@ -51,18 +51,23 @@ export function buildProfileSeedData(): ProfileSeedData {
   };
 }
 
-export async function seed(client: PrismaClient = prisma) {
-  const users: SeedUser[] = [
-    {
-      email: "solvi@example.com",
-      name: "Solvi"
-    },
-    {
-      email: "colleague@example.com",
-      name: "Research Collaborator"
-    }
-  ];
+const defaultSeedUsers: SeedUser[] = [
+  {
+    id: "demo-solvi",
+    email: "solvi@example.com",
+    name: "Solvi"
+  },
+  {
+    id: "demo-colleague",
+    email: "colleague@example.com",
+    name: "Research Collaborator"
+  }
+];
 
+export async function seed(
+  client: PrismaClient = prisma,
+  users: SeedUser[] = defaultSeedUsers
+) {
   await client.$transaction(async (tx) => {
     for (const user of users) {
       await seedUser(tx, user);
@@ -73,9 +78,12 @@ export async function seed(client: PrismaClient = prisma) {
 async function seedUser(tx: Prisma.TransactionClient, user: SeedUser) {
   const seededUser = await tx.user.upsert({
     where: { email: user.email },
-    update: { name: user.name },
+    update: {
+      id: user.id,
+      name: user.name
+    },
     create: {
-      id: randomUUID(),
+      id: user.id,
       email: user.email,
       name: user.name
     },

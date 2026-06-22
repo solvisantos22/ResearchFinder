@@ -105,11 +105,11 @@ describe("seed", () => {
 
       const [solvi, collaborator] = await Promise.all([
         client.user.findUniqueOrThrow({
-          where: { email: "solvi@example.com" },
+          where: { id: "demo-solvi" },
           select: { id: true, email: true }
         }),
         client.user.findUniqueOrThrow({
-          where: { email: "colleague@example.com" },
+          where: { id: "demo-colleague" },
           select: { id: true, email: true }
         })
       ]);
@@ -145,6 +145,7 @@ describe("seed", () => {
 
       expect(solviProfile).toEqual(buildProfileSeedData());
       expect(collaboratorProfile).toEqual(buildProfileSeedData());
+      expect(solvi.email).toBe("solvi@example.com");
       expect(collaborator.email).toBe("colleague@example.com");
     });
   });
@@ -158,27 +159,74 @@ describe("seed", () => {
           name: "Existing Solvi"
         }
       });
+      await client.researchProfile.create({
+        data: {
+          userId: "existing-solvi",
+          interestsJson: encodeJsonField(["stale interest"]),
+          constraintsJson: encodeJsonField(["stale constraint"]),
+          preferredOutputsJson: encodeJsonField(["stale output"]),
+          rankingWeightsJson: encodeJsonField({
+            paperQuality: 1,
+            projectOpportunity: 0,
+            dispatchLikelihood: 0
+          }),
+          arxivQuery: "stale query",
+          maxDailyPapers: 1
+        }
+      });
 
       await seed(client);
 
-      const [existingUser, canonicalIdUser, profile] = await Promise.all([
+      const [canonicalUser, staleIdUser, canonicalProfile, staleProfile] = await Promise.all([
         client.user.findUniqueOrThrow({
           where: { email: "solvi@example.com" },
           select: { id: true, name: true }
         }),
         client.user.findUnique({
-          where: { id: "demo-solvi" },
+          where: { id: "existing-solvi" },
           select: { id: true }
         }),
         client.researchProfile.findUniqueOrThrow({
-          where: { userId: "existing-solvi" },
+          where: { userId: "demo-solvi" },
           select: profileSelect
+        }),
+        client.researchProfile.findUnique({
+          where: { userId: "existing-solvi" },
+          select: { userId: true }
         })
       ]);
 
-      expect(existingUser).toEqual({ id: "existing-solvi", name: "Solvi" });
-      expect(canonicalIdUser).toBeNull();
-      expect(profile).toEqual(buildProfileSeedData());
+      expect(canonicalUser).toEqual({ id: "demo-solvi", name: "Solvi" });
+      expect(staleIdUser).toBeNull();
+      expect(canonicalProfile).toEqual(buildProfileSeedData());
+      expect(staleProfile).toBeNull();
+    });
+  });
+
+  it("rolls back all seed writes when one user fails", async () => {
+    await withTestDatabase(async (client) => {
+      await expect(
+        seed(client, [
+          {
+            id: "demo-solvi",
+            email: "solvi@example.com",
+            name: "Solvi"
+          },
+          {
+            id: "demo-solvi",
+            email: "colleague@example.com",
+            name: "Conflicting Colleague"
+          }
+        ])
+      ).rejects.toThrow();
+
+      const [users, profiles] = await Promise.all([
+        client.user.findMany(),
+        client.researchProfile.findMany()
+      ]);
+
+      expect(users).toEqual([]);
+      expect(profiles).toEqual([]);
     });
   });
 });
