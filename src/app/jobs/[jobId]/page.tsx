@@ -1,4 +1,5 @@
 import React from "react";
+import type { Route } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -95,8 +96,10 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
     notFound();
   }
 
-  const decisionArtifact = job.artifacts[0];
+  const decisionArtifact =
+    job.artifacts.find((artifact) => artifact.kind === "decision-report") ?? job.artifacts[0];
   const signalPanels = deriveSignalPanels(decisionArtifact?.content ?? "");
+  const inboxHref = `/inbox/${job.userId}` as Route;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
@@ -104,8 +107,10 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
         <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
           Viability decision
         </p>
-        <h1 className="text-3xl font-semibold text-slate-900">{job.idea.title}</h1>
-        <p className="mt-2 text-slate-600">Status: {job.status}</p>
+        <h1 className="break-words text-3xl font-semibold text-slate-900 [overflow-wrap:anywhere]">
+          {job.idea.title}
+        </h1>
+        <p className="mt-2 break-words text-slate-600">Status: {job.status}</p>
       </header>
 
       {job.status !== "completed" ? (
@@ -119,8 +124,10 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
       ) : (
         <div className="grid gap-6">
           <section className="rounded-lg border border-slate-200 bg-white p-6">
-            <h2 className="text-xl font-semibold text-slate-900">Verdict: {job.verdict}</h2>
-            <p className="mt-2 text-slate-600">
+            <h2 className="break-words text-xl font-semibold text-slate-900">
+              Verdict: {job.verdict}
+            </h2>
+            <p className="mt-2 break-words text-slate-600">
               Review the generated evidence before expanding this idea into a full agent team.
             </p>
           </section>
@@ -143,10 +150,12 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
               {job.artifacts.map((artifact) => (
                 <article
                   key={artifact.id}
-                  className="rounded-lg border border-slate-200 bg-white p-5"
+                  className="min-w-0 rounded-lg border border-slate-200 bg-white p-5"
                 >
-                  <h3 className="font-semibold text-slate-900">{artifact.title}</h3>
-                  <pre className="mt-3 whitespace-pre-wrap rounded-md bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+                  <h3 className="break-words font-semibold text-slate-900 [overflow-wrap:anywhere]">
+                    {artifact.title}
+                  </h3>
+                  <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-4 text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">
                     {artifact.content}
                   </pre>
                 </article>
@@ -158,16 +167,25 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
             <h2 className="text-xl font-semibold text-slate-900">Generated evidence</h2>
             <div className="mt-3 grid gap-4">
               {job.evidence.map((item) => (
-                <article key={item.id} className="rounded-lg border border-slate-200 bg-white p-5">
-                  <h3 className="font-semibold text-slate-900">{item.sourceTitle}</h3>
-                  <p className="mt-2 text-sm text-slate-700">{item.claim}</p>
-                  <p className="mt-2 text-sm text-slate-600">{item.support}</p>
+                <article
+                  key={item.id}
+                  className="min-w-0 rounded-lg border border-slate-200 bg-white p-5"
+                >
+                  <h3 className="break-words font-semibold text-slate-900 [overflow-wrap:anywhere]">
+                    {item.sourceTitle}
+                  </h3>
+                  <p className="mt-2 break-words text-sm text-slate-700 [overflow-wrap:anywhere]">
+                    {item.claim}
+                  </p>
+                  <p className="mt-2 break-words text-sm text-slate-600 [overflow-wrap:anywhere]">
+                    {item.support}
+                  </p>
                   <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">
                     Confidence {item.confidence.toFixed(2)}
                   </p>
                   {item.sourceUrl ? (
                     <a
-                      className="mt-3 inline-flex text-sm font-medium text-slate-700 underline"
+                      className="mt-3 inline-flex break-words text-sm font-medium text-slate-700 underline [overflow-wrap:anywhere]"
                       href={item.sourceUrl}
                       rel="noreferrer"
                       target="_blank"
@@ -195,14 +213,14 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
                 )
               )}
             </div>
-            <p className="mt-3 text-sm text-slate-600">
+            <p className="mt-3 break-words text-sm text-slate-600">
               These actions are display-only in this milestone except viewing generated evidence.
             </p>
           </section>
         </div>
       )}
 
-      <Link className="mt-8 inline-flex text-sm font-medium text-slate-700 underline" href="/inbox/demo-solvi">
+      <Link className="mt-8 inline-flex text-sm font-medium text-slate-700 underline" href={inboxHref}>
         Back to inbox
       </Link>
     </div>
