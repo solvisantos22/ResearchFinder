@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createInboxReasoning } from "@/lib/inbox/service";
+import { buildProfiledUserQuery } from "../scripts/ingest-daily";
 
 describe("createInboxReasoning", () => {
   it("explains why a paper is ranked and what dispatch should test", () => {
@@ -17,5 +18,14 @@ describe("createInboxReasoning", () => {
 
     expect(reasoning.whyPaperMatters).toContain("strong paper quality");
     expect(reasoning.smallestSprint).toContain("focused evaluation extension");
+  });
+});
+
+describe("buildProfiledUserQuery", () => {
+  it("only targets users that still have a research profile", () => {
+    expect(buildProfiledUserQuery()).toEqual({
+      where: { profile: { isNot: null } },
+      select: { id: true }
+    });
   });
 });
