@@ -21,15 +21,27 @@ describe("worker installer", () => {
     expect(installerScript).toContain("$env:RESEARCHFINDER_CODEX_COMMAND = $codexLiteral");
   });
 
+  it("normalizes PowerShell codex shims to Node-runnable cmd shims", () => {
+    expect(installerScript).toContain("function Resolve-CodexCommandForNode([string]$ResolvedCodex)");
+    expect(installerScript).toContain('".ps1"');
+    expect(installerScript).toContain('[System.IO.Path]::ChangeExtension($ResolvedCodex, ".cmd")');
+    expect(installerScript).toContain("Test-Path -LiteralPath $cmdPath");
+    expect(installerScript).toContain("sibling .cmd shim was not found");
+    expect(installerScript).toContain("$codex = Resolve-CodexCommandForNode $resolvedCodex");
+  });
+
   it("resolves codex before writing it to the worker config", () => {
-    const codexResolutionIndex = installerScript.indexOf("$codex = (Get-Command codex -ErrorAction Stop).Source");
+    const codexResolutionIndex = installerScript.indexOf("$resolvedCodex = (Get-Command codex -ErrorAction Stop).Source");
+    const codexNormalizationIndex = installerScript.indexOf("$codex = Resolve-CodexCommandForNode $resolvedCodex");
     const configCodexIndex = installerScript.indexOf("codexCommand = $codex");
     const configWriteIndex = installerScript.indexOf("[System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)");
 
     expect(codexResolutionIndex).toBeGreaterThanOrEqual(0);
+    expect(codexNormalizationIndex).toBeGreaterThanOrEqual(0);
     expect(configCodexIndex).toBeGreaterThanOrEqual(0);
     expect(configWriteIndex).toBeGreaterThanOrEqual(0);
-    expect(codexResolutionIndex).toBeLessThan(configCodexIndex);
+    expect(codexResolutionIndex).toBeLessThan(codexNormalizationIndex);
+    expect(codexNormalizationIndex).toBeLessThan(configCodexIndex);
     expect(configCodexIndex).toBeLessThan(configWriteIndex);
   });
 

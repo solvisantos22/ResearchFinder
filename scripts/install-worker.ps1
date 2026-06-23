@@ -10,8 +10,22 @@ function ConvertTo-PowerShellLiteral([string]$Value) {
   return "'" + $Value.Replace("'", "''") + "'"
 }
 
+function Resolve-CodexCommandForNode([string]$ResolvedCodex) {
+  if ([System.IO.Path]::GetExtension($ResolvedCodex).Equals(".ps1", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $cmdPath = [System.IO.Path]::ChangeExtension($ResolvedCodex, ".cmd")
+    if (Test-Path -LiteralPath $cmdPath) {
+      return $cmdPath
+    }
+
+    throw "Codex resolved to PowerShell shim at $ResolvedCodex, but sibling .cmd shim was not found at $cmdPath. Reinstall Codex or ensure npm cmd shims are available."
+  }
+
+  return $ResolvedCodex
+}
+
 $node = (Get-Command node -ErrorAction Stop).Source
-$codex = (Get-Command codex -ErrorAction Stop).Source
+$resolvedCodex = (Get-Command codex -ErrorAction Stop).Source
+$codex = Resolve-CodexCommandForNode $resolvedCodex
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 
 $configPath = Join-Path $InstallDir ".worker.json"
