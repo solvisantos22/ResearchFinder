@@ -99,40 +99,41 @@ export async function completeV2ViabilityJob(input: {
     throw new Error("Viability output does not match completed job id");
   }
 
-  const job = await prisma.viabilityJob.findFirstOrThrow({
-    where: {
-      id: input.jobId,
-      claimedByWorkerId: input.workerId,
-      status: "running"
-    }
-  });
+  await prisma.$transaction(async (tx) => {
+    const completion = await tx.viabilityJob.updateMany({
+      where: {
+        id: input.jobId,
+        claimedByWorkerId: input.workerId,
+        status: "running"
+      },
+      data: {
+        status: "completed",
+        verdict: parsed.verdict,
+        completedAt: new Date()
+      }
+    });
 
-  await prisma.$transaction([
-    prisma.evidence.createMany({
+    if (completion.count !== 1) {
+      throw new Error("Viability job is no longer running");
+    }
+
+    await tx.evidence.createMany({
       data: parsed.citations.map((citation) => ({
-        jobId: job.id,
+        jobId: input.jobId,
         sourceTitle: citation.title,
         sourceUrl: citation.url,
         claim: citation.claim,
         support: parsed.summary,
         confidence: citation.confidence
       }))
-    }),
-    prisma.artifact.create({
+    });
+    await tx.artifact.create({
       data: {
-        jobId: job.id,
+        jobId: input.jobId,
         kind: "viability-report",
         title: `Viability result: ${parsed.verdict}`,
         content: JSON.stringify(parsed, null, 2)
       }
-    }),
-    prisma.viabilityJob.update({
-      where: { id: job.id },
-      data: {
-        status: "completed",
-        verdict: parsed.verdict,
-        completedAt: new Date()
-      }
-    })
-  ]);
+    });
+  });
 }

@@ -56,7 +56,9 @@ vi.mock("@/lib/jobs/worker-auth", () => ({
 const servicePromise = import("@/lib/jobs/viability");
 
 afterEach(() => {
-  vi.clearAllMocks();
+  for (const mock of Object.values(mocked)) {
+    mock.mockReset();
+  }
 });
 
 function createViabilityOutput(overrides: Record<string, unknown> = {}) {
@@ -79,6 +81,20 @@ function createViabilityOutput(overrides: Record<string, unknown> = {}) {
       }
     ],
     ...overrides
+  };
+}
+
+function createCompletionTransaction(updateCount: number) {
+  return {
+    artifact: {
+      create: vi.fn().mockResolvedValue({})
+    },
+    evidence: {
+      createMany: vi.fn().mockResolvedValue({})
+    },
+    viabilityJob: {
+      updateMany: vi.fn().mockResolvedValue({ count: updateCount })
+    }
   };
 }
 
@@ -143,15 +159,10 @@ describe("completeV2ViabilityJob", () => {
   });
 
   it("persists allowed verdicts, report artifact, and citations as Evidence rows", async () => {
-    mocked.viabilityFindFirstOrThrow.mockResolvedValue({
-      id: "viability-job-1",
-      status: "running",
-      claimedByWorkerId: "worker-1"
-    });
-    mocked.evidenceCreateMany.mockReturnValue({ operation: "create-evidence" });
-    mocked.artifactCreate.mockReturnValue({ operation: "create-artifact" });
-    mocked.viabilityUpdate.mockReturnValue({ operation: "update-job" });
-    mocked.transaction.mockResolvedValue([]);
+    const tx = createCompletionTransaction(1);
+    mocked.transaction.mockImplementation(
+      async (run: (transactionClient: typeof tx) => Promise<unknown>) => run(tx)
+    );
 
     const { completeV2ViabilityJob } = await servicePromise;
 
@@ -163,14 +174,19 @@ describe("completeV2ViabilityJob", () => {
       });
     }
 
-    expect(mocked.viabilityFindFirstOrThrow).toHaveBeenCalledWith({
+    expect(tx.viabilityJob.updateMany).toHaveBeenCalledWith({
       where: {
         id: "viability-job-1",
         claimedByWorkerId: "worker-1",
         status: "running"
+      },
+      data: {
+        status: "completed",
+        verdict: "expand",
+        completedAt: expect.any(Date)
       }
     });
-    expect(mocked.evidenceCreateMany).toHaveBeenCalledWith({
+    expect(tx.evidence.createMany).toHaveBeenCalledWith({
       data: [
         {
           jobId: "viability-job-1",
@@ -182,7 +198,7 @@ describe("completeV2ViabilityJob", () => {
         }
       ]
     });
-    expect(mocked.artifactCreate).toHaveBeenCalledWith({
+    expect(tx.artifact.create).toHaveBeenCalledWith({
       data: {
         jobId: "viability-job-1",
         kind: "viability-report",
@@ -190,21 +206,16 @@ describe("completeV2ViabilityJob", () => {
         content: expect.any(String)
       }
     });
-    expect(JSON.parse(mocked.artifactCreate.mock.calls[0]?.[0].data.content)).toEqual(
+    expect(JSON.parse(tx.artifact.create.mock.calls[0]?.[0].data.content)).toEqual(
       createViabilityOutput({ verdict: "expand" })
     );
-    expect(mocked.viabilityUpdate).toHaveBeenCalledWith({
-      where: { id: "viability-job-1" },
-      data: {
-        status: "completed",
-        verdict: "expand",
-        completedAt: expect.any(Date)
-      }
-    });
   });
 
   it("requires the completing worker to be the worker that claimed the job", async () => {
-    mocked.viabilityFindFirstOrThrow.mockRejectedValue(new Error("No ViabilityJob found"));
+    const tx = createCompletionTransaction(0);
+    mocked.transaction.mockImplementation(
+      async (run: (transactionClient: typeof tx) => Promise<unknown>) => run(tx)
+    );
 
     const { completeV2ViabilityJob } = await servicePromise;
 
@@ -214,16 +225,56 @@ describe("completeV2ViabilityJob", () => {
         workerId: "worker-2",
         output: createViabilityOutput()
       })
-    ).rejects.toThrow("No ViabilityJob found");
+    ).rejects.toThrow("Viability job is no longer running");
 
-    expect(mocked.viabilityFindFirstOrThrow).toHaveBeenCalledWith({
+    expect(tx.viabilityJob.updateMany).toHaveBeenCalledWith({
       where: {
         id: "viability-job-1",
         claimedByWorkerId: "worker-2",
         status: "running"
+      },
+      data: {
+        status: "completed",
+        verdict: "expand",
+        completedAt: expect.any(Date)
       }
     });
-    expect(mocked.transaction).not.toHaveBeenCalled();
+    expect(tx.evidence.createMany).not.toHaveBeenCalled();
+    expect(tx.artifact.create).not.toHaveBeenCalled();
+  });
+
+  it("does not create evidence or artifacts when the guarded completion update is stale", async () => {
+    const tx = createCompletionTransaction(0);
+    mocked.transaction.mockImplementation(
+      async (run: (transactionClient: typeof tx) => Promise<unknown>) => run(tx)
+    );
+
+    const { completeV2ViabilityJob } = await servicePromise;
+
+    await expect(
+      completeV2ViabilityJob({
+        jobId: "viability-job-1",
+        workerId: "worker-1",
+        output: createViabilityOutput()
+      })
+    ).rejects.toThrow("Viability job is no longer running");
+
+    expect(tx.viabilityJob.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "viability-job-1",
+        claimedByWorkerId: "worker-1",
+        status: "running"
+      },
+      data: {
+        status: "completed",
+        verdict: "expand",
+        completedAt: expect.any(Date)
+      }
+    });
+    expect(tx.evidence.createMany).not.toHaveBeenCalled();
+    expect(tx.artifact.create).not.toHaveBeenCalled();
+    expect(mocked.evidenceCreateMany).not.toHaveBeenCalled();
+    expect(mocked.artifactCreate).not.toHaveBeenCalled();
   });
 });
 
