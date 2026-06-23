@@ -42,3 +42,46 @@ export async function createInboxGenerationJob(input: {
     });
   });
 }
+
+export async function claimNextInboxGenerationJob(input: { userId: string; workerId: string }) {
+  const job = await prisma.inboxGenerationJob.findFirst({
+    where: {
+      userId: input.userId,
+      status: "queued"
+    },
+    orderBy: { createdAt: "asc" }
+  });
+
+  if (!job) return null;
+
+  const claim = await prisma.inboxGenerationJob.updateMany({
+    where: {
+      id: job.id,
+      status: "queued",
+      userId: input.userId
+    },
+    data: {
+      status: "running",
+      claimedByWorkerId: input.workerId,
+      startedAt: new Date()
+    }
+  });
+
+  if (claim.count !== 1) return null;
+
+  return prisma.inboxGenerationJob.findUniqueOrThrow({
+    where: { id: job.id },
+    include: {
+      candidateBatch: {
+        include: {
+          candidates: {
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+          }
+        }
+      },
+      user: {
+        include: { profile: true }
+      }
+    }
+  });
+}
