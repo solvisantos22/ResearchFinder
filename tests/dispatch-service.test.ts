@@ -1,10 +1,7 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
+
+import { withPostgresTestDatabase } from "./helpers/postgres";
 
 const mocked = vi.hoisted(() => ({
   prisma: null as PrismaClient | null
@@ -21,45 +18,6 @@ vi.mock("@/lib/db", () => ({
 }));
 
 const serviceModulePromise = import("@/lib/dispatch/service");
-
-function toSqliteUrl(path: string): string {
-  return `file:${path.replace(/\\/g, "/")}`;
-}
-
-function pushSchema(databaseUrl: string): void {
-  const prismaCli = join(process.cwd(), "node_modules", "prisma", "build", "index.js");
-
-  execFileSync(
-    process.execPath,
-    [prismaCli, "db", "push", "--schema", "prisma/schema.prisma", "--skip-generate"],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        DATABASE_URL: databaseUrl
-      },
-      stdio: "ignore"
-    }
-  );
-}
-
-async function withTestDatabase(run: (client: PrismaClient) => Promise<void>): Promise<void> {
-  const tempDir = mkdtempSync(join(tmpdir(), "research-finder-dispatch-"));
-  const databaseUrl = toSqliteUrl(join(tempDir, "test.db"));
-  const client = new PrismaClient({
-    datasourceUrl: databaseUrl
-  });
-
-  try {
-    pushSchema(databaseUrl);
-    mocked.prisma = client;
-    await run(client);
-  } finally {
-    mocked.prisma = null;
-    await client.$disconnect();
-    rmSync(tempDir, { recursive: true, force: true });
-  }
-}
 
 describe("validateDispatchSettings", () => {
   it("accepts valid sprint depth and autonomy settings", async () => {
@@ -85,26 +43,31 @@ describe("createViabilityJob", () => {
     async () => {
       const { createViabilityJob } = await serviceModulePromise;
 
-      await withTestDatabase(async (client) => {
-        const { ideaId } = await createInboxFixture(client, {
-          userId: "user-1",
-          ideaSuffix: "available"
-        });
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        try {
+          const { ideaId } = await createInboxFixture(client, {
+            userId: "user-1",
+            ideaSuffix: "available"
+          });
 
-        const job = await createViabilityJob({
-          userId: "user-1",
-          ideaId,
-          sprintDepth: "default",
-          autonomyLevel: "medium"
-        });
+          const job = await createViabilityJob({
+            userId: "user-1",
+            ideaId,
+            sprintDepth: "default",
+            autonomyLevel: "medium"
+          });
 
-        expect(job).toMatchObject({
-          userId: "user-1",
-          ideaId,
-          sprintDepth: "default",
-          autonomyLevel: "medium",
-          status: "queued"
-        });
+          expect(job).toMatchObject({
+            userId: "user-1",
+            ideaId,
+            sprintDepth: "default",
+            autonomyLevel: "medium",
+            status: "queued"
+          });
+        } finally {
+          mocked.prisma = null;
+        }
       });
     },
     15000
@@ -115,30 +78,35 @@ describe("createViabilityJob", () => {
     async () => {
       const { createViabilityJob } = await serviceModulePromise;
 
-      await withTestDatabase(async (client) => {
-        await client.user.create({
-          data: {
-            id: "user-1",
-            email: "user-1@example.com",
-            name: "User One"
-          }
-        });
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        try {
+          await client.user.create({
+            data: {
+              id: "user-1",
+              email: "user-1@example.com",
+              name: "User One"
+            }
+          });
 
-        const { ideaId } = await createInboxFixture(client, {
-          userId: "user-2",
-          ideaSuffix: "other-user"
-        });
+          const { ideaId } = await createInboxFixture(client, {
+            userId: "user-2",
+            ideaSuffix: "other-user"
+          });
 
-        await expect(
-          createViabilityJob({
-            userId: "user-1",
-            ideaId,
-            sprintDepth: "default",
-            autonomyLevel: "medium"
-          })
-        ).rejects.toThrow("Idea is not available in this user's inbox");
+          await expect(
+            createViabilityJob({
+              userId: "user-1",
+              ideaId,
+              sprintDepth: "default",
+              autonomyLevel: "medium"
+            })
+          ).rejects.toThrow("Idea is not available in this user's inbox");
 
-        await expect(client.viabilityJob.count()).resolves.toBe(0);
+          await expect(client.viabilityJob.count()).resolves.toBe(0);
+        } finally {
+          mocked.prisma = null;
+        }
       });
     },
     15000
