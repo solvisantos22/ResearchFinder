@@ -49,7 +49,7 @@ export async function claimNextInboxGenerationJob(input: { userId: string; worke
       userId: input.userId,
       status: "queued"
     },
-    orderBy: { createdAt: "asc" }
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }]
   });
 
   if (!job) return null;

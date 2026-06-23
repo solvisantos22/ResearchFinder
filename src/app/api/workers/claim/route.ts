@@ -34,33 +34,51 @@ export async function POST(request: Request) {
     return NextResponse.json({ job: null });
   }
 
-  if (!job.user.profile) {
-    return NextResponse.json({ error: "Worker user has no research profile" }, { status: 500 });
-  }
+  let input: InboxGenerationJobInput;
 
-  const input: InboxGenerationJobInput = InboxGenerationJobInputSchema.parse({
-    jobId: job.id,
-    userId: job.userId,
-    inboxDate: job.inboxDate,
-    profile: {
-      fieldPreset: job.user.profile.fieldPresetKey,
-      keywords: parseJsonArray(job.user.profile.keywordsJson),
-      constraints: parseJsonArray(job.user.profile.constraintsJson),
-      preferredOutputs: parseJsonArray(job.user.profile.preferredOutputsJson),
-      arxivQuery: job.user.profile.arxivQuery,
-      maxIdeas: MAX_DAILY_IDEAS,
-      maxIdeasPerPaper: MAX_IDEAS_PER_PAPER
-    },
-    candidatePapers: job.candidateBatch.candidates.map((candidate) => ({
-      sourceId: candidate.arxivId,
-      title: candidate.title,
-      abstract: candidate.abstract,
-      url: candidate.url,
-      authors: parseJsonArray(candidate.authorsJson),
-      categories: parseJsonArray(candidate.categoriesJson),
-      publishedAt: candidate.publishedAt.toISOString()
-    }))
-  });
+  try {
+    if (!job.user.profile) {
+      throw new Error("Worker user has no research profile");
+    }
+
+    input = InboxGenerationJobInputSchema.parse({
+      jobId: job.id,
+      userId: job.userId,
+      inboxDate: job.inboxDate,
+      profile: {
+        fieldPreset: job.user.profile.fieldPresetKey,
+        keywords: parseJsonArray(job.user.profile.keywordsJson),
+        constraints: parseJsonArray(job.user.profile.constraintsJson),
+        preferredOutputs: parseJsonArray(job.user.profile.preferredOutputsJson),
+        arxivQuery: job.user.profile.arxivQuery,
+        maxIdeas: MAX_DAILY_IDEAS,
+        maxIdeasPerPaper: MAX_IDEAS_PER_PAPER
+      },
+      candidatePapers: job.candidateBatch.candidates.map((candidate) => ({
+        sourceId: candidate.arxivId,
+        title: candidate.title,
+        abstract: candidate.abstract,
+        url: candidate.url,
+        authors: parseJsonArray(candidate.authorsJson),
+        categories: parseJsonArray(candidate.categoriesJson),
+        publishedAt: candidate.publishedAt.toISOString()
+      }))
+    });
+  } catch (error) {
+    await prisma.inboxGenerationJob.update({
+      where: { id: job.id },
+      data: {
+        status: "failed",
+        errorMessage: formatErrorMessage(error),
+        completedAt: new Date()
+      }
+    });
+
+    return NextResponse.json(
+      { error: "Claimed job payload could not be built" },
+      { status: 500 }
+    );
+  }
 
   return NextResponse.json({
     job: {
@@ -96,4 +114,8 @@ async function findWorkerByToken(token: string) {
 function parseJsonArray(json: string) {
   const value: unknown = JSON.parse(json);
   return Array.isArray(value) ? value : [];
+}
+
+function formatErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unknown worker payload error";
 }
