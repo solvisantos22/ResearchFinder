@@ -153,6 +153,26 @@ describe("codex runner", () => {
     }
   });
 
+  runOnWindows("preserves percent sequences in Windows cmd shim arguments", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "codex percent test "));
+    const shimPath = join(tempDir, "fake codex.cmd");
+    const promptPath = join(tempDir, "prompt %USERNAME% file.md");
+
+    try {
+      writeFileSync(shimPath, ["@echo off", "echo arg5=%~5"].join("\r\n"));
+      writeFileSync(promptPath, "prompt");
+
+      const output = await runCodex(promptPath, {
+        codexCommand: shimPath,
+        platform: "win32"
+      });
+
+      expect(output.replace(/\r\n/g, "\n").trim()).toBe(`arg5=${promptPath}`);
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it("rejects with stderr when codex exits non-zero", async () => {
     const child = createMockChild();
     const output = runCodex("prompt-file.md", {

@@ -34,7 +34,7 @@ export function buildCodexExecArgs(promptFile: string) {
 }
 
 function quoteCmdPart(value: string) {
-  return `"${value.replaceAll("\"", "\"\"")}"`;
+  return `"${value.replaceAll("^", "^^").replaceAll("%", "^%").replaceAll("\"", "\"\"")}"`;
 }
 
 function wrapCmdPayload(value: string) {
