@@ -112,7 +112,7 @@ Replace `.env.example` with the hosted variables plus local defaults:
 
 ```text
 DATABASE_URL="postgresql://researchfinder:researchfinder@localhost:54329/researchfinder?schema=public"
-TEST_DATABASE_URL="postgresql://researchfinder:researchfinder@localhost:54329/researchfinder_test"
+TEST_DATABASE_URL="postgresql://researchfinder:researchfinder@localhost:54329/researchfinder?schema=test"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="replace-with-local-secret"
 GOOGLE_CLIENT_ID=""
