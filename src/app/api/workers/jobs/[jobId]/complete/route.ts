@@ -64,9 +64,10 @@ async function resolveJobType(input: {
   jobId: string;
   workerId: string;
 }): Promise<WorkerJobType | null> {
-  if (input.requestedType === "inbox_generation" || input.requestedType === "viability_check") {
-    return input.requestedType;
-  }
+  const requestedType =
+    input.requestedType === "inbox_generation" || input.requestedType === "viability_check"
+      ? input.requestedType
+      : null;
 
   const inboxJob = await prisma.inboxGenerationJob.findFirst({
     where: {
@@ -77,7 +78,9 @@ async function resolveJobType(input: {
     select: { id: true }
   });
 
-  if (inboxJob) return "inbox_generation";
+  if (inboxJob) {
+    return requestedType && requestedType !== "inbox_generation" ? null : "inbox_generation";
+  }
 
   const viabilityJob = await prisma.viabilityJob.findFirst({
     where: {
@@ -88,7 +91,8 @@ async function resolveJobType(input: {
     select: { id: true }
   });
 
-  return viabilityJob ? "viability_check" : null;
+  if (!viabilityJob) return null;
+  return requestedType && requestedType !== "viability_check" ? null : "viability_check";
 }
 
 async function findWorkerByToken(token: string) {

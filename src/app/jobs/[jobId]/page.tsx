@@ -7,6 +7,7 @@ import { SignalPanel, type SignalStatus } from "@/components/SignalPanel";
 import { canViewUserResearch } from "@/lib/auth/permissions";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
+import { ViabilityResultSchema, type ViabilityResult } from "@/lib/v2/schemas";
 
 type SignalPanelData = {
   title: string;
@@ -86,6 +87,15 @@ function deriveSignalPanels(content: string): SignalPanelData[] {
   return signalTitles.map((title) => deriveSignalPanel(content, title));
 }
 
+function parseViabilityReport(content: string): ViabilityResult | null {
+  try {
+    const parsed = ViabilityResultSchema.safeParse(JSON.parse(content));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function JobPage({ params }: { params: Promise<{ jobId: string }> }) {
   const currentUser = await requireCurrentUser();
   const { jobId } = await params;
@@ -125,11 +135,15 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
     notFound();
   }
 
-  const decisionArtifact =
-    job.artifacts.find((artifact) => artifact.kind === "decision-report") ?? job.artifacts[0];
-  const signalPanels = deriveSignalPanels(decisionArtifact?.content ?? "");
+  const v2Report =
+    job.artifacts
+      .filter((artifact) => artifact.kind === "viability-report")
+      .map((artifact) => parseViabilityReport(artifact.content))
+      .find((report): report is ViabilityResult => report !== null) ?? null;
+  const decisionArtifact = job.artifacts.find((artifact) => artifact.kind === "decision-report");
+  const signalPanels = decisionArtifact ? deriveSignalPanels(decisionArtifact.content) : [];
   const inboxHref = `/inbox/${job.userId}` as Route;
-  const verdictLabel = formatViabilityVerdict(job.verdict);
+  const verdictLabel = formatViabilityVerdict(v2Report?.verdict ?? job.verdict);
 
   return (
     <main className="min-h-screen bg-paper text-ink [color-scheme:light]">
@@ -159,14 +173,15 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
               Verdict: {verdictLabel}
             </h2>
             <p className="mt-2 break-words text-slate-600">
-              Review the generated evidence before expanding this idea into a full agent team.
+              {v2Report?.summary ??
+                "Review the generated evidence before expanding this idea into a full agent team."}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {Object.entries(verdictLabels).map(([value, label]) => (
                 <span
                   key={value}
                   className={
-                    value === job.verdict
+                    value === (v2Report?.verdict ?? job.verdict)
                       ? "rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800"
                       : "rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-600"
                   }
@@ -177,17 +192,84 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
             </div>
           </section>
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            {signalPanels.map((panel) => (
-              <SignalPanel
-                key={panel.title}
-                title={panel.title}
-                status={panel.status}
-                summary={panel.summary}
-                evidence={panel.evidence}
-              />
-            ))}
-          </div>
+          {v2Report ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-6">
+              <h2 className="text-xl font-semibold text-slate-900">Viability report</h2>
+              <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                {[
+                  ["Feasibility", v2Report.feasibility],
+                  ["Novelty risk", v2Report.noveltyRisk],
+                  ["Minimum experiment", v2Report.minimumExperiment]
+                ].map(([label, value]) => (
+                  <article key={label} className="min-w-0 rounded-lg border border-slate-200 p-4">
+                    <h3 className="break-words text-sm font-semibold uppercase tracking-wide text-slate-500">
+                      {label}
+                    </h3>
+                    <p className="mt-2 break-words text-sm leading-6 text-slate-700">{value}</p>
+                  </article>
+                ))}
+              </div>
+
+              {v2Report.blockers.length > 0 ? (
+                <div className="mt-5">
+                  <h3 className="font-semibold text-slate-900">Blockers</h3>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700">
+                    {v2Report.blockers.map((blocker) => (
+                      <li key={blocker} className="break-words">
+                        {blocker}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              <div className="mt-5">
+                <h3 className="font-semibold text-slate-900">Citations used</h3>
+                <div className="mt-2 grid gap-3">
+                  {v2Report.citations.map((citation) => (
+                    <article
+                      key={`${citation.sourceType}-${citation.title}-${citation.claim}`}
+                      className="min-w-0 rounded-lg border border-slate-200 p-4"
+                    >
+                      <h4 className="break-words text-sm font-semibold text-slate-900">
+                        {citation.title}
+                      </h4>
+                      <p className="mt-2 break-words text-sm leading-6 text-slate-700">
+                        {citation.claim}
+                      </p>
+                      <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                        Confidence {citation.confidence.toFixed(2)}
+                      </p>
+                      {citation.url ? (
+                        <a
+                          className="mt-3 inline-flex break-words text-sm font-medium text-slate-700 underline [overflow-wrap:anywhere]"
+                          href={citation.url}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          View source
+                        </a>
+                      ) : null}
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {signalPanels.length > 0 ? (
+            <div className="grid gap-4 lg:grid-cols-3">
+              {signalPanels.map((panel) => (
+                <SignalPanel
+                  key={panel.title}
+                  title={panel.title}
+                  status={panel.status}
+                  summary={panel.summary}
+                  evidence={panel.evidence}
+                />
+              ))}
+            </div>
+          ) : null}
 
           <section>
             <h2 className="text-xl font-semibold text-slate-900">Artifacts</h2>

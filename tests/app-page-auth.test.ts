@@ -185,6 +185,77 @@ describe("app page auth", () => {
     });
   });
 
+  it("renders v2 viability report fields without legacy signal panels", async () => {
+    const { default: JobPage } = await import("@/app/jobs/[jobId]/page");
+
+    mocked.requireCurrentUser.mockResolvedValue({ id: "current-user" });
+    mocked.canViewUserResearch.mockReturnValue(true);
+    mocked.prisma.viabilityJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      userId: "current-user",
+      status: "completed",
+      verdict: "needs_novelty_check",
+      idea: null,
+      generatedIdea: {
+        title: "Generated idea",
+        paper: {}
+      },
+      artifacts: [
+        {
+          id: "artifact-1",
+          kind: "viability-report",
+          title: "Viability result: needs_novelty_check",
+          content: JSON.stringify({
+            jobId: "job-1",
+            verdict: "needs_novelty_check",
+            summary: "Promising but related work is unresolved.",
+            feasibility: "A small pilot can be run.",
+            noveltyRisk: "Adjacent work exists.",
+            minimumExperiment: "Create 20 examples and compare two baselines.",
+            blockers: ["Need focused related-work search."],
+            citations: [
+              {
+                sourceType: "paper",
+                title: "Source paper",
+                url: "https://arxiv.org/abs/2606.00001",
+                sourceId: "2606.00001",
+                claim: "The source paper motivates this idea.",
+                confidence: 0.92
+              }
+            ]
+          })
+        }
+      ],
+      evidence: [
+        {
+          id: "evidence-1",
+          sourceTitle: "Source paper",
+          sourceUrl: "https://arxiv.org/abs/2606.00001",
+          claim: "The source paper motivates this idea.",
+          support: "Promising but related work is unresolved.",
+          confidence: 0.92
+        }
+      ]
+    });
+
+    render(await JobPage({ params: Promise.resolve({ jobId: "job-1" }) }));
+
+    expect(screen.getByText("Verdict: Needs novelty check")).toBeInTheDocument();
+    expect(screen.getAllByText("Promising but related work is unresolved.").length).toBeGreaterThan(
+      0
+    );
+    expect(screen.getByText("Feasibility")).toBeInTheDocument();
+    expect(screen.getByText("A small pilot can be run.")).toBeInTheDocument();
+    expect(screen.getByText("Novelty risk")).toBeInTheDocument();
+    expect(screen.getByText("Adjacent work exists.")).toBeInTheDocument();
+    expect(screen.getByText("Minimum experiment")).toBeInTheDocument();
+    expect(screen.getByText("Need focused related-work search.")).toBeInTheDocument();
+    expect(screen.getByText("Citations used")).toBeInTheDocument();
+    expect(screen.getByText("Generated evidence")).toBeInTheDocument();
+    expect(screen.queryByText("Prototype signal")).not.toBeInTheDocument();
+    expect(screen.queryByText("No signal summary was generated.")).not.toBeInTheDocument();
+  });
+
   it("renders profile data read-only for a permitted non-owner viewer", async () => {
     const { default: ProfilePage } = await import("@/app/profiles/[userId]/page");
 

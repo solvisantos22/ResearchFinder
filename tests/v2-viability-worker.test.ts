@@ -287,6 +287,8 @@ describe("worker completion route", () => {
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
     mocked.routeUpdateWorker.mockResolvedValue({});
     mocked.routeCompleteViability.mockResolvedValue({});
+    mocked.inboxFindFirst.mockResolvedValue(null);
+    mocked.viabilityFindFirst.mockResolvedValue({ id: "viability-job-1" });
 
     vi.doMock("@/lib/jobs/viability", () => ({
       claimNextViabilityJob: vi.fn(),
@@ -314,6 +316,43 @@ describe("worker completion route", () => {
       workerId: "worker-1",
       output: createViabilityOutput()
     });
+    expect(mocked.routeCompleteInbox).not.toHaveBeenCalled();
+  });
+
+  it("rejects completion when the requested job type does not match the claimed database job", async () => {
+    mocked.routeReadBearerToken.mockReturnValue("worker-token");
+    mocked.routeFindWorkers.mockResolvedValue([
+      { id: "worker-1", userId: "user-1", tokenHash: "stored-hash" }
+    ]);
+    mocked.routeVerifyWorkerToken.mockResolvedValue(true);
+    mocked.routeUpdateWorker.mockResolvedValue({});
+    mocked.inboxFindFirst.mockResolvedValue(null);
+    mocked.viabilityFindFirst.mockResolvedValue({ id: "viability-job-1" });
+
+    vi.doMock("@/lib/jobs/viability", () => ({
+      claimNextViabilityJob: vi.fn(),
+      completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),
+      createV2ViabilityJob: vi.fn()
+    }));
+    vi.resetModules();
+    const { POST } = await import("@/app/api/workers/jobs/[jobId]/complete/route");
+
+    const response = await POST(
+      new Request("https://example.com/api/workers/jobs/viability-job-1/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "inbox_generation",
+          output: createViabilityOutput()
+        })
+      }),
+      { params: Promise.resolve({ jobId: "viability-job-1" }) }
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "Worker job is not claimable by this worker"
+    });
+    expect(mocked.routeCompleteViability).not.toHaveBeenCalled();
     expect(mocked.routeCompleteInbox).not.toHaveBeenCalled();
   });
 });
