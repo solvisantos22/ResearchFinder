@@ -222,6 +222,7 @@ model CandidateBatch {
   candidates          CandidatePaper[]
   inboxGenerationJobs InboxGenerationJob[]
 
+  @@unique([userId, inboxDate, source])
   @@index([userId, inboxDate])
 }
 
@@ -262,6 +263,7 @@ model InboxGenerationJob {
   candidateBatch CandidateBatch  @relation(fields: [candidateBatchId], references: [id], onDelete: Cascade)
   generatedIdeas GeneratedIdea[]
 
+  @@unique([userId, candidateBatchId, inboxDate])
   @@index([userId, inboxDate, status])
 }
 

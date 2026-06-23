@@ -22,16 +22,24 @@ export async function POST(request: Request) {
   });
 
   const jobs = [];
+  const failedUsers = [];
   for (const user of users) {
-    const batch = await createArxivCandidateBatchForUser(user.id, inboxDate);
-    jobs.push(
-      await createInboxGenerationJob({
+    try {
+      const batch = await createArxivCandidateBatchForUser(user.id, inboxDate);
+      jobs.push(
+        await createInboxGenerationJob({
+          userId: user.id,
+          candidateBatchId: batch.id,
+          inboxDate
+        })
+      );
+    } catch (error) {
+      failedUsers.push({
         userId: user.id,
-        candidateBatchId: batch.id,
-        inboxDate
-      })
-    );
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
   }
 
-  return NextResponse.json({ createdJobs: jobs.length });
+  return NextResponse.json({ createdJobs: jobs.length, failedUsers });
 }

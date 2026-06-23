@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/db";
 
 export async function createInboxGenerationJob(input: {
@@ -5,23 +7,31 @@ export async function createInboxGenerationJob(input: {
   candidateBatchId: string;
   inboxDate: string;
 }) {
-  const existing = await prisma.inboxGenerationJob.findFirst({
-    where: {
-      userId: input.userId,
-      inboxDate: input.inboxDate,
-      candidateBatchId: input.candidateBatchId
-    }
-  });
+  try {
+    return await prisma.inboxGenerationJob.create({
+      data: {
+        userId: input.userId,
+        candidateBatchId: input.candidateBatchId,
+        inboxDate: input.inboxDate,
+        status: "queued",
+        inputJson: JSON.stringify({ candidateBatchId: input.candidateBatchId })
+      }
+    });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
 
-  if (existing) return existing;
+    return prisma.inboxGenerationJob.findUniqueOrThrow({
+      where: {
+        userId_candidateBatchId_inboxDate: {
+          userId: input.userId,
+          candidateBatchId: input.candidateBatchId,
+          inboxDate: input.inboxDate
+        }
+      }
+    });
+  }
+}
 
-  return prisma.inboxGenerationJob.create({
-    data: {
-      userId: input.userId,
-      candidateBatchId: input.candidateBatchId,
-      inboxDate: input.inboxDate,
-      status: "queued",
-      inputJson: JSON.stringify({ candidateBatchId: input.candidateBatchId })
-    }
-  });
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
