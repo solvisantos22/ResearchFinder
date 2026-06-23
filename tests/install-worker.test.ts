@@ -13,4 +13,9 @@ describe("worker installer", () => {
     expect(installerScript).toContain("-File");
     expect(installerScript).toContain("$runnerPath");
   });
+
+  it("writes the installed config as utf8 without a BOM", () => {
+    expect(installerScript).toContain("New-Object System.Text.UTF8Encoding $false");
+    expect(installerScript).toContain("[System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)");
+  });
 });

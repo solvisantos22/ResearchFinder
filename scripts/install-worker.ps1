@@ -11,10 +11,12 @@ function ConvertTo-PowerShellLiteral([string]$Value) {
 }
 
 $configPath = Join-Path $InstallDir ".worker.json"
-@{
+$configJson = @{
   appUrl = $AppUrl
   workerToken = $WorkerToken
-} | ConvertTo-Json | Set-Content -Path $configPath -Encoding UTF8
+} | ConvertTo-Json
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)
 
 $node = (Get-Command node -ErrorAction Stop).Source
 $codex = (Get-Command codex -ErrorAction Stop).Source
