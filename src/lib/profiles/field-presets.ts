@@ -1,10 +1,9 @@
-import type { ResearchProfile } from "@prisma/client";
-
 import { defaultRankingWeights } from "@/lib/domain";
 
 export const fieldPresets = {
   ai_ml: {
     label: "AI/ML",
+    categories: ["cs.AI", "cs.CL", "cs.LG"],
     defaultArxivQuery:
       "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)",
     interests: [
@@ -35,6 +34,7 @@ export const fieldPresets = {
   },
   chemistry: {
     label: "Chemistry",
+    categories: ["physics.chem-ph", "cond-mat.mtrl-sci", "q-bio.BM"],
     defaultArxivQuery:
       "(cat:physics.chem-ph OR cat:cond-mat.mtrl-sci OR cat:q-bio.BM) AND (all:catalysis OR all:synthesis OR all:materials OR all:molecule OR all:screening)",
     interests: [
@@ -66,10 +66,22 @@ export const fieldPresets = {
 
 export type FieldPresetKey = keyof typeof fieldPresets;
 
-export type PresetProfileData = Omit<
-  ResearchProfile,
-  "id" | "userId" | "createdAt" | "updatedAt"
->;
+export type PresetProfileData = {
+  fieldPresetKey: FieldPresetKey;
+  interestsJson: string;
+  keywordsJson: string;
+  constraintsJson: string;
+  preferredOutputsJson: string;
+  rankingWeightsJson: string;
+  arxivQuery: string;
+  maxDailyPapers: number;
+  normalDailyRuntimeMin: number;
+  maxDailyRuntimeMin: number;
+  maxPapersScreened: number;
+  maxPapersDeepRead: number;
+  allowPdfFetch: boolean;
+  allowRelatedWorkSearch: boolean;
+};
 
 export function buildPresetProfileData(key: FieldPresetKey): PresetProfileData {
   const preset = fieldPresets[key];

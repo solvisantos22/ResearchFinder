@@ -5,16 +5,10 @@ import {
 } from "@/lib/profiles/field-presets";
 
 export async function ensureProfileForUser(userId: string, presetKey: FieldPresetKey) {
-  const existingProfile = await prisma.researchProfile.findUnique({
-    where: { userId }
-  });
-
-  if (existingProfile) {
-    return existingProfile;
-  }
-
-  return prisma.researchProfile.create({
-    data: {
+  return prisma.researchProfile.upsert({
+    where: { userId },
+    update: {},
+    create: {
       userId,
       ...buildPresetProfileData(presetKey)
     }

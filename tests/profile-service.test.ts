@@ -20,6 +20,38 @@ vi.mock("@/lib/db", () => ({
 const servicePromise = import("@/lib/profiles/service");
 
 describe("profile service", () => {
+  it("preserves an existing profile when ensuring defaults", async () => {
+    const { ensureProfileForUser } = await servicePromise;
+    const existingProfile = {
+      id: "profile-1",
+      userId: "user-1",
+      fieldPresetKey: "ai_ml",
+      arxivQuery: "custom query",
+      interestsJson: JSON.stringify(["custom interest"]),
+      keywordsJson: JSON.stringify(["custom keyword"])
+    };
+    const prisma = {
+      researchProfile: {
+        upsert: vi.fn().mockResolvedValue(existingProfile)
+      }
+    };
+    mocked.prisma = prisma as unknown as PrismaClient;
+
+    try {
+      await expect(ensureProfileForUser("user-1", "chemistry")).resolves.toBe(existingProfile);
+      expect(prisma.researchProfile.upsert).toHaveBeenCalledWith({
+        where: { userId: "user-1" },
+        update: {},
+        create: expect.objectContaining({
+          userId: "user-1",
+          fieldPresetKey: "chemistry"
+        })
+      });
+    } finally {
+      mocked.prisma = null;
+    }
+  });
+
   it("creates a preset profile for a user", async () => {
     await withPostgresTestDatabase(async (client) => {
       mocked.prisma = client;
