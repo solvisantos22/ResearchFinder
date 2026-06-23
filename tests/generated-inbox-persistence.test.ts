@@ -260,6 +260,93 @@ describe("generated inbox persistence", () => {
   );
 
   it(
+    "rejects output papers outside the claimed candidate batch without writing generated rows",
+    async () => {
+      const { completeInboxGenerationJob } = await jobServicePromise;
+
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        const { user, job } = await createRunningInboxGenerationJob(client, {
+          candidateIndexes: [1]
+        });
+
+        await expect(
+          completeInboxGenerationJob({
+            jobId: job.id,
+            workerId: "worker-1",
+            output: createGeneratedInbox({
+              generatedForUserId: user.id,
+              inboxDate: job.inboxDate,
+              papers: [createPaperGroup(2, 1)]
+            })
+          })
+        ).rejects.toThrow("Generated inbox includes paper outside claimed candidate batch");
+
+        expect(await client.paper.count()).toBe(0);
+        expect(await client.generatedIdea.count()).toBe(0);
+        expect(await client.ideaCitation.count()).toBe(0);
+      });
+    },
+    15000
+  );
+
+  it(
+    "uses canonical candidate metadata for global Paper upserts",
+    async () => {
+      const { completeInboxGenerationJob } = await jobServicePromise;
+
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        const canonicalPublishedAt = new Date("2026-06-20T10:30:00.000Z");
+        const { user, job } = await createRunningInboxGenerationJob(client, {
+          candidates: [
+            createCandidatePaperInput(1, {
+              title: "Canonical candidate title",
+              abstract: "Canonical candidate abstract",
+              url: "https://arxiv.org/abs/2606.00001v2",
+              publishedAt: canonicalPublishedAt,
+              authors: ["Canonical Author"],
+              categories: ["cs.LG"]
+            })
+          ]
+        });
+
+        await completeInboxGenerationJob({
+          jobId: job.id,
+          workerId: "worker-1",
+          output: createGeneratedInbox({
+            generatedForUserId: user.id,
+            inboxDate: job.inboxDate,
+            papers: [
+              createPaperGroup(1, 1, {
+                title: "Worker supplied title",
+                abstract: "Worker supplied abstract",
+                url: "https://arxiv.org/abs/poisoned",
+                authors: ["Worker Author"],
+                categories: ["cs.POISON"],
+                publishedAt: "2020-01-01T00:00:00.000Z"
+              })
+            ]
+          })
+        });
+
+        const paper = await client.paper.findUniqueOrThrow({
+          where: { arxivId: "2606.00001" }
+        });
+
+        expect(paper.title).toBe("Canonical candidate title");
+        expect(paper.abstract).toBe("Canonical candidate abstract");
+        expect(paper.url).toBe("https://arxiv.org/abs/2606.00001v2");
+        expect(paper.publishedAt.toISOString()).toBe(canonicalPublishedAt.toISOString());
+        expect(paper.arxivUpdatedAt.toISOString()).toBe(canonicalPublishedAt.toISOString());
+        expect(JSON.parse(paper.authorsJson)).toEqual(["Canonical Author"]);
+        expect(JSON.parse(paper.categoriesJson)).toEqual(["cs.LG"]);
+      });
+    },
+    15000
+  );
+
+  it(
     "rejects completion for a non-running job without leaving generated ideas",
     async () => {
       const { completeInboxGenerationJob } = await jobServicePromise;
@@ -299,7 +386,10 @@ describe("generated inbox persistence", () => {
     const job = {
       id: "job-1",
       userId: "user-1",
-      inboxDate: "2026-06-23"
+      inboxDate: "2026-06-23",
+      candidateBatch: {
+        candidates: [createCandidatePaperInput(1)]
+      }
     };
     const tx = {
       inboxGenerationJob: {
@@ -349,7 +439,12 @@ describe("generated inbox persistence", () => {
 
 async function createRunningInboxGenerationJob(
   client: PrismaClient,
-  overrides: { userId?: string; inboxDate?: string } = {}
+  overrides: {
+    userId?: string;
+    inboxDate?: string;
+    candidateIndexes?: number[];
+    candidates?: ReturnType<typeof createCandidatePaperInput>[];
+  } = {}
 ) {
   const user = await client.user.create({
     data: {
@@ -366,6 +461,22 @@ async function createRunningInboxGenerationJob(
       status: "completed",
       completedAt: new Date("2026-06-23T12:00:00.000Z")
     }
+  });
+  const candidates =
+    overrides.candidates ??
+    (overrides.candidateIndexes ?? [1, 2, 3, 4]).map((index) => createCandidatePaperInput(index));
+  await client.candidatePaper.createMany({
+    data: candidates.map((candidate) => ({
+      batchId: batch.id,
+      arxivId: candidate.arxivId,
+      title: candidate.title,
+      abstract: candidate.abstract,
+      url: candidate.url,
+      publishedAt: candidate.publishedAt,
+      authorsJson: candidate.authorsJson,
+      categoriesJson: candidate.categoriesJson,
+      rawJson: candidate.rawJson
+    }))
   });
   const job = await client.inboxGenerationJob.create({
     data: {
@@ -391,7 +502,11 @@ function createGeneratedInbox(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createPaperGroup(paperIndex: number, ideas: number | ReturnType<typeof createGeneratedIdea>[]) {
+function createPaperGroup(
+  paperIndex: number,
+  ideas: number | ReturnType<typeof createGeneratedIdea>[],
+  overrides: Record<string, unknown> = {}
+) {
   const sourceId = `2606.0000${paperIndex}`;
   const generatedIdeas = Array.isArray(ideas)
     ? ideas
@@ -409,7 +524,8 @@ function createPaperGroup(paperIndex: number, ideas: number | ReturnType<typeof 
     categories: ["cs.AI"],
     publishedAt: "2026-06-23T00:00:00.000Z",
     whyPaperMatters: `Why paper ${paperIndex} matters`,
-    ideas: generatedIdeas
+    ideas: generatedIdeas,
+    ...overrides
   };
 }
 
@@ -470,5 +586,44 @@ function createScores(overall: number) {
     originality: 0.73,
     feasibility: 0.64,
     overall
+  };
+}
+
+function createCandidatePaperInput(
+  paperIndex: number,
+  overrides: {
+    title?: string;
+    abstract?: string;
+    url?: string;
+    publishedAt?: Date;
+    authors?: string[];
+    categories?: string[];
+  } = {}
+) {
+  const arxivId = `2606.0000${paperIndex}`;
+  const title = overrides.title ?? `Paper ${paperIndex}`;
+  const abstract = overrides.abstract ?? `Abstract ${paperIndex}`;
+  const url = overrides.url ?? `https://arxiv.org/abs/${arxivId}`;
+  const publishedAt = overrides.publishedAt ?? new Date("2026-06-23T00:00:00.000Z");
+  const authors = overrides.authors ?? ["A. Researcher"];
+  const categories = overrides.categories ?? ["cs.AI"];
+
+  return {
+    arxivId,
+    title,
+    abstract,
+    url,
+    publishedAt,
+    authorsJson: JSON.stringify(authors),
+    categoriesJson: JSON.stringify(categories),
+    rawJson: JSON.stringify({
+      arxivId,
+      title,
+      abstract,
+      url,
+      publishedAt: publishedAt.toISOString(),
+      authors,
+      categories
+    })
   };
 }

@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { CandidatePaper, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { GeneratedInboxSchema, type GeneratedInbox } from "@/lib/v2/schemas";
@@ -108,6 +108,13 @@ export async function completeInboxGenerationJob(input: {
         id: input.jobId,
         claimedByWorkerId: input.workerId,
         status: "running"
+      },
+      include: {
+        candidateBatch: {
+          include: {
+            candidates: true
+          }
+        }
       }
     });
 
@@ -115,7 +122,17 @@ export async function completeInboxGenerationJob(input: {
       throw new Error("Generated inbox output does not match claimed job user/date");
     }
 
-    await persistGeneratedInbox(tx, parsed, job.id);
+    const candidatesByArxivId = new Map(
+      job.candidateBatch.candidates.map((candidate) => [candidate.arxivId, candidate])
+    );
+
+    for (const paperGroup of parsed.papers) {
+      if (!candidatesByArxivId.has(paperGroup.sourceId)) {
+        throw new Error("Generated inbox includes paper outside claimed candidate batch");
+      }
+    }
+
+    await persistGeneratedInbox(tx, parsed, job.id, candidatesByArxivId);
 
     const completion = await tx.inboxGenerationJob.updateMany({
       where: {
@@ -143,7 +160,8 @@ export async function completeInboxGenerationJob(input: {
 async function persistGeneratedInbox(
   tx: Prisma.TransactionClient,
   inbox: GeneratedInbox,
-  jobId: string
+  jobId: string,
+  candidatesByArxivId: Map<string, CandidatePaper>
 ) {
   await tx.generatedIdea.deleteMany({
     where: {
@@ -153,26 +171,31 @@ async function persistGeneratedInbox(
   });
 
   for (const paperGroup of inbox.papers) {
+    const candidate = candidatesByArxivId.get(paperGroup.sourceId);
+    if (!candidate) {
+      throw new Error("Generated inbox includes paper outside claimed candidate batch");
+    }
+
     const paper = await tx.paper.upsert({
-      where: { arxivId: paperGroup.sourceId },
+      where: { arxivId: candidate.arxivId },
       update: {
-        title: paperGroup.title,
-        abstract: paperGroup.abstract,
-        url: paperGroup.url,
-        publishedAt: new Date(paperGroup.publishedAt),
-        arxivUpdatedAt: new Date(paperGroup.publishedAt),
-        authorsJson: JSON.stringify(paperGroup.authors),
-        categoriesJson: JSON.stringify(paperGroup.categories)
+        title: candidate.title,
+        abstract: candidate.abstract,
+        url: candidate.url,
+        publishedAt: candidate.publishedAt,
+        arxivUpdatedAt: candidate.publishedAt,
+        authorsJson: candidate.authorsJson,
+        categoriesJson: candidate.categoriesJson
       },
       create: {
-        arxivId: paperGroup.sourceId,
-        title: paperGroup.title,
-        abstract: paperGroup.abstract,
-        url: paperGroup.url,
-        publishedAt: new Date(paperGroup.publishedAt),
-        arxivUpdatedAt: new Date(paperGroup.publishedAt),
-        authorsJson: JSON.stringify(paperGroup.authors),
-        categoriesJson: JSON.stringify(paperGroup.categories)
+        arxivId: candidate.arxivId,
+        title: candidate.title,
+        abstract: candidate.abstract,
+        url: candidate.url,
+        publishedAt: candidate.publishedAt,
+        arxivUpdatedAt: candidate.publishedAt,
+        authorsJson: candidate.authorsJson,
+        categoriesJson: candidate.categoriesJson
       }
     });
 
