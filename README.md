@@ -39,16 +39,13 @@ Authentication is handled by Google sign-in through Auth.js. Configure
 
 ## Worker
 
-After signing in, open `/workers` to register and connect a local worker. The
-page shows a one-time PowerShell setup command for installing the connected
-worker.
+After signing in, open `/workers` to register and connect a local worker. Run
+the one-time PowerShell installer command shown on that page; it writes the
+worker config in the install directory and sets up the connected worker runner.
 
-```powershell
-npm run worker:local
-```
-
-Use `npm run worker:local` for local development, or run the installed worker
-created by the `/workers` setup flow for hosted-style processing.
+For manual local development, `npm run worker:local` requires either a
+repo-local `.worker.json` file or `RESEARCHFINDER_WORKER_CONFIG` pointing at a
+generated worker config.
 
 ## Cron and Deployment
 
