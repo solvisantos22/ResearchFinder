@@ -12,11 +12,15 @@ export async function createInboxGenerationJob(input: {
         userId: input.userId,
         inboxDate: input.inboxDate
       },
-      select: { id: true }
+      select: { completedAt: true, id: true, status: true }
     });
 
     if (!candidateBatch) {
       throw new Error("Candidate batch does not belong to this user/date");
+    }
+
+    if (candidateBatch.status !== "completed" || !candidateBatch.completedAt) {
+      throw new Error("Candidate batch is not complete");
     }
 
     return tx.inboxGenerationJob.upsert({

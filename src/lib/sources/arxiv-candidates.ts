@@ -9,6 +9,10 @@ export async function createArxivCandidateBatchForUser(userId: string, inboxDate
   const existing = await findExistingArxivBatch(userId, inboxDate);
   if (existing) return existing;
 
+  if (await findAnyExistingArxivBatch(userId, inboxDate)) {
+    throw new Error("Candidate batch for this user/date is not complete");
+  }
+
   const profile = await prisma.researchProfile.findUniqueOrThrow({ where: { userId } });
   const papers = dedupePapersByArxivId(
     await fetchArxivPapers(profile.arxivQuery, profile.maxPapersScreened)
@@ -49,7 +53,7 @@ export async function createArxivCandidateBatchForUser(userId: string, inboxDate
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
 
-    return prisma.candidateBatch.findUniqueOrThrow({
+    const racedBatch = await prisma.candidateBatch.findUniqueOrThrow({
       where: {
         userId_inboxDate_source: {
           userId,
@@ -59,6 +63,12 @@ export async function createArxivCandidateBatchForUser(userId: string, inboxDate
       },
       include: { candidates: true }
     });
+
+    if (!isCompletedBatch(racedBatch)) {
+      throw new Error("Candidate batch for this user/date is not complete");
+    }
+
+    return racedBatch;
   }
 }
 
@@ -67,6 +77,19 @@ export function parseCandidateAuthors(value: string) {
 }
 
 async function findExistingArxivBatch(userId: string, inboxDate: string) {
+  return prisma.candidateBatch.findFirst({
+    where: {
+      userId,
+      inboxDate,
+      source: "arxiv",
+      status: "completed",
+      completedAt: { not: null }
+    },
+    include: { candidates: true }
+  });
+}
+
+async function findAnyExistingArxivBatch(userId: string, inboxDate: string) {
   return prisma.candidateBatch.findUnique({
     where: {
       userId_inboxDate_source: {
@@ -75,7 +98,7 @@ async function findExistingArxivBatch(userId: string, inboxDate: string) {
         source: "arxiv"
       }
     },
-    include: { candidates: true }
+    select: { id: true }
   });
 }
 
@@ -94,4 +117,8 @@ function dedupePapersByArxivId<T extends { arxivId: string }>(papers: T[]): T[] 
 
 function isUniqueConstraintError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function isCompletedBatch(batch: { completedAt: Date | null; status: string }) {
+  return batch.status === "completed" && batch.completedAt !== null;
 }

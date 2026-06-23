@@ -53,7 +53,8 @@ describe("inbox generation jobs", () => {
           inboxDate: "2026-06-23",
           source: "arxiv",
           query: "cat:cs.AI",
-          status: "completed"
+          status: "completed",
+          completedAt: new Date("2026-06-23T12:00:00.000Z")
         }
       });
 
@@ -150,6 +151,29 @@ describe("inbox generation jobs", () => {
       expect(await client.inboxGenerationJob.count()).toBe(0);
     });
   });
+
+  it("rejects a candidate batch that is not complete", async () => {
+    const { createInboxGenerationJob } = await jobServicePromise;
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+
+      const { user } = await createProfileOwner(client);
+      const batch = await createCandidateBatch(client, user.id, "2026-06-23", {
+        status: "pending",
+        completedAt: null
+      });
+
+      await expect(
+        createInboxGenerationJob({
+          userId: user.id,
+          candidateBatchId: batch.id,
+          inboxDate: "2026-06-23"
+        })
+      ).rejects.toThrow("Candidate batch is not complete");
+      expect(await client.inboxGenerationJob.count()).toBe(0);
+    });
+  });
 });
 
 describe("arXiv candidate batches", () => {
@@ -189,6 +213,25 @@ describe("arXiv candidate batches", () => {
       expect(await client.candidatePaper.count({ where: { batchId: batch.id } })).toBe(1);
     });
   });
+
+  it("rejects an incomplete existing arxiv batch for the same user/date/source", async () => {
+    const { createArxivCandidateBatchForUser } = await candidateServicePromise;
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { user } = await createProfileOwner(client);
+      await createCandidateBatch(client, user.id, "2026-06-25", {
+        status: "pending",
+        completedAt: null
+      });
+
+      await expect(createArxivCandidateBatchForUser(user.id, "2026-06-25")).rejects.toThrow(
+        "Candidate batch for this user/date is not complete"
+      );
+      expect(mocked.fetchPapers).not.toHaveBeenCalled();
+      expect(await client.candidateBatch.count({ where: { userId: user.id } })).toBe(1);
+    });
+  });
 });
 
 async function createProfileOwner(client: PrismaClient) {
@@ -208,7 +251,8 @@ async function createProfileOwner(client: PrismaClient) {
 async function createCandidateBatch(
   client: PrismaClient,
   userId: string,
-  inboxDate = "2026-06-23"
+  inboxDate = "2026-06-23",
+  overrides: { status?: string; completedAt?: Date | null } = {}
 ) {
   return client.candidateBatch.create({
     data: {
@@ -216,7 +260,11 @@ async function createCandidateBatch(
       inboxDate,
       source: "arxiv",
       query: "cat:cs.AI",
-      status: "completed"
+      status: overrides.status ?? "completed",
+      completedAt:
+        overrides.completedAt === undefined
+          ? new Date("2026-06-23T12:00:00.000Z")
+          : overrides.completedAt
     }
   });
 }
