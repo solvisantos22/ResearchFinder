@@ -20,12 +20,20 @@ const collaboratorInterests = [
 ];
 
 const profileSelect = {
+  fieldPresetKey: true,
   interestsJson: true,
+  keywordsJson: true,
   constraintsJson: true,
   preferredOutputsJson: true,
   rankingWeightsJson: true,
   arxivQuery: true,
-  maxDailyPapers: true
+  maxDailyPapers: true,
+  normalDailyRuntimeMin: true,
+  maxDailyRuntimeMin: true,
+  maxPapersScreened: true,
+  maxPapersDeepRead: true,
+  allowPdfFetch: true,
+  allowRelatedWorkSearch: true
 };
 
 describe("profile JSON helpers", () => {
@@ -44,14 +52,24 @@ describe("profile JSON helpers", () => {
     expect(Object.keys(profile).sort()).toEqual(
       [
         "arxivQuery",
+        "allowPdfFetch",
+        "allowRelatedWorkSearch",
         "constraintsJson",
+        "fieldPresetKey",
         "interestsJson",
+        "keywordsJson",
+        "maxDailyRuntimeMin",
         "maxDailyPapers",
+        "maxPapersDeepRead",
+        "maxPapersScreened",
+        "normalDailyRuntimeMin",
         "preferredOutputsJson",
         "rankingWeightsJson"
       ].sort()
     );
+    expect(profile.fieldPresetKey).toBe("ai_ml");
     expect(parseJsonField<string[]>(profile.interestsJson)).toEqual(solviInterests);
+    expect(parseJsonField<string[]>(profile.keywordsJson)).toEqual(solviInterests);
     expect(parseJsonField<string[]>(profile.constraintsJson)).toEqual([
       "Prefer credible prototypes in 1-3 weeks",
       "Prefer projects that can become papers after experiments",
@@ -68,6 +86,12 @@ describe("profile JSON helpers", () => {
       "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)"
     );
     expect(profile.maxDailyPapers).toBe(10);
+    expect(profile.normalDailyRuntimeMin).toBe(45);
+    expect(profile.maxDailyRuntimeMin).toBe(120);
+    expect(profile.maxPapersScreened).toBe(40);
+    expect(profile.maxPapersDeepRead).toBe(6);
+    expect(profile.allowPdfFetch).toBe(false);
+    expect(profile.allowRelatedWorkSearch).toBe(true);
   });
 });
 

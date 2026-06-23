@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
-import { defaultRankingWeights } from "@/lib/domain";
+import { buildPresetProfileData } from "@/lib/profiles/field-presets";
 
 export function encodeJsonField<T>(value: T): string {
   return JSON.stringify(value);
@@ -14,11 +14,19 @@ export function parseJsonField<T>(value: string): T {
 
 type ProfileSeedData = {
   interestsJson: string;
+  keywordsJson: string;
   constraintsJson: string;
   preferredOutputsJson: string;
   rankingWeightsJson: string;
   arxivQuery: string;
   maxDailyPapers: number;
+  fieldPresetKey: string;
+  normalDailyRuntimeMin: number;
+  maxDailyRuntimeMin: number;
+  maxPapersScreened: number;
+  maxPapersDeepRead: number;
+  allowPdfFetch: boolean;
+  allowRelatedWorkSearch: boolean;
 };
 
 type SeedUser = {
@@ -30,22 +38,9 @@ type SeedUser = {
 
 export function buildProfileSeedData(interests: string[]): ProfileSeedData {
   return {
+    ...buildPresetProfileData("ai_ml"),
     interestsJson: encodeJsonField(interests),
-    constraintsJson: encodeJsonField([
-      "Prefer credible prototypes in 1-3 weeks",
-      "Prefer projects that can become papers after experiments",
-      "Avoid frontier-scale model training"
-    ]),
-    preferredOutputsJson: encodeJsonField([
-      "benchmark",
-      "evaluation harness",
-      "open-source tool",
-      "paper with reproducible experiments"
-    ]),
-    rankingWeightsJson: encodeJsonField(defaultRankingWeights),
-    arxivQuery:
-      "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)",
-    maxDailyPapers: 10
+    keywordsJson: encodeJsonField(interests)
   };
 }
 
