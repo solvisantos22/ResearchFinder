@@ -1,26 +1,19 @@
 "use server";
 
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import type { Route } from "next";
 
-import { createViabilityJob } from "@/lib/dispatch/service";
-import { getRequestUserIdForPrivateAccess } from "@/lib/private-access-server";
+import { requireCurrentUser } from "@/lib/auth/session";
+import { createViabilityJobForCurrentUser } from "@/lib/dispatch/service";
 
 export async function startDispatch(formData: FormData) {
-  const submittedUserId = formData.get("userId");
-  const userId = await getRequestUserIdForPrivateAccess(
-    typeof submittedUserId === "string" ? submittedUserId : null
-  );
+  const currentUser = await requireCurrentUser();
   const ideaId = String(formData.get("ideaId"));
   const sprintDepth = String(formData.get("sprintDepth"));
   const autonomyLevel = String(formData.get("autonomyLevel"));
 
-  if (!userId) {
-    notFound();
-  }
-
-  const job = await createViabilityJob({
-    userId,
+  const job = await createViabilityJobForCurrentUser({
+    currentUserId: currentUser.id,
     ideaId,
     sprintDepth,
     autonomyLevel

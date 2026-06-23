@@ -10,21 +10,18 @@ import {
 
 type DispatchFormProps = {
   ideaId: string;
-  userId: string;
   suggestedDepth: SprintDepth;
   suggestedAutonomy: AutonomyLevel;
 };
 
 export function DispatchForm({
   ideaId,
-  userId,
   suggestedDepth,
   suggestedAutonomy
 }: DispatchFormProps) {
   return (
     <form action={startDispatch} className="grid gap-6 rounded-lg border border-line bg-white p-6">
       <input type="hidden" name="ideaId" value={ideaId} />
-      <input type="hidden" name="userId" value={userId} />
 
       <section>
         <h2 className="text-lg font-semibold">Sprint depth</h2>

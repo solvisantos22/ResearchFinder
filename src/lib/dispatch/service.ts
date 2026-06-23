@@ -4,6 +4,7 @@ import {
   type AutonomyLevel,
   type SprintDepth
 } from "@/lib/domain";
+import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 
 export function validateDispatchSettings(sprintDepth: string, autonomyLevel: string) {
@@ -27,22 +28,42 @@ export async function createViabilityJob(input: {
   sprintDepth: string;
   autonomyLevel: string;
 }) {
+  return createViabilityJobForCurrentUser({
+    currentUserId: input.userId,
+    ideaId: input.ideaId,
+    sprintDepth: input.sprintDepth,
+    autonomyLevel: input.autonomyLevel
+  });
+}
+
+export async function createViabilityJobForCurrentUser(input: {
+  currentUserId: string;
+  ideaId: string;
+  sprintDepth: string;
+  autonomyLevel: string;
+}) {
   const settings = validateDispatchSettings(input.sprintDepth, input.autonomyLevel);
   const inboxItem = await prisma.inboxItem.findFirst({
     where: {
-      userId: input.userId,
+      userId: input.currentUserId,
       bestIdeaId: input.ideaId
     },
-    select: { id: true }
+    select: { id: true, userId: true }
   });
 
-  if (!inboxItem) {
+  if (
+    !inboxItem ||
+    !canDispatchIdeaForProfile({
+      currentUserId: input.currentUserId,
+      generatedForUserId: inboxItem.userId
+    })
+  ) {
     throw new Error("Idea is not available in this user's inbox");
   }
 
   return prisma.viabilityJob.create({
     data: {
-      userId: input.userId,
+      userId: input.currentUserId,
       ideaId: input.ideaId,
       sprintDepth: settings.sprintDepth,
       autonomyLevel: settings.autonomyLevel,

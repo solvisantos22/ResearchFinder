@@ -113,7 +113,6 @@ export default async function DispatchPage({
 
       <DispatchForm
         ideaId={idea.id}
-        userId={inboxItem.userId}
         suggestedDepth={reasoning.suggestedDepth}
         suggestedAutonomy={reasoning.suggestedAutonomy}
       />
