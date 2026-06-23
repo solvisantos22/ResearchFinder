@@ -84,7 +84,7 @@ export type PresetProfileData = {
 };
 
 export function isFieldPresetKey(value: string): value is FieldPresetKey {
-  return value in fieldPresets;
+  return Object.prototype.hasOwnProperty.call(fieldPresets, value);
 }
 
 export function buildPresetProfileData(key: FieldPresetKey): PresetProfileData {

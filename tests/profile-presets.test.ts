@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { defaultRankingWeights } from "@/lib/domain";
-import { buildPresetProfileData, fieldPresets } from "@/lib/profiles/field-presets";
+import {
+  buildPresetProfileData,
+  fieldPresets,
+  isFieldPresetKey
+} from "@/lib/profiles/field-presets";
 
 describe("field presets", () => {
   it("includes first-class AI/ML and chemistry arXiv category sets", () => {
@@ -59,5 +63,11 @@ describe("field presets", () => {
     expect(profile.maxPapersDeepRead).toBe(6);
     expect(profile.allowPdfFetch).toBe(false);
     expect(profile.allowRelatedWorkSearch).toBe(true);
+  });
+
+  it("rejects inherited object properties as field preset keys", () => {
+    expect(isFieldPresetKey("ai_ml")).toBe(true);
+    expect(isFieldPresetKey("chemistry")).toBe(true);
+    expect(isFieldPresetKey("toString")).toBe(false);
   });
 });

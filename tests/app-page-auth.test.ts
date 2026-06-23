@@ -17,6 +17,9 @@ const mocked = vi.hoisted(() => ({
     user: {
       findUnique: vi.fn()
     },
+    researchProfile: {
+      findUnique: vi.fn()
+    },
     viabilityJob: {
       findUnique: vi.fn()
     }
@@ -148,7 +151,7 @@ describe("app page auth", () => {
       id: "target-user",
       name: "Target User"
     });
-    mocked.ensureProfileForUser.mockResolvedValue({ id: "profile-1" });
+    mocked.prisma.researchProfile.findUnique.mockResolvedValue({ id: "profile-1" });
     mocked.toEditableProfile.mockReturnValue({
       fieldPresetKey: "ai_ml",
       keywords: ["LLM evaluation"],
@@ -168,5 +171,28 @@ describe("app page auth", () => {
     expect(screen.getByText("LLM evaluation")).toBeInTheDocument();
     expect(screen.getByText("cat:cs.AI AND all:evaluation")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save profile" })).not.toBeInTheDocument();
+    expect(mocked.ensureProfileForUser).not.toHaveBeenCalled();
+    expect(mocked.prisma.researchProfile.findUnique).toHaveBeenCalledWith({
+      where: { userId: "target-user" }
+    });
+  });
+
+  it("renders missing profile state for a permitted non-owner without ensuring a profile", async () => {
+    const { default: ProfilePage } = await import("@/app/profiles/[userId]/page");
+
+    mocked.requireCurrentUser.mockResolvedValue({ id: "current-user" });
+    mocked.canViewUserResearch.mockReturnValue(true);
+    mocked.canEditProfile.mockReturnValue(false);
+    mocked.prisma.user.findUnique.mockResolvedValue({
+      id: "target-user",
+      name: "Target User"
+    });
+    mocked.prisma.researchProfile.findUnique.mockResolvedValue(null);
+
+    render(await ProfilePage({ params: Promise.resolve({ userId: "target-user" }) }));
+
+    expect(screen.getByText("No research profile has been configured yet.")).toBeInTheDocument();
+    expect(mocked.ensureProfileForUser).not.toHaveBeenCalled();
+    expect(mocked.toEditableProfile).not.toHaveBeenCalled();
   });
 });
