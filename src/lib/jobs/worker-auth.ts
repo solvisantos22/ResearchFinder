@@ -33,7 +33,8 @@ export async function verifyWorkerToken(token: string, storedHash: string) {
 export function readBearerToken(request: Request) {
   const header = request.headers.get("authorization");
   if (!header?.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim();
+  const token = header.slice("Bearer ".length).trim();
+  return token || null;
 }
 
 function isBase64Url(value: string) {

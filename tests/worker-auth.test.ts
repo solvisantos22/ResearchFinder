@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hashWorkerToken, verifyWorkerToken } from "@/lib/jobs/worker-auth";
+import { hashWorkerToken, readBearerToken, verifyWorkerToken } from "@/lib/jobs/worker-auth";
 
 describe("worker token hashing", () => {
   it("verifies only the original token", async () => {
@@ -20,3 +20,32 @@ describe("worker token hashing", () => {
     await expect(verifyWorkerToken("secret-token", "salt:not@base64url")).resolves.toBe(false);
   });
 });
+
+describe("bearer token parsing", () => {
+  it("returns the token from a valid bearer authorization header", () => {
+    expect(readBearerToken(requestWithRawAuthorization("Bearer worker-token"))).toBe(
+      "worker-token"
+    );
+  });
+
+  it("returns null when the authorization header is missing", () => {
+    expect(readBearerToken(requestWithRawAuthorization(null))).toBeNull();
+  });
+
+  it("returns null for non-bearer authorization", () => {
+    expect(readBearerToken(requestWithRawAuthorization("Basic worker-token"))).toBeNull();
+  });
+
+  it("returns null for empty or whitespace-only bearer values", () => {
+    expect(readBearerToken(requestWithRawAuthorization("Bearer "))).toBeNull();
+    expect(readBearerToken(requestWithRawAuthorization("Bearer    "))).toBeNull();
+  });
+});
+
+function requestWithRawAuthorization(authorization: string | null) {
+  return {
+    headers: {
+      get: (name: string) => (name.toLowerCase() === "authorization" ? authorization : null)
+    }
+  } as Request;
+}
