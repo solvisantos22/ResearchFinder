@@ -79,8 +79,8 @@ Create or modify these files during the plan:
 Add Auth.js, Prisma adapter, and cross-env scripts.
 
 ```powershell
-npm install next-auth @auth/prisma-adapter
-npm install -D cross-env
+npm install next-auth@beta @auth/prisma-adapter
+npm install -D cross-env@7
 ```
 
 Update `package.json` scripts to include:
@@ -112,7 +112,7 @@ Update `package.json` scripts to include:
 Replace `.env.example` with the hosted variables plus local defaults:
 
 ```text
-DATABASE_URL="file:./prisma/dev.db"
+DATABASE_URL="file:./dev.db"
 TEST_DATABASE_URL="postgresql://researchfinder:researchfinder@localhost:54329/researchfinder?schema=test"
 POSTGRES_DATABASE_URL="postgresql://researchfinder:researchfinder@localhost:54329/researchfinder?schema=public"
 NEXTAUTH_URL="http://localhost:3000"
@@ -2234,7 +2234,7 @@ git commit -m "feat: persist ai generated inboxes"
 ### Task 11: Add Windows Worker Skeleton And Codex Runner Boundary
 
 **Files:**
-- Create: `scripts/researchfinder-worker.ts`
+- Modify: `scripts/researchfinder-worker.ts`
 - Create: `scripts/install-worker.ps1`
 - Create: `src/worker/codex-runner.ts`
 - Create: `src/worker/output-validation.ts`
@@ -2315,9 +2315,9 @@ export function parseViabilityOutput(raw: string) {
 }
 ```
 
-- [ ] **Step 4: Add worker script skeleton**
+- [ ] **Step 4: Update worker script skeleton**
 
-Create `scripts/researchfinder-worker.ts`:
+Update `scripts/researchfinder-worker.ts`:
 
 ```ts
 import { readFileSync } from "node:fs";
@@ -2328,9 +2328,24 @@ type WorkerConfig = {
   workerToken: string;
 };
 
+function isMissingFileError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
 function loadConfig(): WorkerConfig {
   const configPath = process.env.RESEARCHFINDER_WORKER_CONFIG ?? join(process.cwd(), ".worker.json");
-  return JSON.parse(readFileSync(configPath, "utf8")) as WorkerConfig;
+
+  try {
+    return JSON.parse(readFileSync(configPath, "utf8")) as WorkerConfig;
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      throw new Error(
+        `ResearchFinder worker config not found at ${configPath}. Create .worker.json or set RESEARCHFINDER_WORKER_CONFIG.`
+      );
+    }
+
+    throw error;
+  }
 }
 
 async function main() {
@@ -2356,8 +2371,8 @@ async function main() {
   throw new Error(`No local executor is registered for ${payload.job.type} in this worker slice`);
 }
 
-main().catch((error) => {
-  console.error(error);
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });
 ```
