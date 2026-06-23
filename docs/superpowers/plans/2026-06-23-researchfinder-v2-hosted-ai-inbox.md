@@ -95,6 +95,7 @@ Update `package.json` scripts to include:
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "prisma generate",
+    "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
@@ -111,8 +112,9 @@ Update `package.json` scripts to include:
 Replace `.env.example` with the hosted variables plus local defaults:
 
 ```text
-DATABASE_URL="postgresql://researchfinder:researchfinder@localhost:54329/researchfinder?schema=public"
+DATABASE_URL="file:./prisma/dev.db"
 TEST_DATABASE_URL="postgresql://researchfinder:researchfinder@localhost:54329/researchfinder?schema=test"
+POSTGRES_DATABASE_URL="postgresql://researchfinder:researchfinder@localhost:54329/researchfinder?schema=public"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="replace-with-local-secret"
 GOOGLE_CLIENT_ID=""
@@ -634,6 +636,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 ```
+
+When switching the provider to Postgres, also update `.env.example` so `POSTGRES_DATABASE_URL` is promoted into `DATABASE_URL` and the interim SQLite default is removed.
 
 - [ ] **Step 3: Update database tests to use helper**
 
