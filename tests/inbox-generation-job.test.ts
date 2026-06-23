@@ -109,6 +109,47 @@ describe("inbox generation jobs", () => {
       expect(await client.inboxGenerationJob.count()).toBe(1);
     });
   });
+
+  it("rejects a candidate batch owned by another user", async () => {
+    const { createInboxGenerationJob } = await jobServicePromise;
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+
+      const { user: caller } = await createProfileOwner(client);
+      const { user: batchOwner } = await createProfileOwner(client);
+      const batch = await createCandidateBatch(client, batchOwner.id);
+
+      await expect(
+        createInboxGenerationJob({
+          userId: caller.id,
+          candidateBatchId: batch.id,
+          inboxDate: "2026-06-23"
+        })
+      ).rejects.toThrow("Candidate batch does not belong to this user/date");
+      expect(await client.inboxGenerationJob.count()).toBe(0);
+    });
+  });
+
+  it("rejects a candidate batch for a different inbox date", async () => {
+    const { createInboxGenerationJob } = await jobServicePromise;
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+
+      const { user } = await createProfileOwner(client);
+      const batch = await createCandidateBatch(client, user.id, "2026-06-22");
+
+      await expect(
+        createInboxGenerationJob({
+          userId: user.id,
+          candidateBatchId: batch.id,
+          inboxDate: "2026-06-23"
+        })
+      ).rejects.toThrow("Candidate batch does not belong to this user/date");
+      expect(await client.inboxGenerationJob.count()).toBe(0);
+    });
+  });
 });
 
 describe("arXiv candidate batches", () => {
@@ -164,11 +205,15 @@ async function createProfileOwner(client: PrismaClient) {
   return { user };
 }
 
-async function createCandidateBatch(client: PrismaClient, userId: string) {
+async function createCandidateBatch(
+  client: PrismaClient,
+  userId: string,
+  inboxDate = "2026-06-23"
+) {
   return client.candidateBatch.create({
     data: {
       userId,
-      inboxDate: "2026-06-23",
+      inboxDate,
       source: "arxiv",
       query: "cat:cs.AI",
       status: "completed"

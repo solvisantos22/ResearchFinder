@@ -22,7 +22,8 @@ export async function createArxivCandidateBatchForUser(userId: string, inboxDate
           inboxDate,
           source,
           query: profile.arxivQuery,
-          status: "completed"
+          status: "completed",
+          completedAt: new Date()
         }
       });
 

@@ -41,5 +41,8 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ createdJobs: jobs.length, failedUsers });
+  const response = { createdJobs: jobs.length, failedUsers };
+  const allUsersFailed = users.length > 0 && failedUsers.length === users.length;
+
+  return NextResponse.json(response, { status: allUsersFailed ? 500 : 200 });
 }

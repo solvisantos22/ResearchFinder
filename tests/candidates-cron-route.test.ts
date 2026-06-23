@@ -64,4 +64,31 @@ describe("candidate cron route", () => {
       inboxDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
     });
   });
+
+  it("returns 500 with a summary when every profiled user fails", async () => {
+    vi.stubEnv("CRON_SECRET", "secret");
+    mocked.findUsers.mockResolvedValue([{ id: "user-1" }, { id: "user-2" }]);
+    mocked.createBatch
+      .mockRejectedValueOnce(new Error("first failed"))
+      .mockRejectedValueOnce(new Error("second failed"));
+
+    const { POST } = await routePromise;
+    const response = await POST(
+      new Request("https://example.com/api/cron/candidates", {
+        method: "POST",
+        headers: { authorization: "Bearer secret" }
+      })
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      createdJobs: 0,
+      failedUsers: [
+        { userId: "user-1", error: "first failed" },
+        { userId: "user-2", error: "second failed" }
+      ]
+    });
+    expect(mocked.createBatch).toHaveBeenCalledTimes(2);
+    expect(mocked.createJob).not.toHaveBeenCalled();
+  });
 });
