@@ -9,9 +9,16 @@ describe("worker installer", () => {
   it("runs the scheduled worker through a wrapper that points at the installed config", () => {
     expect(installerScript).toContain("$runnerPath = Join-Path $InstallDir \"run-worker.ps1\"");
     expect(installerScript).toContain("$env:RESEARCHFINDER_WORKER_CONFIG");
+    expect(installerScript).toContain("$env:RESEARCHFINDER_CODEX_COMMAND");
     expect(installerScript).toContain("$configPath");
     expect(installerScript).toContain("-File");
     expect(installerScript).toContain("$runnerPath");
+  });
+
+  it("persists the resolved codex command for scheduled worker runs", () => {
+    expect(installerScript).toContain("codexCommand = $codex");
+    expect(installerScript).toContain("$codexLiteral = ConvertTo-PowerShellLiteral $codex");
+    expect(installerScript).toContain("$env:RESEARCHFINDER_CODEX_COMMAND = $codexLiteral");
   });
 
   it("writes the installed config as utf8 without a BOM", () => {

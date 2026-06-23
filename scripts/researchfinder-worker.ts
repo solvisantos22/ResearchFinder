@@ -4,6 +4,7 @@ import { join } from "node:path";
 type WorkerConfig = {
   appUrl: string;
   workerToken: string;
+  codexCommand?: string;
 };
 
 function isMissingFileError(error: unknown): boolean {

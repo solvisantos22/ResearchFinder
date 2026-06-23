@@ -14,6 +14,7 @@ $configPath = Join-Path $InstallDir ".worker.json"
 $configJson = @{
   appUrl = $AppUrl
   workerToken = $WorkerToken
+  codexCommand = $codex
 } | ConvertTo-Json
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)
@@ -30,6 +31,7 @@ if (!(Test-Path -LiteralPath $tsxPath)) {
 $runnerPath = Join-Path $InstallDir "run-worker.ps1"
 
 $configLiteral = ConvertTo-PowerShellLiteral $configPath
+$codexLiteral = ConvertTo-PowerShellLiteral $codex
 $repoLiteral = ConvertTo-PowerShellLiteral $repoPath
 $nodeLiteral = ConvertTo-PowerShellLiteral $node
 $tsxLiteral = ConvertTo-PowerShellLiteral $tsxPath
@@ -37,6 +39,7 @@ $tsxLiteral = ConvertTo-PowerShellLiteral $tsxPath
 @"
 `$ErrorActionPreference = "Stop"
 `$env:RESEARCHFINDER_WORKER_CONFIG = $configLiteral
+`$env:RESEARCHFINDER_CODEX_COMMAND = $codexLiteral
 Set-Location -LiteralPath $repoLiteral
 & $nodeLiteral $tsxLiteral "scripts/researchfinder-worker.ts"
 exit `$LASTEXITCODE

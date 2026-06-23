@@ -1,10 +1,17 @@
 import { spawn, type SpawnOptions } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 type DataEmitter = {
   on(event: "data", listener: (chunk: unknown) => void): unknown;
 };
 
 type CodexChildProcess = {
+  stdin: {
+    write(chunk: string): unknown;
+    end(): unknown;
+  };
   stdout: DataEmitter;
   stderr: DataEmitter;
   on(event: "error", listener: (error: Error) => void): unknown;
@@ -29,8 +36,8 @@ type CodexSpawnCommand = {
   options: SpawnOptions;
 };
 
-export function buildCodexExecArgs(promptFile: string) {
-  return ["exec", "--json", "--skip-git-repo-check", "--file", promptFile];
+export function buildCodexExecArgs(outputFile: string) {
+  return ["exec", "--json", "--skip-git-repo-check", "--output-last-message", outputFile, "-"];
 }
 
 function quoteCmdPart(value: string) {
@@ -80,35 +87,45 @@ export async function runCodex(
   promptFile: string,
   options: RunCodexOptions = {}
 ): Promise<string> {
-  const args = buildCodexExecArgs(promptFile);
-  const platform = options.platform ?? process.platform;
-  const commandPlan = createCodexSpawnCommand(
-    options.codexCommand ?? getDefaultCodexCommand(platform),
-    args,
-    platform
-  );
-  const spawnCodex = options.spawn ?? (spawn as CodexSpawn);
+  const prompt = await readFile(promptFile, "utf8");
+  const outputDir = await mkdtemp(join(tmpdir(), "researchfinder-codex-"));
+  const outputFile = join(outputDir, "last-message.txt");
 
-  return new Promise((resolve, reject) => {
-    const child = spawnCodex(commandPlan.command, commandPlan.args, {
-      ...commandPlan.options,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
+  try {
+    const args = buildCodexExecArgs(outputFile);
+    const platform = options.platform ?? process.platform;
+    const commandPlan = createCodexSpawnCommand(
+      options.codexCommand ?? getDefaultCodexCommand(platform),
+      args,
+      platform
+    );
+    const spawnCodex = options.spawn ?? (spawn as CodexSpawn);
 
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawnCodex(commandPlan.command, commandPlan.args, {
+        ...commandPlan.options,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      let stderr = "";
+
+      child.stdout.on("data", () => {});
+
+      child.stderr.on("data", (chunk) => {
+        stderr += String(chunk);
+      });
+
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`codex exited with ${code}: ${stderr}`));
+      });
+
+      child.stdin.write(prompt);
+      child.stdin.end();
     });
 
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(`codex exited with ${code}: ${stderr}`));
-    });
-  });
+    return await readFile(outputFile, "utf8");
+  } finally {
+    await rm(outputDir, { force: true, recursive: true });
+  }
 }
