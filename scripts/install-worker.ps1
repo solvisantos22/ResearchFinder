@@ -10,6 +10,10 @@ function ConvertTo-PowerShellLiteral([string]$Value) {
   return "'" + $Value.Replace("'", "''") + "'"
 }
 
+$node = (Get-Command node -ErrorAction Stop).Source
+$codex = (Get-Command codex -ErrorAction Stop).Source
+$powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
+
 $configPath = Join-Path $InstallDir ".worker.json"
 $configJson = @{
   appUrl = $AppUrl
@@ -19,9 +23,6 @@ $configJson = @{
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)
 
-$node = (Get-Command node -ErrorAction Stop).Source
-$codex = (Get-Command codex -ErrorAction Stop).Source
-$powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 $repoPath = (Get-Location).Path
 $tsxPath = Join-Path $repoPath "node_modules/tsx/dist/cli.mjs"
 if (!(Test-Path -LiteralPath $tsxPath)) {
