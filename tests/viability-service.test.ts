@@ -175,6 +175,61 @@ describe("processNextViabilityJob", () => {
       mocked.prisma = null;
     }
   });
+
+  it("processes a queued generated idea job", async () => {
+    const { processNextViabilityJob } = await serviceModulePromise;
+    const fakePrisma = {
+      viabilityJob: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "v2-job-1",
+          sprintDepth: "default",
+          autonomyLevel: "medium",
+          idea: null,
+          generatedIdea: {
+            title: "Generated idea",
+            paper: {
+              title: "Generated paper",
+              url: "https://arxiv.org/abs/generated"
+            }
+          }
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update: vi.fn().mockReturnValue({ kind: "update-job" })
+      },
+      artifact: {
+        createMany: vi.fn().mockReturnValue({ kind: "create-artifacts" })
+      },
+      evidence: {
+        createMany: vi.fn().mockReturnValue({ kind: "create-evidence" })
+      },
+      $transaction: vi.fn().mockResolvedValue([])
+    };
+
+    mocked.prisma = fakePrisma as unknown as PrismaClient;
+
+    try {
+      await expect(processNextViabilityJob()).resolves.toBe("v2-job-1");
+      expect(fakePrisma.artifact.createMany).toHaveBeenCalledWith({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            jobId: "v2-job-1",
+            title: "Viability decision for Generated idea"
+          })
+        ])
+      });
+      expect(fakePrisma.evidence.createMany).toHaveBeenCalledWith({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            jobId: "v2-job-1",
+            sourceTitle: "Generated paper",
+            sourceUrl: "https://arxiv.org/abs/generated"
+          })
+        ])
+      });
+    } finally {
+      mocked.prisma = null;
+    }
+  });
 });
 
 async function createQueuedJob(

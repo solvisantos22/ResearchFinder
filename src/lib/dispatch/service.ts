@@ -7,6 +7,9 @@ import {
 import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 
+export const DEFAULT_SPRINT_DEPTH: SprintDepth = "default";
+export const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = "medium";
+
 export function validateDispatchSettings(sprintDepth: string, autonomyLevel: string) {
   if (!SPRINT_DEPTHS.includes(sprintDepth as SprintDepth)) {
     throw new Error("Invalid sprint depth");
@@ -20,6 +23,16 @@ export function validateDispatchSettings(sprintDepth: string, autonomyLevel: str
     sprintDepth: sprintDepth as SprintDepth,
     autonomyLevel: autonomyLevel as AutonomyLevel
   };
+}
+
+export function validateDispatchSettingsWithDefaults(input: {
+  sprintDepth?: string;
+  autonomyLevel?: string;
+}) {
+  return validateDispatchSettings(
+    input.sprintDepth ?? DEFAULT_SPRINT_DEPTH,
+    input.autonomyLevel ?? DEFAULT_AUTONOMY_LEVEL
+  );
 }
 
 export async function createViabilityJobForCurrentUser(input: {

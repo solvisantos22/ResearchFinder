@@ -86,6 +86,11 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
           paper: true
         }
       },
+      generatedIdea: {
+        include: {
+          paper: true
+        }
+      },
       artifacts: {
         orderBy: { createdAt: "asc" }
       },
@@ -103,6 +108,12 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
     notFound();
   }
 
+  const sourceIdea = job.generatedIdea ?? job.idea;
+
+  if (!sourceIdea) {
+    notFound();
+  }
+
   const decisionArtifact =
     job.artifacts.find((artifact) => artifact.kind === "decision-report") ?? job.artifacts[0];
   const signalPanels = deriveSignalPanels(decisionArtifact?.content ?? "");
@@ -116,7 +127,7 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
           Viability decision
         </p>
         <h1 className="break-words text-3xl font-semibold text-slate-900 [overflow-wrap:anywhere]">
-          {job.idea.title}
+          {sourceIdea.title}
         </h1>
         <p className="mt-2 break-words text-slate-600">Status: {job.status}</p>
       </header>

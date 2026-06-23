@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
+  createV2ViabilityJob: vi.fn(),
   createViabilityJobForCurrentUser: vi.fn(),
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -14,6 +15,10 @@ vi.mock("@/lib/auth/session", () => ({
 
 vi.mock("@/lib/dispatch/service", () => ({
   createViabilityJobForCurrentUser: mocked.createViabilityJobForCurrentUser
+}));
+
+vi.mock("@/lib/jobs/viability", () => ({
+  createV2ViabilityJob: mocked.createV2ViabilityJob
 }));
 
 vi.mock("next/navigation", () => ({
@@ -61,5 +66,28 @@ describe("startDispatch", () => {
       sprintDepth: "default",
       autonomyLevel: "medium"
     });
+  });
+
+  it("dispatches generated ideas with the v2 job creator", async () => {
+    const { startDispatch } = await import("@/app/dispatch/[ideaId]/actions");
+
+    mocked.requireCurrentUser.mockResolvedValue({ id: "signed-in-user" });
+    mocked.createV2ViabilityJob.mockResolvedValue({ id: "job-2" });
+
+    const formData = new FormData();
+    formData.set("generatedIdeaId", "generated-idea-1");
+    formData.set("ideaId", "legacy-idea-should-not-be-used");
+    formData.set("sprintDepth", "default");
+    formData.set("autonomyLevel", "medium");
+
+    await expect(startDispatch(formData)).rejects.toThrow("NEXT_REDIRECT:/jobs/job-2");
+
+    expect(mocked.createV2ViabilityJob).toHaveBeenCalledWith({
+      currentUserId: "signed-in-user",
+      generatedIdeaId: "generated-idea-1",
+      sprintDepth: "default",
+      autonomyLevel: "medium"
+    });
+    expect(mocked.createViabilityJobForCurrentUser).not.toHaveBeenCalled();
   });
 });

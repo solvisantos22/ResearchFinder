@@ -9,19 +9,24 @@ import {
 } from "@/lib/domain";
 
 type DispatchFormProps = {
-  ideaId: string;
+  ideaId?: string;
+  generatedIdeaId?: string;
   suggestedDepth: SprintDepth;
   suggestedAutonomy: AutonomyLevel;
 };
 
 export function DispatchForm({
   ideaId,
+  generatedIdeaId,
   suggestedDepth,
   suggestedAutonomy
 }: DispatchFormProps) {
   return (
     <form action={startDispatch} className="grid gap-6 rounded-lg border border-line bg-white p-6">
-      <input type="hidden" name="ideaId" value={ideaId} />
+      {ideaId ? <input type="hidden" name="ideaId" value={ideaId} /> : null}
+      {generatedIdeaId ? (
+        <input type="hidden" name="generatedIdeaId" value={generatedIdeaId} />
+      ) : null}
 
       <section>
         <h2 className="text-lg font-semibold">Sprint depth</h2>

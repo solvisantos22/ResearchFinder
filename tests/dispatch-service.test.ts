@@ -33,6 +33,15 @@ describe("validateDispatchSettings", () => {
     expect(() => validateDispatchSettings("huge", "medium")).toThrow("Invalid sprint depth");
     expect(() => validateDispatchSettings("fast", "reckless")).toThrow("Invalid autonomy level");
   });
+
+  it("defaults missing dispatch settings", async () => {
+    const { validateDispatchSettingsWithDefaults } = await serviceModulePromise;
+
+    expect(validateDispatchSettingsWithDefaults({})).toEqual({
+      sprintDepth: "default",
+      autonomyLevel: "medium"
+    });
+  });
 });
 
 describe("createViabilityJobForCurrentUser", () => {

@@ -53,11 +53,15 @@ describe("v2 prisma schema shape", () => {
     expect(verificationToken).toContain("@@unique([identifier, token])");
   });
 
-  it("preserves viability jobs when generated ideas are deleted", () => {
+  it("supports legacy and generated idea viability jobs", () => {
     const viabilityJob = modelBlock("ViabilityJob");
 
+    expect(viabilityJob).toMatch(/\bideaId\s+String\?/);
     expect(viabilityJob).toMatch(
-      /\bgeneratedIdea\s+GeneratedIdea\?\s+@relation\(fields: \[generatedIdeaId\], references: \[id\], onDelete: SetNull\)/,
+      /\bidea\s+Idea\?\s+@relation\(fields: \[ideaId\], references: \[id\], onDelete: Cascade\)/,
+    );
+    expect(viabilityJob).toMatch(
+      /\bgeneratedIdea\s+GeneratedIdea\?\s+@relation\(fields: \[generatedIdeaId\], references: \[id\], onDelete: Cascade\)/,
     );
   });
 });

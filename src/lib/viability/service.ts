@@ -127,6 +127,11 @@ export async function processNextViabilityJob(): Promise<string | null> {
         include: {
           paper: true
         }
+      },
+      generatedIdea: {
+        include: {
+          paper: true
+        }
       }
     }
   });
@@ -152,10 +157,16 @@ export async function processNextViabilityJob(): Promise<string | null> {
   }
 
   try {
+    const sourceIdea = job.generatedIdea ?? job.idea;
+
+    if (!sourceIdea) {
+      throw new Error("Viability job is missing an idea reference");
+    }
+
     const decision = buildViabilityDecision({
-      ideaTitle: job.idea.title,
-      paperTitle: job.idea.paper.title,
-      paperUrl: job.idea.paper.url,
+      ideaTitle: sourceIdea.title,
+      paperTitle: sourceIdea.paper.title,
+      paperUrl: sourceIdea.paper.url,
       sprintDepth: job.sprintDepth,
       autonomyLevel: job.autonomyLevel
     });

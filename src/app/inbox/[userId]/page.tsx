@@ -189,6 +189,7 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
                 generatedForUserId={userId}
                 paper={group.paper}
                 ideas={group.ideas}
+                enableDispatch
               />
             ))}
           </div>
