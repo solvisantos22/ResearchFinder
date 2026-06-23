@@ -4,8 +4,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { SignalPanel, type SignalStatus } from "@/components/SignalPanel";
+import { canViewUserResearch } from "@/lib/auth/permissions";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
-import { getActivePrivateUserId, isPrivateAccessConfigured } from "@/lib/private-access-server";
 
 type SignalPanelData = {
   title: string;
@@ -75,9 +76,8 @@ function deriveSignalPanels(content: string): SignalPanelData[] {
 }
 
 export default async function JobPage({ params }: { params: Promise<{ jobId: string }> }) {
+  const currentUser = await requireCurrentUser();
   const { jobId } = await params;
-  const privateAccessEnabled = isPrivateAccessConfigured();
-  const activePrivateUserId = privateAccessEnabled ? await getActivePrivateUserId() : null;
   const job = await prisma.viabilityJob.findUnique({
     where: { id: jobId },
     include: {
@@ -95,7 +95,11 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
     }
   });
 
-  if (!job || (privateAccessEnabled && job.userId !== activePrivateUserId)) {
+  // Job pages are read-only in this milestone, so shared research visibility applies here.
+  if (
+    !job ||
+    !canViewUserResearch({ currentUserId: currentUser.id, targetUserId: job.userId })
+  ) {
     notFound();
   }
 

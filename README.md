@@ -33,6 +33,9 @@ Open:
 http://localhost:3000/inbox/demo-solvi
 ```
 
+The app uses Google Auth through Auth.js. Configure `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, and `ALLOWED_GOOGLE_EMAILS` in `.env` before signing in.
+
 ## Worker
 
 After dispatching a viability sprint from the UI, process one queued job:
@@ -52,20 +55,8 @@ POST /api/cron/ingest
 Authorization: Bearer <CRON_SECRET>
 ```
 
-The values in `.env.example` are development-only. Set a deployment-specific `CRON_SECRET`
-before exposing the cron route.
-
-This milestone uses a lightweight private access boundary instead of a full auth provider. To
-enable it, set `APP_ACCESS_TOKENS` to comma-separated `userId:token` pairs:
-
-```text
-APP_ACCESS_TOKENS="demo-solvi:secret-1,demo-collaborator:secret-2"
-```
-
-When this env var is unset or empty, local development behavior is unchanged. When it is set,
-open a protected route with `?accessToken=<token>` once; the app maps the token to its user,
-sets httpOnly cookies, strips the token from the URL, and gates `/inbox`, `/dispatch`, and
-`/jobs` to that user. A full auth provider belongs in a later phase.
+The values in `.env.example` are development-only. Set deployment-specific `CRON_SECRET`,
+Google OAuth credentials, and an `ALLOWED_GOOGLE_EMAILS` allowlist before exposing the app.
 
 ## Tests
 

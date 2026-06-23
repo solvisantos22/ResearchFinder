@@ -22,20 +22,6 @@ export function validateDispatchSettings(sprintDepth: string, autonomyLevel: str
   };
 }
 
-export async function createViabilityJob(input: {
-  userId: string;
-  ideaId: string;
-  sprintDepth: string;
-  autonomyLevel: string;
-}) {
-  return createViabilityJobForCurrentUser({
-    currentUserId: input.userId,
-    ideaId: input.ideaId,
-    sprintDepth: input.sprintDepth,
-    autonomyLevel: input.autonomyLevel
-  });
-}
-
 export async function createViabilityJobForCurrentUser(input: {
   currentUserId: string;
   ideaId: string;

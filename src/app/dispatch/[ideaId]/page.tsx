@@ -1,6 +1,8 @@
+import React from "react";
 import { notFound } from "next/navigation";
 
 import { DispatchForm } from "@/components/DispatchForm";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import {
   AUTONOMY_LEVELS,
@@ -9,7 +11,6 @@ import {
   type SprintDepth
 } from "@/lib/domain";
 import type { InboxReasoning } from "@/lib/inbox/service";
-import { getActivePrivateUserId, isPrivateAccessConfigured } from "@/lib/private-access-server";
 
 const fallbackReasoning: InboxReasoning = {
   whyPaperMatters: "",
@@ -61,28 +62,18 @@ function parseInboxReasoning(reasoningJson: string): InboxReasoning {
 }
 
 export default async function DispatchPage({
-  params,
-  searchParams
+  params
 }: {
   params: Promise<{ ideaId: string }>;
-  searchParams: Promise<{ userId?: string | string[] }>;
+  searchParams?: Promise<{ userId?: string | string[] }>;
 }) {
-  const [{ ideaId }, query] = await Promise.all([params, searchParams]);
-  const requestedUserId = typeof query.userId === "string" ? query.userId : undefined;
-  const privateAccessEnabled = isPrivateAccessConfigured();
-  const activePrivateUserId = privateAccessEnabled ? await getActivePrivateUserId() : null;
-
-  if (privateAccessEnabled && !activePrivateUserId) {
-    notFound();
-  }
-
-  const inboxUserId = privateAccessEnabled ? activePrivateUserId : requestedUserId;
+  const [currentUser, { ideaId }] = await Promise.all([requireCurrentUser(), params]);
   const idea = await prisma.idea.findUnique({
     where: { id: ideaId },
     include: {
       paper: true,
       inboxItems: {
-        ...(inboxUserId ? { where: { userId: inboxUserId } } : {}),
+        where: { userId: currentUser.id },
         orderBy: [{ inboxDate: "desc" }, { createdAt: "desc" }],
         take: 1,
         include: { user: true }

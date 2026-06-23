@@ -18,6 +18,10 @@ vi.mock("@/lib/db", () => ({
 const serviceModulePromise = import("@/lib/dispatch/service");
 
 describe("createViabilityJobForCurrentUser", () => {
+  it("does not export a caller-supplied user id job creator", async () => {
+    await expect(serviceModulePromise).resolves.not.toHaveProperty("createViabilityJob");
+  });
+
   it("creates a job for an idea owned by the signed-in user", async () => {
     const { createViabilityJobForCurrentUser } = await serviceModulePromise;
     const prisma = {

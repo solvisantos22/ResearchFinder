@@ -96,8 +96,7 @@ export function PaperCard({ item }: PaperCardProps) {
   const reasoning = parseReasoning(item.reasoningJson);
   const authors = parseStringArray(item.paper.authorsJson);
   const categories = parseStringArray(item.paper.categoriesJson);
-  const dispatchHref =
-    `/dispatch/${item.bestIdea.id}?userId=${encodeURIComponent(item.userId)}` as Route;
+  const dispatchHref = `/dispatch/${item.bestIdea.id}` as Route;
 
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">

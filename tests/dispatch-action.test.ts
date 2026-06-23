@@ -1,9 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
-  createViabilityJob: vi.fn(),
   createViabilityJobForCurrentUser: vi.fn(),
-  getRequestUserIdForPrivateAccess: vi.fn(),
   redirect: vi.fn((url: string) => {
     throw new Error(`NEXT_REDIRECT:${url}`);
   }),
@@ -15,12 +13,7 @@ vi.mock("@/lib/auth/session", () => ({
 }));
 
 vi.mock("@/lib/dispatch/service", () => ({
-  createViabilityJob: mocked.createViabilityJob,
   createViabilityJobForCurrentUser: mocked.createViabilityJobForCurrentUser
-}));
-
-vi.mock("@/lib/private-access-server", () => ({
-  getRequestUserIdForPrivateAccess: mocked.getRequestUserIdForPrivateAccess
 }));
 
 vi.mock("next/navigation", () => ({
@@ -28,12 +21,29 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("startDispatch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("rejects missing required form fields before creating a job", async () => {
+    const { startDispatch } = await import("@/app/dispatch/[ideaId]/actions");
+
+    mocked.requireCurrentUser.mockResolvedValue({ id: "signed-in-user" });
+
+    const formData = new FormData();
+    formData.set("sprintDepth", "default");
+    formData.set("autonomyLevel", "medium");
+
+    await expect(startDispatch(formData)).rejects.toThrow("Missing ideaId");
+
+    expect(mocked.createViabilityJobForCurrentUser).not.toHaveBeenCalled();
+    expect(mocked.redirect).not.toHaveBeenCalled();
+  });
+
   it("uses the authenticated user instead of the submitted user id", async () => {
     const { startDispatch } = await import("@/app/dispatch/[ideaId]/actions");
 
     mocked.requireCurrentUser.mockResolvedValue({ id: "signed-in-user" });
-    mocked.getRequestUserIdForPrivateAccess.mockResolvedValue("submitted-user");
-    mocked.createViabilityJob.mockResolvedValue({ id: "legacy-job" });
     mocked.createViabilityJobForCurrentUser.mockResolvedValue({ id: "job-1" });
 
     const formData = new FormData();
@@ -45,8 +55,6 @@ describe("startDispatch", () => {
     await expect(startDispatch(formData)).rejects.toThrow("NEXT_REDIRECT:/jobs/job-1");
 
     expect(mocked.requireCurrentUser).toHaveBeenCalledOnce();
-    expect(mocked.getRequestUserIdForPrivateAccess).not.toHaveBeenCalled();
-    expect(mocked.createViabilityJob).not.toHaveBeenCalled();
     expect(mocked.createViabilityJobForCurrentUser).toHaveBeenCalledWith({
       currentUserId: "signed-in-user",
       ideaId: "idea-1",

@@ -2,18 +2,20 @@ import React from "react";
 import { notFound } from "next/navigation";
 
 import { PaperCard } from "@/components/PaperCard";
+import { canViewUserResearch } from "@/lib/auth/permissions";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { getInboxItems } from "@/lib/inbox/service";
-import { canAccessPrivateUser } from "@/lib/private-access-server";
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
 export default async function InboxPage({ params }: { params: Promise<{ userId: string }> }) {
+  const currentUser = await requireCurrentUser();
   const { userId } = await params;
 
-  if (!(await canAccessPrivateUser(userId))) {
+  if (!canViewUserResearch({ currentUserId: currentUser.id, targetUserId: userId })) {
     notFound();
   }
 
