@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, ResearchProfile } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { withPostgresTestDatabase } from "./helpers/postgres";
@@ -20,6 +20,47 @@ vi.mock("@/lib/db", () => ({
 const servicePromise = import("@/lib/profiles/service");
 
 describe("profile service", () => {
+  it("falls back to interests when editable keywords are empty", async () => {
+    const { toEditableProfile } = await servicePromise;
+
+    const profile = toEditableProfile(
+      profileRecord({
+        interestsJson: JSON.stringify(["legacy interest"]),
+        keywordsJson: "[]"
+      })
+    );
+
+    expect(profile.keywords).toEqual(["legacy interest"]);
+  });
+
+  it("ensures profiles with an atomic upsert", async () => {
+    const researchProfile = {
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      upsert: vi.fn().mockResolvedValue(profileRecord({ userId: "user-1" }))
+    };
+    mocked.prisma = { researchProfile } as unknown as PrismaClient;
+
+    try {
+      const { ensureProfileForUser } = await servicePromise;
+
+      await ensureProfileForUser("user-1", "ai_ml");
+
+      expect(researchProfile.upsert).toHaveBeenCalledWith({
+        where: { userId: "user-1" },
+        update: {},
+        create: expect.objectContaining({
+          userId: "user-1",
+          fieldPresetKey: "ai_ml"
+        })
+      });
+      expect(researchProfile.findUnique).not.toHaveBeenCalled();
+      expect(researchProfile.create).not.toHaveBeenCalled();
+    } finally {
+      mocked.prisma = null;
+    }
+  });
+
   it("preserves an existing profile when ensuring defaults", async () => {
     await withPostgresTestDatabase(async (client) => {
       mocked.prisma = client;
@@ -170,3 +211,33 @@ describe("profile service", () => {
     });
   });
 });
+
+function profileRecord(overrides: Partial<ResearchProfile> = {}): ResearchProfile {
+  const now = new Date("2026-06-23T00:00:00.000Z");
+
+  return {
+    id: "profile-1",
+    userId: "user-1",
+    fieldPresetKey: "ai_ml",
+    interestsJson: JSON.stringify(["interest"]),
+    keywordsJson: JSON.stringify(["keyword"]),
+    constraintsJson: JSON.stringify(["constraint"]),
+    preferredOutputsJson: JSON.stringify(["output"]),
+    rankingWeightsJson: JSON.stringify({
+      paperQuality: 1,
+      projectOpportunity: 0,
+      dispatchLikelihood: 0
+    }),
+    arxivQuery: "cat:cs.AI",
+    maxDailyPapers: 10,
+    normalDailyRuntimeMin: 45,
+    maxDailyRuntimeMin: 120,
+    maxPapersScreened: 40,
+    maxPapersDeepRead: 6,
+    allowPdfFetch: false,
+    allowRelatedWorkSearch: true,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides
+  };
+}

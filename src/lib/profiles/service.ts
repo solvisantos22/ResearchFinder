@@ -49,9 +49,12 @@ function parseJsonList(value: string | null | undefined): string[] {
 }
 
 export function toEditableProfile(profile: ResearchProfile): EditableProfileData {
+  const keywords = parseJsonList(profile.keywordsJson);
+  const interests = parseJsonList(profile.interestsJson);
+
   return {
     fieldPresetKey: isFieldPresetKey(profile.fieldPresetKey) ? profile.fieldPresetKey : "ai_ml",
-    keywords: parseJsonList(profile.keywordsJson || profile.interestsJson),
+    keywords: keywords.length > 0 ? keywords : interests,
     preferredOutputs: parseJsonList(profile.preferredOutputsJson),
     constraints: parseJsonList(profile.constraintsJson),
     arxivQuery: profile.arxivQuery,
@@ -65,11 +68,10 @@ export function toEditableProfile(profile: ResearchProfile): EditableProfileData
 }
 
 export async function ensureProfileForUser(userId: string, presetKey: FieldPresetKey) {
-  const existing = await prisma.researchProfile.findUnique({ where: { userId } });
-  if (existing) return existing;
-
-  return prisma.researchProfile.create({
-    data: {
+  return prisma.researchProfile.upsert({
+    where: { userId },
+    update: {},
+    create: {
       userId,
       ...buildPresetProfileData(presetKey)
     }
