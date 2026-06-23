@@ -1,0 +1,390 @@
+# ResearchFinder V2 AI Inbox Hosted Product Design
+
+Date: 2026-06-23
+
+## Summary
+
+ResearchFinder V2 turns the current local-first prototype into a private hosted research operating system for two users. The product should open each morning to a dark, command-center style inbox of AI-generated research ideas, not heuristic paper summaries. Each user has a separate profile and local Codex worker, while both users can view each other's generated inboxes and viability outcomes.
+
+The core v2 loop is:
+
+```text
+Google sign-in
+-> personal research profile
+-> scheduled arXiv candidate fetch
+-> user's Windows Codex worker generates daily AI inbox
+-> user reviews 10 total ideas grouped by paper
+-> user dispatches one of their own ideas
+-> user's Windows Codex worker runs viability check
+-> hosted app preserves verdict, citations, artifacts, and next action
+```
+
+The hosted app owns identity, profiles, source ingestion, job state, persisted results, visibility, and UI. Local Windows workers own Codex execution so the hosted server never stores Codex credentials or personal subscription sessions.
+
+## Key Decisions
+
+- Use a real hosted deployment posture with Postgres and Prisma migrations.
+- Use Google sign-in with an allowed-email list for the two private users.
+- Keep arXiv as the only candidate paper source in v2, while modeling sources so more can be added later.
+- Keep separate personal profiles, but allow both users to view each other's inboxes and viability outcomes.
+- Allow users to dispatch only ideas generated for their own profile.
+- Use local Windows Codex workers for AI generation and viability checks.
+- Target Codex only in v2; design the worker runner boundary so Claude Code can be added later.
+- Generate the morning inbox with AI. Do not silently fall back to heuristic ideas.
+- Show 10 total ideas per day across papers, with at most 3 ideas per paper.
+- Keep dispatch as a viability check only, not a full research sprint.
+- Redesign the full app using the dark command-center brand direction selected from the brand ZIP.
+
+## Architecture
+
+The application remains a single Next.js app, but moves from a local demo posture to a production private-hosted posture.
+
+Primary components:
+
+- **Hosted Next.js app**: server-rendered UI, API routes, auth integration, worker endpoints, cron endpoint, and validation.
+- **Postgres database**: users, profiles, papers, source records, candidate batches, AI inbox jobs, generated ideas, score explanations, citations, worker registrations, viability jobs, artifacts, and evidence.
+- **Google auth**: Auth.js/NextAuth with Google provider and explicit email allowlist.
+- **Hosted cron**: creates daily candidate fetches and per-user inbox generation jobs.
+- **Windows companion worker**: installed once per user/machine; polls the hosted app, runs Codex locally, validates outputs, and uploads results.
+- **Codex runner**: v2's only AI execution backend, invoked locally by the worker through a structured prompt/input/output contract.
+
+The server does not store Codex credentials, ChatGPT session tokens, or API keys for model execution. It stores only ResearchFinder worker tokens scoped to a user and worker.
+
+## Authentication And Authorization
+
+Google sign-in gates the hosted app. Only configured allowed emails can sign in. When an allowed user signs in for the first time, the app creates or links a `User` record.
+
+Authorization rules:
+
+- Both allowed users can view both users' generated inboxes, ideas, and viability outcomes.
+- Each user can edit only their own profile.
+- Each user can dispatch only ideas generated for their own profile.
+- Dispatch buttons are hidden or disabled on another user's inbox.
+- Worker tokens are scoped to one user and cannot claim another user's jobs.
+- Screens label ownership clearly, for example "Generated for Solvi" and "Dispatched by Solvi."
+
+Google auth and worker auth are separate. Google identity is for browser users. Worker tokens are for local background execution.
+
+## Profiles
+
+Each user has one personal research profile in v2. Shared project profiles are out of scope.
+
+The profile starts from a broad field preset and then allows edits:
+
+- field preset, such as AI/ML, chemistry, biology, or economics
+- subfield keywords
+- preferred outputs, such as benchmark, prototype, dataset, survey, simulation, or reproducible paper
+- constraints, such as timeline, resource limits, and avoided project classes
+- scoring weights
+- arXiv query preview and editable query text
+- max papers screened per day
+- max papers deep-read per day
+- normal daily runtime budget
+- hard max runtime budget
+- whether PDFs may be fetched
+- whether lightweight related-work search is allowed
+
+The first implementation only sources candidate papers from arXiv. Field presets map to arXiv categories and terms. The UI should be honest that arXiv coverage varies by field, especially outside computer science and physics-adjacent areas.
+
+## AI Inbox Generation
+
+The daily inbox is generated by the user's local Codex worker, not by deterministic heuristics.
+
+Generation sequence:
+
+1. Hosted cron fetches arXiv candidate metadata for each active profile.
+2. The app creates an `inbox_generation` job for that profile owner.
+3. The owner's Windows worker claims the job.
+4. Codex screens candidate papers from metadata and abstracts.
+5. Codex escalates unusually promising papers into a deeper pass within the user's adaptive budget.
+6. Codex generates multiple possible ideas where warranted.
+7. Codex performs lightweight related-work and significance checks.
+8. Codex ranks ideas using the rubric.
+9. The worker validates the structured output and uploads it.
+10. The server validates the output again before persisting.
+
+If the worker has not completed the generation, the inbox shows a pending, stale, or failed state. The app must not pretend the AI inbox exists by showing heuristic replacements.
+
+## Inbox Output
+
+The daily target is 10 total ideas across papers. The inbox is grouped paper-first:
+
+- A paper appears only if at least one selected idea is strong enough to show.
+- A paper may show 1-3 ideas.
+- There is no forced minimum number of ideas per paper.
+- Each idea is independently scored and dispatchable.
+- One idea under a paper may be marked recommended.
+
+Each generated idea includes:
+
+- title
+- expanded project explanation
+- score breakdown
+- score explanations
+- project trajectory if the idea works
+- why the paper matters
+- why the idea is promising
+- what would make it fail
+- risks and traps
+- smallest useful viability sprint
+- novelty status
+- citations and retrieved sources
+- confidence notes
+
+Score dimensions:
+
+- **Relevance to You**: alignment with the user's profile, constraints, and interests.
+- **Research Significance**: likelihood that the idea could support a meaningful research contribution.
+- **Originality/Upside**: non-obviousness, ambition, and potential for a surprising or valuable result.
+- **Feasibility**: likelihood that a bounded viability sprint can produce useful evidence.
+- **Overall**: weighted final score used for ordering.
+
+If novelty or significance cannot be verified within the daily budget, a promising idea may still appear with a visible **Needs novelty check** flag.
+
+## Citations And Novelty Checks
+
+Every selected idea must cite the source arXiv paper. Any originality, significance, or related-work claim must be grounded in retrieved sources or marked uncertain.
+
+Rules:
+
+- Do not invent citations.
+- Do not use placeholder citations.
+- Store source URLs, titles, IDs, and retrieval context where available.
+- Distinguish source-paper evidence from AI-generated analysis.
+- If related work is uncertain, show the uncertainty explicitly.
+- A "Needs novelty check" flag lowers confidence but does not automatically exclude an idea.
+
+The lightweight novelty check is not expected to prove publication-level novelty. It is a daily triage mechanism that decides whether an idea is worth a viability check.
+
+## Windows Codex Worker
+
+The worker is a local automation bridge for Windows. It should be installed once per user/machine from a hosted setup page.
+
+Setup responsibilities:
+
+- verify Node/required runtime availability
+- verify the `codex` CLI is installed
+- verify Codex is logged in locally
+- store the hosted app URL
+- store a per-user worker token
+- register the worker with the hosted app
+- create a Windows Scheduled Task for overnight execution
+- optionally run on startup or wake
+- write logs to a predictable local folder
+
+After setup, normal operation should be hands-off. The user only needs to intervene if Codex auth expires, the worker token is revoked, the app URL changes, the scheduled task is disabled, or the user moves to a new machine.
+
+Worker behavior:
+
+- poll for jobs owned by its user
+- claim jobs atomically
+- run Codex with a structured input bundle
+- require structured JSON output
+- validate output locally
+- upload results, citations, artifacts, and logs
+- report failures visibly
+
+The worker supports these v2 job types:
+
+- `inbox_generation`
+- `viability_check`
+
+The runner contract should allow a future Claude Code runner, but no Claude implementation is required in v2.
+
+## Viability Flow
+
+Dispatch remains a narrow viability check.
+
+A user can dispatch only an idea generated for their own profile. The local worker claims the viability job and asks Codex to evaluate:
+
+- feasibility
+- novelty risk
+- minimum credible experiment
+- resource requirements
+- likely blockers
+- what evidence would justify expansion
+- what evidence would cause rejection
+
+Verdicts:
+
+- **expand**: strong enough to become a research sprint.
+- **needs novelty check**: promising, but related-work uncertainty must be resolved before building.
+- **revise**: valuable direction, but the framing or scope needs adjustment.
+- **reject**: not worth pursuing now.
+
+A positive result can expose a future "Expand into research sprint" action. Full prototype development and paper writing remain outside v2 implementation.
+
+## UI Redesign
+
+The full app should use the selected dark command-center direction from the brand ZIP:
+
+- black and near-black surfaces
+- violet action and status accents
+- white text
+- muted gray neutrals
+- Roboto typography
+- 8px-or-less card radius unless a local component requires otherwise
+- dense, readable, work-focused layout
+
+Chosen structure:
+
+- persistent left navigation rail
+- central work surface
+- right profile, worker, generation, and queue status column
+
+Primary screens:
+
+- daily inbox
+- profile editor
+- worker setup and status
+- jobs and viability outcomes
+- shared read-only view of the other user's inbox/results
+
+The inbox remains paper-first. Paper cards show metadata, source, date, categories, abstract, and 1-3 generated ideas. Ideas expand in a drawer/details section with score explanations, trajectory, novelty status, citations, traps, and dispatch action.
+
+The product should feel like a focused research operations tool, not a chatbot or marketing landing page.
+
+## Deployment And Data
+
+Production deployment uses Postgres and Prisma migrations. `prisma db push` remains a local prototyping tool only.
+
+Important data concepts:
+
+- users
+- allowed emails
+- research profiles
+- field presets
+- paper sources
+- arXiv papers
+- candidate batches
+- inbox generation jobs
+- generated ideas
+- score explanations
+- citations/evidence
+- worker registrations
+- worker tokens
+- viability jobs
+- artifacts
+- job logs/events
+
+The schema should preserve provenance: source metadata, generated analysis, worker outputs, and human actions should be distinguishable.
+
+## Reliability And Failure States
+
+Failure states are first-class UI states:
+
+- inbox pending
+- inbox stale
+- worker offline
+- worker never connected
+- Codex auth needs attention
+- generation failed
+- malformed AI output rejected
+- novelty unresolved
+- viability failed
+- job timed out
+
+Server-side validation rejects malformed AI outputs. Failed jobs retain enough logs and structured error information for diagnosis without exposing secrets.
+
+## Delivery Plan
+
+V2 should ship in phases.
+
+### Phase 1: Foundation And Redesign
+
+- Postgres configuration and migrations.
+- Google sign-in with allowed emails.
+- Personal profile model and editor.
+- Full dark command-center shell.
+- Shared visibility and ownership rules.
+- arXiv-only source model prepared for later expansion.
+
+### Phase 2: AI Inbox And Windows Codex Worker
+
+- Daily candidate fetch.
+- `inbox_generation` jobs.
+- Windows worker setup flow.
+- Scheduled Task installer.
+- Codex runner.
+- Structured AI output validation.
+- Pending/stale/failed inbox states.
+
+### Phase 3: Rich Idea Experience
+
+- 10 total ideas per day grouped by paper.
+- Up to 3 ideas per paper.
+- Expanded idea drawers.
+- Score explanations.
+- Project trajectories.
+- Citations and novelty flags.
+- Read-only shared inbox views.
+
+### Phase 4: Worker-Based Viability
+
+- User-owned dispatch permissions.
+- `viability_check` jobs.
+- Codex-based viability prompt and output schema.
+- Verdicts: expand, needs novelty check, revise, reject.
+- Viability outcome pages and evidence storage.
+
+## Non-Goals For V2
+
+V2 does not include:
+
+- public SaaS onboarding
+- billing
+- shared project profiles
+- source feeds beyond arXiv
+- Claude Code execution
+- cloud-hosted Codex execution using personal subscriptions
+- full research sprint execution
+- autonomous prototype building
+- full paper writing
+- automatic submission or publication
+
+## Testing Strategy
+
+Tests should cover:
+
+- Google allowlist behavior
+- profile ownership
+- shared visibility
+- dispatch permission rules
+- worker token authentication
+- worker job claiming
+- no cross-user job claiming
+- arXiv query generation
+- AI output schema validation
+- citation persistence
+- no heuristic inbox fallback when AI generation is missing
+- viability verdict validation
+- core dark-shell UI rendering states
+
+## Success Criteria
+
+V2 is successful if:
+
+- both users can sign into the hosted app with Google and no one else can
+- each user can configure a separate profile
+- each user can set up a Windows Codex worker once and leave it running
+- the morning inbox contains AI-generated ideas that feel thought-through and non-obvious
+- the inbox shows 10 total ideas grouped under relevant papers
+- each score has a clear explanation
+- novelty uncertainty is visible rather than hidden
+- users can see each other's inboxes and outcomes
+- users can dispatch only their own ideas
+- viability checks produce useful expand, needs novelty check, revise, or reject decisions
+- Codex credentials never need to be stored on the hosted server
+
+## Open Implementation Details
+
+These are implementation choices, not unresolved product requirements:
+
+- exact hosting provider
+- exact Postgres provider
+- exact Auth.js adapter
+- exact worker packaging format
+- whether the worker runs as a persistent process or scheduled one-shot command
+- exact Codex invocation method, such as `codex exec` or SDK
+- exact JSON schemas for inbox generation and viability outputs
+- exact arXiv field preset list
