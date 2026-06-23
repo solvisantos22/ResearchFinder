@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { GeneratedInboxSchema, type GeneratedInbox } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
 
@@ -90,4 +91,136 @@ export async function claimNextInboxGenerationJob(input: { userId: string; worke
   }
 
   return null;
+}
+
+export async function completeInboxGenerationJob(input: {
+  jobId: string;
+  workerId: string;
+  output: unknown;
+}) {
+  const parsed = GeneratedInboxSchema.parse(input.output);
+
+  const job = await prisma.inboxGenerationJob.findFirstOrThrow({
+    where: {
+      id: input.jobId,
+      claimedByWorkerId: input.workerId,
+      status: "running"
+    }
+  });
+
+  if (parsed.generatedForUserId !== job.userId || parsed.inboxDate !== job.inboxDate) {
+    throw new Error("Generated inbox output does not match claimed job user/date");
+  }
+
+  await persistGeneratedInbox(parsed, job.id);
+
+  return prisma.inboxGenerationJob.update({
+    where: { id: job.id },
+    data: {
+      status: "completed",
+      outputJson: JSON.stringify(parsed),
+      completedAt: new Date()
+    }
+  });
+}
+
+async function persistGeneratedInbox(inbox: GeneratedInbox, jobId: string) {
+  return prisma.$transaction(async (tx) => {
+    await tx.generatedIdea.deleteMany({
+      where: {
+        userId: inbox.generatedForUserId,
+        inboxDate: inbox.inboxDate
+      }
+    });
+
+    for (const paperGroup of inbox.papers) {
+      const paper = await tx.paper.upsert({
+        where: { arxivId: paperGroup.sourceId },
+        update: {
+          title: paperGroup.title,
+          abstract: paperGroup.abstract,
+          url: paperGroup.url,
+          publishedAt: new Date(paperGroup.publishedAt),
+          arxivUpdatedAt: new Date(paperGroup.publishedAt),
+          authorsJson: JSON.stringify(paperGroup.authors),
+          categoriesJson: JSON.stringify(paperGroup.categories)
+        },
+        create: {
+          arxivId: paperGroup.sourceId,
+          title: paperGroup.title,
+          abstract: paperGroup.abstract,
+          url: paperGroup.url,
+          publishedAt: new Date(paperGroup.publishedAt),
+          arxivUpdatedAt: new Date(paperGroup.publishedAt),
+          authorsJson: JSON.stringify(paperGroup.authors),
+          categoriesJson: JSON.stringify(paperGroup.categories)
+        }
+      });
+
+      for (const ideaInput of paperGroup.ideas) {
+        const idea = await tx.generatedIdea.create({
+          data: {
+            userId: inbox.generatedForUserId,
+            paperId: paper.id,
+            inboxGenerationJobId: jobId,
+            inboxDate: inbox.inboxDate,
+            title: ideaInput.title,
+            summary: ideaInput.summary,
+            expandedExplanation: ideaInput.expandedExplanation,
+            trajectory: ideaInput.trajectory,
+            recommended: ideaInput.recommended,
+            noveltyStatus: ideaInput.noveltyStatus,
+            relevanceScore: ideaInput.scores.relevance,
+            significanceScore: ideaInput.scores.significance,
+            originalityScore: ideaInput.scores.originality,
+            feasibilityScore: ideaInput.scores.feasibility,
+            overallScore: ideaInput.scores.overall,
+            scoreExplanationsJson: JSON.stringify(ideaInput.scoreExplanations),
+            risksJson: JSON.stringify(ideaInput.risks),
+            smallestSprint: ideaInput.smallestViabilitySprint,
+            generatedBy: "codex"
+          }
+        });
+
+        await tx.ideaCitation.createMany({
+          data: ideaInput.citations.map((citation) => ({
+            generatedIdeaId: idea.id,
+            sourceType: citation.sourceType,
+            title: citation.title,
+            url: citation.url,
+            sourceId: citation.sourceId,
+            claim: citation.claim,
+            confidence: citation.confidence
+          }))
+        });
+      }
+    }
+  });
+}
+
+export async function getGeneratedInboxState(userId: string, inboxDate: string) {
+  const ideas = await prisma.generatedIdea.findMany({
+    where: { userId, inboxDate },
+    orderBy: [{ overallScore: "desc" }],
+    include: {
+      paper: true,
+      citations: true
+    }
+  });
+
+  if (ideas.length > 0) {
+    return { status: "ready" as const, ideas };
+  }
+
+  const latestJob = await prisma.inboxGenerationJob.findFirst({
+    where: { userId, inboxDate },
+    orderBy: { createdAt: "desc" }
+  });
+
+  if (!latestJob) return { status: "pending" as const, ideas: [] };
+  if (latestJob.status === "failed") return { status: "failed" as const, ideas: [] };
+  return {
+    status: latestJob.status as "queued" | "running" | "completed" | "timed_out",
+    ideas: []
+  };
 }
