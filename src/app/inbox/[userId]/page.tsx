@@ -130,6 +130,12 @@ function renderInboxStatus(status: string, inboxDate: string) {
           candidate batches may produce new results.
         </StatusCard>
       );
+    case "ready":
+      return (
+        <StatusCard title="No generated ideas yet">
+          AI inbox generation is ready for {inboxDate}, but there are no generated ideas to show yet.
+        </StatusCard>
+      );
     default:
       return (
         <StatusCard title="AI inbox unavailable">
@@ -156,6 +162,7 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
   const inboxDate = todayIsoDate();
   const inboxState = await getGeneratedInboxState(userId, inboxDate);
   const paperGroups = groupIdeasByPaper(inboxState.ideas);
+  const displayName = user.name?.trim() || "Researcher";
 
   return (
     <main className="min-h-screen bg-rf-black text-rf-white">
@@ -165,7 +172,7 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
             AI research inbox
           </p>
           <h1 className="text-3xl font-semibold text-rf-white">
-            {user.name}&apos;s generated research inbox
+            {displayName}&apos;s generated research inbox
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-rf-muted">
             Papers grouped with AI-generated research ideas, reasoning, novelty status, and dispatch

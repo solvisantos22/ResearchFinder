@@ -7,6 +7,7 @@ import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 type PaperIdeaGroupProps = {
   currentUserId: string;
   generatedForUserId: string;
+  enableDispatch?: boolean;
   paper: {
     title: string;
     abstract: string;
@@ -21,10 +22,12 @@ type PaperIdeaGroupProps = {
 export function PaperIdeaGroup({
   currentUserId,
   generatedForUserId,
+  enableDispatch = false,
   paper,
   ideas
 }: PaperIdeaGroupProps) {
-  const canDispatch = canDispatchIdeaForProfile({ currentUserId, generatedForUserId });
+  const canDispatch =
+    enableDispatch && canDispatchIdeaForProfile({ currentUserId, generatedForUserId });
 
   return (
     <article className="rounded-lg border border-rf-border bg-rf-panel p-5">
@@ -36,6 +39,14 @@ export function PaperIdeaGroup({
       </div>
       <h2 className="text-xl font-semibold text-rf-white">{paper.title}</h2>
       <p className="mt-2 text-sm leading-6 text-rf-muted">{paper.abstract}</p>
+      <a
+        className="mt-4 inline-flex rounded-md border border-rf-border px-4 py-2 text-sm font-semibold text-rf-white transition-colors hover:bg-rf-surface"
+        href={paper.url}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Open source paper
+      </a>
       <div className="mt-5 grid gap-3">
         {ideas.map((idea) => (
           <IdeaCard key={idea.id} idea={idea} canDispatch={canDispatch} />
