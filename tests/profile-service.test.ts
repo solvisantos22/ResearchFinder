@@ -21,35 +21,47 @@ const servicePromise = import("@/lib/profiles/service");
 
 describe("profile service", () => {
   it("preserves an existing profile when ensuring defaults", async () => {
-    const { ensureProfileForUser } = await servicePromise;
-    const existingProfile = {
-      id: "profile-1",
-      userId: "user-1",
-      fieldPresetKey: "ai_ml",
-      arxivQuery: "custom query",
-      interestsJson: JSON.stringify(["custom interest"]),
-      keywordsJson: JSON.stringify(["custom keyword"])
-    };
-    const prisma = {
-      researchProfile: {
-        upsert: vi.fn().mockResolvedValue(existingProfile)
-      }
-    };
-    mocked.prisma = prisma as unknown as PrismaClient;
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
 
-    try {
-      await expect(ensureProfileForUser("user-1", "chemistry")).resolves.toBe(existingProfile);
-      expect(prisma.researchProfile.upsert).toHaveBeenCalledWith({
-        where: { userId: "user-1" },
-        update: {},
-        create: expect.objectContaining({
-          userId: "user-1",
-          fieldPresetKey: "chemistry"
-        })
-      });
-    } finally {
-      mocked.prisma = null;
-    }
+      try {
+        await client.user.create({
+          data: {
+            id: "user-1",
+            email: "user-1@example.com"
+          }
+        });
+        const existingProfile = await client.researchProfile.create({
+          data: {
+            userId: "user-1",
+            fieldPresetKey: "ai_ml",
+            arxivQuery: "custom query",
+            interestsJson: JSON.stringify(["custom interest"]),
+            keywordsJson: JSON.stringify(["custom keyword"]),
+            constraintsJson: JSON.stringify(["custom constraint"]),
+            preferredOutputsJson: JSON.stringify(["custom output"]),
+            rankingWeightsJson: JSON.stringify({
+              paperQuality: 1,
+              projectOpportunity: 0,
+              dispatchLikelihood: 0
+            })
+          }
+        });
+
+        const { ensureProfileForUser } = await servicePromise;
+        const ensuredProfile = await ensureProfileForUser("user-1", "chemistry");
+
+        expect(ensuredProfile.id).toBe(existingProfile.id);
+        expect(ensuredProfile.fieldPresetKey).toBe("ai_ml");
+        expect(ensuredProfile.arxivQuery).toBe("custom query");
+        expect(JSON.parse(ensuredProfile.interestsJson)).toEqual(["custom interest"]);
+        expect(JSON.parse(ensuredProfile.keywordsJson)).toEqual(["custom keyword"]);
+        expect(JSON.parse(ensuredProfile.constraintsJson)).toEqual(["custom constraint"]);
+        expect(JSON.parse(ensuredProfile.preferredOutputsJson)).toEqual(["custom output"]);
+      } finally {
+        mocked.prisma = null;
+      }
+    });
   });
 
   it("creates a preset profile for a user", async () => {
