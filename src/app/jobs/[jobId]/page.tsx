@@ -109,7 +109,7 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
   const inboxHref = `/inbox/${job.userId}` as Route;
 
   return (
-    <main className="min-h-screen bg-paper text-ink">
+    <main className="min-h-screen bg-paper text-ink [color-scheme:light]">
       <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-6">
         <p className="text-sm font-medium uppercase tracking-wide text-slate-500">

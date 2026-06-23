@@ -29,7 +29,7 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
   const items = await getInboxItems(userId, inboxDate);
 
   return (
-    <main className="min-h-screen bg-paper text-ink">
+    <main className="min-h-screen bg-paper text-ink [color-scheme:light]">
       <div className="mx-auto max-w-7xl px-6 py-8">
       <header className="mb-6">
         <p className="text-sm font-medium uppercase tracking-wide text-slate-500">

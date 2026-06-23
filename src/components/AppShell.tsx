@@ -1,6 +1,5 @@
 import React from "react";
-import type { Route } from "next";
-import Link from "next/link";
+import Link, { type LinkProps } from "next/link";
 
 import { WorkerStatusPanel, type WorkerStatus } from "@/components/WorkerStatusPanel";
 
@@ -9,7 +8,7 @@ type AppShellSection = "inbox" | "profiles" | "jobs" | "workers";
 type AppShellNavItem = {
   id: AppShellSection;
   label: string;
-  href: string;
+  href: LinkProps<string>["href"];
 };
 
 type AppShellProps = {
@@ -17,6 +16,7 @@ type AppShellProps = {
   workerStatus: WorkerStatus;
   activeSection: AppShellSection;
   navItems?: AppShellNavItem[];
+  rightRailLabel?: string;
   rightRail: React.ReactNode;
   children: React.ReactNode;
 };
@@ -33,6 +33,7 @@ export function AppShell({
   workerStatus,
   activeSection,
   navItems = defaultNavItems,
+  rightRailLabel = "Status and activity",
   rightRail,
   children
 }: AppShellProps) {
@@ -66,7 +67,7 @@ export function AppShell({
                       ? "border-rf-violetSoft bg-rf-violet text-rf-white"
                       : "border-transparent text-rf-muted hover:border-rf-border hover:bg-rf-surface hover:text-rf-white"
                   }`}
-                  href={item.href as Route}
+                  href={item.href}
                   key={item.id}
                 >
                   {item.label}
@@ -94,7 +95,10 @@ export function AppShell({
           <div className="min-w-0 [overflow-wrap:anywhere]">{children}</div>
         </main>
 
-        <aside className="min-w-0 border-t border-rf-border bg-rf-panel px-5 py-5 lg:border-l lg:border-t-0">
+        <aside
+          aria-label={rightRailLabel}
+          className="min-w-0 border-t border-rf-border bg-rf-panel px-5 py-5 lg:border-l lg:border-t-0"
+        >
           <div className="min-w-0 [overflow-wrap:anywhere]">{rightRail}</div>
         </aside>
       </div>

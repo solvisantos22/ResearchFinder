@@ -13,10 +13,10 @@ describe("AppShell", () => {
         workerStatus="online"
         activeSection="inbox"
         navItems={[
-          { id: "inbox", label: "Inbox", href: "/inbox/user-solvi" },
-          { id: "profiles", label: "Profiles", href: "/profiles/user-solvi" },
-          { id: "jobs", label: "Jobs", href: "/jobs/recent" },
-          { id: "workers", label: "Workers", href: "/workers" }
+          { id: "inbox", label: "Inbox", href: { pathname: "/inbox/user-solvi" } },
+          { id: "profiles", label: "Profiles", href: "#profiles" },
+          { id: "jobs", label: "Jobs", href: { pathname: "/jobs/recent" } },
+          { id: "workers", label: "Workers", href: "#workers" }
         ]}
         rightRail={<div>Queue clear</div>}
       >
@@ -25,6 +25,10 @@ describe("AppShell", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toBeInTheDocument();
+    expect(
+      screen.getByRole("complementary", { name: "Status and activity" })
+    ).toBeInTheDocument();
     expect(screen.getByText("Solvi")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
       "href",

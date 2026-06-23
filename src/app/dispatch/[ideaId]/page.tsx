@@ -89,7 +89,7 @@ export default async function DispatchPage({
   const reasoning = parseInboxReasoning(inboxItem.reasoningJson);
 
   return (
-    <main className="min-h-screen bg-paper text-ink">
+    <main className="min-h-screen bg-paper text-ink [color-scheme:light]">
       <div className="mx-auto max-w-5xl px-6 py-8">
       <header className="mb-6">
         <p className="text-sm font-medium uppercase text-slate-500">Dispatch setup</p>
