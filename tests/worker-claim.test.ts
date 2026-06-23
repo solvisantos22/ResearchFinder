@@ -52,6 +52,14 @@ describe("claimNextInboxGenerationJob", () => {
       });
 
       expect(claimed?.id).toBe(olderJob.id);
+      expect(claimed?.user.profile).toMatchObject({
+        userId: user.id,
+        fieldPresetKey: "ai_ml"
+      });
+      expect(claimed?.candidateBatch.candidates.map((candidate) => candidate.arxivId)).toEqual([
+        `${user.id}-2026-06-22-older`,
+        `${user.id}-2026-06-22-newer`
+      ]);
       const remaining = await client.inboxGenerationJob.findUniqueOrThrow({
         where: { id: newerJob.id }
       });
@@ -155,14 +163,25 @@ async function createCandidateBatch(
       candidates: {
         create: [
           {
-            arxivId: `${userId}-${inboxDate}-1`,
-            title: `Candidate ${userId} ${inboxDate}`,
-            abstract: "Candidate abstract",
-            url: `https://arxiv.org/abs/${userId}-${inboxDate}-1`,
+            arxivId: `${userId}-${inboxDate}-newer`,
+            title: `Newer candidate ${userId} ${inboxDate}`,
+            abstract: "Newer candidate abstract",
+            url: `https://arxiv.org/abs/${userId}-${inboxDate}-newer`,
             publishedAt: new Date("2026-06-01T00:00:00.000Z"),
             authorsJson: JSON.stringify(["Author"]),
             categoriesJson: JSON.stringify(["cs.AI"]),
-            rawJson: JSON.stringify({ id: `${userId}-${inboxDate}-1` }),
+            rawJson: JSON.stringify({ id: `${userId}-${inboxDate}-newer` }),
+            createdAt: new Date(`${inboxDate}T12:02:00.000Z`)
+          },
+          {
+            arxivId: `${userId}-${inboxDate}-older`,
+            title: `Older candidate ${userId} ${inboxDate}`,
+            abstract: "Older candidate abstract",
+            url: `https://arxiv.org/abs/${userId}-${inboxDate}-older`,
+            publishedAt: new Date("2026-06-01T00:00:00.000Z"),
+            authorsJson: JSON.stringify(["Author"]),
+            categoriesJson: JSON.stringify(["cs.AI"]),
+            rawJson: JSON.stringify({ id: `${userId}-${inboxDate}-older` }),
             createdAt: new Date(`${inboxDate}T12:01:00.000Z`)
           }
         ]
