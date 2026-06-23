@@ -44,6 +44,15 @@ function wrapCmdPayload(value: string) {
   return `"${value}"`;
 }
 
+function buildFailureMessage(code: number | null, stderr: string, stdout: string) {
+  const details = [
+    stderr.trim() ? `stderr: ${stderr.trim()}` : "",
+    stdout.trim() ? `stdout: ${stdout.trim()}` : ""
+  ].filter(Boolean);
+
+  return `codex exited with ${code}${details.length > 0 ? `: ${details.join(" ")}` : ""}`;
+}
+
 function getDefaultCodexCommand(platform: NodeJS.Platform) {
   return platform === "win32" ? "codex.cmd" : "codex";
 }
@@ -121,8 +130,11 @@ export async function runCodex(
         stdio: ["pipe", "pipe", "pipe"]
       });
       let stderr = "";
+      let stdout = "";
 
-      child.stdout.on("data", () => {});
+      child.stdout.on("data", (chunk) => {
+        stdout += String(chunk);
+      });
 
       child.stderr.on("data", (chunk) => {
         stderr += String(chunk);
@@ -131,7 +143,7 @@ export async function runCodex(
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0) resolve();
-        else reject(new Error(`codex exited with ${code}: ${stderr}`));
+        else reject(new Error(buildFailureMessage(code, stderr, stdout)));
       });
 
       child.stdin.write(prompt);

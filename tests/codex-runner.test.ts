@@ -292,7 +292,31 @@ describe("codex runner", () => {
         }
       });
 
-      await expect(output).rejects.toThrow("codex exited with 2: bad prompt");
+      await expect(output).rejects.toThrow("codex exited with 2: stderr: bad prompt");
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it("includes stdout JSONL in non-zero exit errors when stderr is empty", async () => {
+    const { promptPath, tempDir } = createTempPrompt();
+    const child = createMockChild();
+
+    try {
+      const output = runCodex(promptPath, {
+        spawn: () => {
+          queueMicrotask(() => {
+            child.stdout.emit("data", "{\"type\":\"error\",\"message\":\"model failed\"}\n");
+            child.emit("close", 2);
+          });
+
+          return child;
+        }
+      });
+
+      await expect(output).rejects.toThrow(
+        "codex exited with 2: stdout: {\"type\":\"error\",\"message\":\"model failed\"}"
+      );
     } finally {
       rmSync(tempDir, { force: true, recursive: true });
     }
@@ -327,8 +351,14 @@ describe("codex runner", () => {
       ["exec", "--help"],
       process.platform
     );
+    const execOptions = {
+      ...commandPlan.options,
+      ...(commandPlan.envOverrides
+        ? { env: { ...process.env, ...commandPlan.envOverrides } }
+        : {})
+    };
 
-    const { stdout } = await execFileAsync(commandPlan.command, commandPlan.args, commandPlan.options);
+    const { stdout } = await execFileAsync(commandPlan.command, commandPlan.args, execOptions);
 
     expect(stdout).toContain("--output-last-message");
     expect(stdout).not.toContain("--file");
