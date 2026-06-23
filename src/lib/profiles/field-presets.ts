@@ -83,6 +83,10 @@ export type PresetProfileData = {
   allowRelatedWorkSearch: boolean;
 };
 
+export function isFieldPresetKey(value: string): value is FieldPresetKey {
+  return value in fieldPresets;
+}
+
 export function buildPresetProfileData(key: FieldPresetKey): PresetProfileData {
   const preset = fieldPresets[key];
 
