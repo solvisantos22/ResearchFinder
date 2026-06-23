@@ -79,29 +79,42 @@ describe("codex runner", () => {
         "/d",
         "/s",
         "/c",
-        "\"\"C:\\Users\\Test User\\AppData\\Roaming\\npm\\codex.cmd\" \"exec\" \"--json\" \"--skip-git-repo-check\" \"--output-last-message\" \"C:\\Users\\Test User\\last message.txt\" \"-\"\""
+        "\"\"%RESEARCHFINDER_CODEX_COMMAND%\" \"%RESEARCHFINDER_CODEX_ARG_0%\" \"%RESEARCHFINDER_CODEX_ARG_1%\" \"%RESEARCHFINDER_CODEX_ARG_2%\" \"%RESEARCHFINDER_CODEX_ARG_3%\" \"%RESEARCHFINDER_CODEX_ARG_4%\" \"%RESEARCHFINDER_CODEX_ARG_5%\"\""
       ],
       options: {
         windowsVerbatimArguments: true
+      },
+      envOverrides: {
+        RESEARCHFINDER_CODEX_ARG_0: "exec",
+        RESEARCHFINDER_CODEX_ARG_1: "--json",
+        RESEARCHFINDER_CODEX_ARG_2: "--skip-git-repo-check",
+        RESEARCHFINDER_CODEX_ARG_3: "--output-last-message",
+        RESEARCHFINDER_CODEX_ARG_4: "C:\\Users\\Test User\\last message.txt",
+        RESEARCHFINDER_CODEX_ARG_5: "-",
+        RESEARCHFINDER_CODEX_COMMAND: "C:\\Users\\Test User\\AppData\\Roaming\\npm\\codex.cmd"
       }
     });
   });
 
-  it("escapes percent signs in Windows cmd shim arguments", () => {
+  it("stores percent-containing Windows cmd shim arguments in env overrides", () => {
     const commandPlan = createCodexSpawnCommand(
       "codex.cmd",
       buildCodexExecArgs("C:\\Users\\Test User\\out %USERNAME%.txt"),
       "win32"
     );
 
-    expect(commandPlan.args[3]).toContain("\"C:\\Users\\Test User\\out ^%USERNAME^%.txt\"");
+    expect(commandPlan.args[3]).toContain("\"%RESEARCHFINDER_CODEX_ARG_4%\"");
+    expect(commandPlan.envOverrides?.RESEARCHFINDER_CODEX_ARG_4).toBe(
+      "C:\\Users\\Test User\\out %USERNAME%.txt"
+    );
   });
 
   it("keeps direct Windows invocation for native exe commands", () => {
     expect(createCodexSpawnCommand("C:\\Tools\\codex.exe", ["exec"], "win32")).toEqual({
       command: "C:\\Tools\\codex.exe",
       args: ["exec"],
-      options: {}
+      options: {},
+      envOverrides: undefined
     });
   });
 
@@ -150,18 +163,27 @@ describe("codex runner", () => {
           expect(args[0]).toBe("/d");
           expect(args[1]).toBe("/s");
           expect(args[2]).toBe("/c");
-          expect(args[3]).toContain("\"\"codex.cmd\" \"exec\" \"--json\" \"--skip-git-repo-check\" \"--output-last-message\"");
-          expect(args[3]).toContain("\"-\"\"");
-          expect(options).toEqual({
+          expect(args[3]).toBe(
+            "\"\"%RESEARCHFINDER_CODEX_COMMAND%\" \"%RESEARCHFINDER_CODEX_ARG_0%\" \"%RESEARCHFINDER_CODEX_ARG_1%\" \"%RESEARCHFINDER_CODEX_ARG_2%\" \"%RESEARCHFINDER_CODEX_ARG_3%\" \"%RESEARCHFINDER_CODEX_ARG_4%\" \"%RESEARCHFINDER_CODEX_ARG_5%\"\""
+          );
+          expect(options).toEqual(expect.objectContaining({
             stdio: ["pipe", "pipe", "pipe"],
             windowsVerbatimArguments: true
-          });
+          }));
+          expect(options.env).toEqual(expect.objectContaining({
+            RESEARCHFINDER_CODEX_ARG_0: "exec",
+            RESEARCHFINDER_CODEX_ARG_1: "--json",
+            RESEARCHFINDER_CODEX_ARG_2: "--skip-git-repo-check",
+            RESEARCHFINDER_CODEX_ARG_3: "--output-last-message",
+            RESEARCHFINDER_CODEX_ARG_5: "-",
+            RESEARCHFINDER_CODEX_COMMAND: "codex.cmd"
+          }));
 
-          const payloadParts = args[3].slice(1, -1).match(/"[^"]*"/g) ?? [];
-          const outputPath = payloadParts[payloadParts.length - 2].slice(1, -1);
+          const outputPath = options.env?.RESEARCHFINDER_CODEX_ARG_4;
+          expect(outputPath).toBeTypeOf("string");
 
           queueMicrotask(() => {
-            writeFileSync(outputPath, "windows final");
+            writeFileSync(outputPath as string, "windows final");
             child.emit("close", 0);
           });
 
@@ -215,9 +237,10 @@ describe("codex runner", () => {
     }
   });
 
-  runOnWindows("preserves percent sequences from prompt files through Windows cmd shims", async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), "codex percent test "));
+  runOnWindows("preserves percent output paths through npm-style Windows cmd shim forwarding", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "codex percent %USERNAME% test "));
     const shimPath = join(tempDir, "fake codex.cmd");
+    const writerPath = join(tempDir, "writer script.js");
     const promptPath = join(tempDir, "prompt %USERNAME% file.md");
 
     try {
@@ -225,8 +248,16 @@ describe("codex runner", () => {
         shimPath,
         [
           "@echo off",
-          "node -e \"require('node:fs').writeFileSync(process.argv[1], require('node:fs').readFileSync(0, 'utf8'))\" \"%~5\""
+          "node \"%~dp0writer script.js\" %*"
         ].join("\r\n")
+      );
+      writeFileSync(
+        writerPath,
+        [
+          "const fs = require('node:fs');",
+          "const outputFile = process.argv[6];",
+          "fs.writeFileSync(outputFile, `arg5=${outputFile}\\nstdin=${fs.readFileSync(0, 'utf8')}`);"
+        ].join("\n")
       );
       writeFileSync(promptPath, `prompt path: ${promptPath}`);
 
@@ -235,7 +266,11 @@ describe("codex runner", () => {
         platform: "win32"
       });
 
-      expect(output.replace(/\r\n/g, "\n").trim()).toBe(`prompt path: ${promptPath}`);
+      const normalizedOutput = output.replace(/\r\n/g, "\n").trim();
+      const argLine = normalizedOutput.split("\n").find((line) => line.startsWith("arg5="));
+      expect(argLine).toContain("%USERNAME%");
+      expect(argLine).not.toContain("^%");
+      expect(normalizedOutput).toContain(`stdin=prompt path: ${promptPath}`);
     } finally {
       rmSync(tempDir, { force: true, recursive: true });
     }

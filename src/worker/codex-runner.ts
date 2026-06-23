@@ -1,7 +1,6 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 type DataEmitter = {
   on(event: "data", listener: (chunk: unknown) => void): unknown;
@@ -33,15 +32,12 @@ type RunCodexOptions = {
 type CodexSpawnCommand = {
   command: string;
   args: string[];
+  envOverrides?: Record<string, string>;
   options: SpawnOptions;
 };
 
 export function buildCodexExecArgs(outputFile: string) {
   return ["exec", "--json", "--skip-git-repo-check", "--output-last-message", outputFile, "-"];
-}
-
-function quoteCmdPart(value: string) {
-  return `"${value.replaceAll("^", "^^").replaceAll("%", "^%").replaceAll("\"", "\"\"")}"`;
 }
 
 function wrapCmdPayload(value: string) {
@@ -69,14 +65,29 @@ export function createCodexSpawnCommand(
   platform: NodeJS.Platform
 ): CodexSpawnCommand {
   if (!shouldUseCmdShim(codexCommand, platform)) {
-    return { command: codexCommand, args, options: {} };
+    return { command: codexCommand, args, envOverrides: undefined, options: {} };
   }
 
-  const payload = [codexCommand, ...args].map(quoteCmdPart).join(" ");
+  const envOverrides = args.reduce<Record<string, string>>(
+    (overrides, arg, index) => {
+      overrides[`RESEARCHFINDER_CODEX_ARG_${index}`] = arg;
+      return overrides;
+    },
+    {
+      RESEARCHFINDER_CODEX_COMMAND: codexCommand
+    }
+  );
+  const payload = [
+    "RESEARCHFINDER_CODEX_COMMAND",
+    ...args.map((_, index) => `RESEARCHFINDER_CODEX_ARG_${index}`)
+  ]
+    .map((name) => `"%${name}%"`)
+    .join(" ");
 
   return {
     command: "cmd.exe",
     args: ["/d", "/s", "/c", wrapCmdPayload(payload)],
+    envOverrides,
     options: {
       windowsVerbatimArguments: true
     }
@@ -88,7 +99,7 @@ export async function runCodex(
   options: RunCodexOptions = {}
 ): Promise<string> {
   const prompt = await readFile(promptFile, "utf8");
-  const outputDir = await mkdtemp(join(tmpdir(), "researchfinder-codex-"));
+  const outputDir = await mkdtemp(join(dirname(promptFile), ".codex-output-"));
   const outputFile = join(outputDir, "last-message.txt");
 
   try {
@@ -104,6 +115,9 @@ export async function runCodex(
     await new Promise<void>((resolve, reject) => {
       const child = spawnCodex(commandPlan.command, commandPlan.args, {
         ...commandPlan.options,
+        ...(commandPlan.envOverrides
+          ? { env: { ...process.env, ...commandPlan.envOverrides } }
+          : {}),
         stdio: ["pipe", "pipe", "pipe"]
       });
       let stderr = "";
