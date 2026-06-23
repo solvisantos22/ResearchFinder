@@ -25,6 +25,7 @@ export function WorkerStatusPanel({ status }: WorkerStatusPanelProps) {
     <div
       className={`inline-flex min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${statusClass[status]}`}
       data-testid="worker-status"
+      role="status"
     >
       <span className="h-2 w-2 shrink-0 rounded-sm bg-current" aria-hidden="true" />
       <span className="min-w-0 break-words">Worker {statusLabel[status]}</span>

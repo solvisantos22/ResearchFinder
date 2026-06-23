@@ -1,28 +1,38 @@
 import React from "react";
+import type { Route } from "next";
+import Link from "next/link";
 
 import { WorkerStatusPanel, type WorkerStatus } from "@/components/WorkerStatusPanel";
 
 type AppShellSection = "inbox" | "profiles" | "jobs" | "workers";
 
+type AppShellNavItem = {
+  id: AppShellSection;
+  label: string;
+  href: string;
+};
+
 type AppShellProps = {
   currentUserName: string;
   workerStatus: WorkerStatus;
   activeSection: AppShellSection;
+  navItems?: AppShellNavItem[];
   rightRail: React.ReactNode;
   children: React.ReactNode;
 };
 
-const navItems: Array<{ id: AppShellSection; label: string; href: string }> = [
-  { id: "inbox", label: "Inbox", href: "/inbox" },
-  { id: "profiles", label: "Profiles", href: "/profiles" },
-  { id: "jobs", label: "Jobs", href: "/jobs" },
-  { id: "workers", label: "Workers", href: "/workers" }
+const defaultNavItems: AppShellNavItem[] = [
+  { id: "inbox", label: "Inbox", href: "#inbox" },
+  { id: "profiles", label: "Profiles", href: "#profiles" },
+  { id: "jobs", label: "Jobs", href: "#jobs" },
+  { id: "workers", label: "Workers", href: "#workers" }
 ];
 
 export function AppShell({
   currentUserName,
   workerStatus,
   activeSection,
+  navItems = defaultNavItems,
   rightRail,
   children
 }: AppShellProps) {
@@ -49,18 +59,18 @@ export function AppShell({
               const isActive = item.id === activeSection;
 
               return (
-                <a
+                <Link
                   aria-current={isActive ? "page" : undefined}
                   className={`whitespace-nowrap rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
                     isActive
                       ? "border-rf-violetSoft bg-rf-violet text-rf-white"
                       : "border-transparent text-rf-muted hover:border-rf-border hover:bg-rf-surface hover:text-rf-white"
                   }`}
-                  href={item.href}
+                  href={item.href as Route}
                   key={item.id}
                 >
                   {item.label}
-                </a>
+                </Link>
               );
             })}
           </div>

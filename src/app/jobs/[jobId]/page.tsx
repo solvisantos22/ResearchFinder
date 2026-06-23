@@ -109,7 +109,8 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
   const inboxHref = `/inbox/${job.userId}` as Route;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
+    <main className="min-h-screen bg-paper text-ink">
+      <div className="mx-auto max-w-6xl px-6 py-8">
       <header className="mb-6">
         <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
           Viability decision
@@ -230,6 +231,7 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
       <Link className="mt-8 inline-flex text-sm font-medium text-slate-700 underline" href={inboxHref}>
         Back to inbox
       </Link>
-    </div>
+      </div>
+    </main>
   );
 }

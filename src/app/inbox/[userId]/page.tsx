@@ -29,7 +29,8 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
   const items = await getInboxItems(userId, inboxDate);
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-paper text-ink">
+      <div className="mx-auto max-w-7xl px-6 py-8">
       <header className="mb-6">
         <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
           Morning inbox
@@ -57,6 +58,7 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </main>
   );
 }

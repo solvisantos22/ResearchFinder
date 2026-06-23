@@ -12,6 +12,12 @@ describe("AppShell", () => {
         currentUserName="Solvi"
         workerStatus="online"
         activeSection="inbox"
+        navItems={[
+          { id: "inbox", label: "Inbox", href: "/inbox/user-solvi" },
+          { id: "profiles", label: "Profiles", href: "/profiles/user-solvi" },
+          { id: "jobs", label: "Jobs", href: "/jobs/recent" },
+          { id: "workers", label: "Workers", href: "/workers" }
+        ]}
         rightRail={<div>Queue clear</div>}
       >
         <h1>{"Today's research inbox"}</h1>
@@ -19,8 +25,18 @@ describe("AppShell", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
+    expect(screen.getByText("Solvi")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+      "href",
+      "/inbox/user-solvi"
+    );
+    expect(screen.getByRole("link", { name: "Profiles" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Jobs" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Workers" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Today's research inbox")).toBeInTheDocument();
     expect(screen.getByText("Queue clear")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Worker online");
     expect(screen.getByText("Worker online")).toBeInTheDocument();
   });
 });

@@ -89,7 +89,8 @@ export default async function DispatchPage({
   const reasoning = parseInboxReasoning(inboxItem.reasoningJson);
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
+    <main className="min-h-screen bg-paper text-ink">
+      <div className="mx-auto max-w-5xl px-6 py-8">
       <header className="mb-6">
         <p className="text-sm font-medium uppercase text-slate-500">Dispatch setup</p>
         <h1 className="text-3xl font-semibold">{idea.title}</h1>
@@ -107,6 +108,7 @@ export default async function DispatchPage({
         suggestedDepth={reasoning.suggestedDepth}
         suggestedAutonomy={reasoning.suggestedAutonomy}
       />
-    </div>
+      </div>
+    </main>
   );
 }
