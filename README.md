@@ -30,21 +30,25 @@ npm run dev
 Open:
 
 ```text
-http://localhost:3000/inbox/demo-solvi
+http://localhost:3000
 ```
 
-The app uses Google Auth through Auth.js. Configure `GOOGLE_CLIENT_ID`,
-`GOOGLE_CLIENT_SECRET`, and `ALLOWED_GOOGLE_EMAILS` in `.env` before signing in.
+Authentication is handled by Google sign-in through Auth.js. Configure
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `ALLOWED_GOOGLE_EMAILS` in
+`.env`; only accounts listed in `ALLOWED_GOOGLE_EMAILS` can sign in.
 
 ## Worker
 
-After dispatching a viability sprint from the UI, process one queued job:
+After signing in, open `/workers` to register and connect a local worker. The
+page shows a one-time PowerShell setup command for installing the connected
+worker.
 
 ```powershell
-npm run worker:once
+npm run worker:local
 ```
 
-Then refresh the job page.
+Use `npm run worker:local` for local development, or run the installed worker
+created by the `/workers` setup flow for hosted-style processing.
 
 ## Cron and Deployment
 

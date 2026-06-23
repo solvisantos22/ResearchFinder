@@ -41,7 +41,9 @@ vi.mock("next/navigation", () => ({
   redirect: mocked.redirect
 }));
 
-import WorkersPage, { registerWorker, WorkerSetupContent } from "@/app/workers/page";
+import { WorkerSetupContent } from "@/components/WorkerSetupContent";
+import { registerWorker } from "@/app/workers/actions";
+import WorkersPage from "@/app/workers/page";
 
 describe("WorkerSetupContent", () => {
   beforeEach(() => {
