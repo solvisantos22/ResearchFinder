@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
+  canDispatchIdeaForProfile: vi.fn(),
   canViewUserResearch: vi.fn(),
   canEditProfile: vi.fn(),
   getInboxItems: vi.fn(),
@@ -11,6 +12,9 @@ const mocked = vi.hoisted(() => ({
     throw new Error("NEXT_NOT_FOUND");
   }),
   prisma: {
+    generatedIdea: {
+      findUnique: vi.fn()
+    },
     idea: {
       findUnique: vi.fn()
     },
@@ -33,6 +37,7 @@ vi.mock("@/lib/auth/session", () => ({
 }));
 
 vi.mock("@/lib/auth/permissions", () => ({
+  canDispatchIdeaForProfile: mocked.canDispatchIdeaForProfile,
   canEditProfile: mocked.canEditProfile,
   canViewUserResearch: mocked.canViewUserResearch
 }));
@@ -57,6 +62,7 @@ vi.mock("next/navigation", () => ({
 describe("app page auth", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.prisma.generatedIdea.findUnique.mockResolvedValue(null);
   });
 
   it("checks shared visibility before rendering another user's inbox", async () => {
@@ -83,6 +89,7 @@ describe("app page auth", () => {
     const { default: DispatchPage } = await import("@/app/dispatch/[ideaId]/page");
 
     mocked.requireCurrentUser.mockResolvedValue({ id: "current-user" });
+    mocked.prisma.generatedIdea.findUnique.mockResolvedValue(null);
     mocked.prisma.idea.findUnique.mockResolvedValue({
       id: "idea-1",
       title: "Idea",
@@ -102,6 +109,11 @@ describe("app page auth", () => {
     });
 
     expect(mocked.requireCurrentUser).toHaveBeenCalledOnce();
+    expect(mocked.prisma.generatedIdea.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "idea-1" }
+      })
+    );
     expect(mocked.prisma.idea.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({
         include: expect.objectContaining({
@@ -111,6 +123,38 @@ describe("app page auth", () => {
         })
       })
     );
+  });
+
+  it("returns not found for a generated dispatch setup owned by another user", async () => {
+    const { default: DispatchPage } = await import("@/app/dispatch/[ideaId]/page");
+
+    mocked.requireCurrentUser.mockResolvedValue({ id: "current-user" });
+    mocked.canDispatchIdeaForProfile.mockReturnValue(false);
+    mocked.prisma.generatedIdea.findUnique.mockResolvedValue({
+      id: "generated-idea-2",
+      userId: "other-user",
+      title: "Other generated idea",
+      summary: "Generated summary",
+      expandedExplanation: "Expanded generated explanation",
+      trajectory: "Prototype trajectory",
+      smallestSprint: "Run a focused default sprint",
+      paper: {
+        title: "Generated paper",
+        abstract: "Generated abstract",
+        url: "https://arxiv.org/abs/2606.00001"
+      },
+      citations: []
+    });
+
+    await expect(
+      DispatchPage({ params: Promise.resolve({ ideaId: "generated-idea-2" }) })
+    ).rejects.toThrow("NEXT_NOT_FOUND");
+
+    expect(mocked.prisma.idea.findUnique).not.toHaveBeenCalled();
+    expect(mocked.canDispatchIdeaForProfile).toHaveBeenCalledWith({
+      currentUserId: "current-user",
+      generatedForUserId: "other-user"
+    });
   });
 
   it("uses shared research visibility for read-only job pages", async () => {
