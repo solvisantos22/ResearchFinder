@@ -39,8 +39,10 @@ CREATE TABLE "VerificationToken" (
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
-    "email" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "name" TEXT,
+    "email" TEXT,
+    "emailVerified" TIMESTAMP(3),
+    "image" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -405,7 +407,7 @@ ALTER TABLE "ViabilityJob" ADD CONSTRAINT "ViabilityJob_userId_fkey" FOREIGN KEY
 ALTER TABLE "ViabilityJob" ADD CONSTRAINT "ViabilityJob_ideaId_fkey" FOREIGN KEY ("ideaId") REFERENCES "Idea"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ViabilityJob" ADD CONSTRAINT "ViabilityJob_generatedIdeaId_fkey" FOREIGN KEY ("generatedIdeaId") REFERENCES "GeneratedIdea"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "ViabilityJob" ADD CONSTRAINT "ViabilityJob_generatedIdeaId_fkey" FOREIGN KEY ("generatedIdeaId") REFERENCES "GeneratedIdea"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Artifact" ADD CONSTRAINT "Artifact_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "ViabilityJob"("id") ON DELETE CASCADE ON UPDATE CASCADE;
