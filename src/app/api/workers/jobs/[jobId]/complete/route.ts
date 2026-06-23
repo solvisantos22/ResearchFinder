@@ -1,0 +1,118 @@
+import { NextResponse } from "next/server";
+
+import { prisma } from "@/lib/db";
+import { completeInboxGenerationJob } from "@/lib/jobs/inbox-generation";
+import { completeV2ViabilityJob } from "@/lib/jobs/viability";
+import { readBearerToken, verifyWorkerToken } from "@/lib/jobs/worker-auth";
+
+type WorkerJobType = "inbox_generation" | "viability_check";
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ jobId: string }> }
+) {
+  const token = readBearerToken(request);
+  if (!token) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const worker = await findWorkerByToken(token);
+  if (!worker) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  await prisma.workerRegistration.update({
+    where: { id: worker.id },
+    data: { lastSeenAt: new Date() }
+  });
+
+  const { jobId } = await params;
+  const body = (await request.json()) as { type?: unknown; output?: unknown };
+  const jobType = await resolveJobType({
+    requestedType: body.type,
+    jobId,
+    workerId: worker.id
+  });
+
+  if (!jobType) {
+    return NextResponse.json({ error: "Worker job is not claimable by this worker" }, { status: 404 });
+  }
+
+  try {
+    if (jobType === "inbox_generation") {
+      await completeInboxGenerationJob({
+        jobId,
+        workerId: worker.id,
+        output: body.output
+      });
+    } else {
+      await completeV2ViabilityJob({
+        jobId,
+        workerId: worker.id,
+        output: body.output
+      });
+    }
+  } catch (error) {
+    return NextResponse.json({ error: formatErrorMessage(error) }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+async function resolveJobType(input: {
+  requestedType: unknown;
+  jobId: string;
+  workerId: string;
+}): Promise<WorkerJobType | null> {
+  if (input.requestedType === "inbox_generation" || input.requestedType === "viability_check") {
+    return input.requestedType;
+  }
+
+  const inboxJob = await prisma.inboxGenerationJob.findFirst({
+    where: {
+      id: input.jobId,
+      claimedByWorkerId: input.workerId,
+      status: "running"
+    },
+    select: { id: true }
+  });
+
+  if (inboxJob) return "inbox_generation";
+
+  const viabilityJob = await prisma.viabilityJob.findFirst({
+    where: {
+      id: input.jobId,
+      claimedByWorkerId: input.workerId,
+      status: "running"
+    },
+    select: { id: true }
+  });
+
+  return viabilityJob ? "viability_check" : null;
+}
+
+async function findWorkerByToken(token: string) {
+  const workers = await prisma.workerRegistration.findMany({
+    where: {
+      status: "active",
+      revokedAt: null
+    },
+    select: {
+      id: true,
+      userId: true,
+      tokenHash: true
+    }
+  });
+
+  for (const worker of workers) {
+    if (await verifyWorkerToken(token, worker.tokenHash)) {
+      return worker;
+    }
+  }
+
+  return null;
+}
+
+function formatErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unknown worker completion error";
+}

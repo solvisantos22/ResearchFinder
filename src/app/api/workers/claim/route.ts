@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { claimNextInboxGenerationJob } from "@/lib/jobs/inbox-generation";
+import { claimNextViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken, verifyWorkerToken } from "@/lib/jobs/worker-auth";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
 import {
@@ -31,7 +32,38 @@ export async function POST(request: Request) {
   });
 
   if (!job) {
-    return NextResponse.json({ job: null });
+    const viabilityJob = await claimNextViabilityJob({
+      userId: worker.userId,
+      workerId: worker.id
+    });
+
+    if (!viabilityJob) {
+      return NextResponse.json({ job: null });
+    }
+
+    try {
+      return NextResponse.json({
+        job: {
+          type: "viability_check",
+          id: viabilityJob.id,
+          input: buildViabilityJobInput(viabilityJob)
+        }
+      });
+    } catch (error) {
+      await prisma.viabilityJob.update({
+        where: { id: viabilityJob.id },
+        data: {
+          status: "failed",
+          errorMessage: formatErrorMessage(error),
+          completedAt: new Date()
+        }
+      });
+
+      return NextResponse.json(
+        { error: "Claimed job payload could not be built" },
+        { status: 500 }
+      );
+    }
   }
 
   let input: InboxGenerationJobInput;
@@ -125,4 +157,53 @@ function parseJsonArray(json: string, fieldName: string) {
 
 function formatErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown worker payload error";
+}
+
+type ClaimedViabilityJob = NonNullable<Awaited<ReturnType<typeof claimNextViabilityJob>>>;
+
+function buildViabilityJobInput(job: ClaimedViabilityJob) {
+  const sourceIdea = job.generatedIdea ?? job.idea;
+
+  if (!sourceIdea) {
+    throw new Error("Viability job is missing an idea reference");
+  }
+
+  return {
+    jobId: job.id,
+    userId: job.userId,
+    sprintDepth: job.sprintDepth,
+    autonomyLevel: job.autonomyLevel,
+    idea: {
+      id: sourceIdea.id,
+      source: job.generatedIdea ? "generated_inbox" : "legacy_inbox",
+      title: sourceIdea.title,
+      summary: sourceIdea.summary,
+      details:
+        "expandedExplanation" in sourceIdea
+          ? sourceIdea.expandedExplanation
+          : sourceIdea.rationale,
+      smallestSprint:
+        "smallestSprint" in sourceIdea ? sourceIdea.smallestSprint : sourceIdea.approach
+    },
+    paper: {
+      id: sourceIdea.paper.id,
+      title: sourceIdea.paper.title,
+      abstract: sourceIdea.paper.abstract,
+      url: sourceIdea.paper.url,
+      authors: parseJsonArray(sourceIdea.paper.authorsJson, "authorsJson"),
+      categories: parseJsonArray(sourceIdea.paper.categoriesJson, "categoriesJson"),
+      publishedAt: sourceIdea.paper.publishedAt.toISOString()
+    },
+    citations:
+      "citations" in sourceIdea
+        ? sourceIdea.citations.map((citation) => ({
+            sourceType: citation.sourceType,
+            title: citation.title,
+            url: citation.url,
+            sourceId: citation.sourceId,
+            claim: citation.claim,
+            confidence: citation.confidence
+          }))
+        : []
+  };
 }

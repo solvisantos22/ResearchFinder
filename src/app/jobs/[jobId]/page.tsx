@@ -16,6 +16,17 @@ type SignalPanelData = {
 };
 
 const signalTitles = ["Prototype signal", "Research signal", "Novelty signal"] as const;
+const verdictLabels: Record<string, string> = {
+  expand: "Expand",
+  needs_novelty_check: "Needs novelty check",
+  revise: "Revise",
+  reject: "Reject"
+};
+
+function formatViabilityVerdict(verdict: string | null): string {
+  if (!verdict) return "No verdict";
+  return verdictLabels[verdict] ?? verdict;
+}
 
 function statusFromText(value: string): SignalStatus {
   const normalized = value.toLowerCase();
@@ -118,6 +129,7 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
     job.artifacts.find((artifact) => artifact.kind === "decision-report") ?? job.artifacts[0];
   const signalPanels = deriveSignalPanels(decisionArtifact?.content ?? "");
   const inboxHref = `/inbox/${job.userId}` as Route;
+  const verdictLabel = formatViabilityVerdict(job.verdict);
 
   return (
     <main className="min-h-screen bg-paper text-ink [color-scheme:light]">
@@ -144,11 +156,25 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
         <div className="grid gap-6">
           <section className="rounded-lg border border-slate-200 bg-white p-6">
             <h2 className="break-words text-xl font-semibold text-slate-900">
-              Verdict: {job.verdict}
+              Verdict: {verdictLabel}
             </h2>
             <p className="mt-2 break-words text-slate-600">
               Review the generated evidence before expanding this idea into a full agent team.
             </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {Object.entries(verdictLabels).map(([value, label]) => (
+                <span
+                  key={value}
+                  className={
+                    value === job.verdict
+                      ? "rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800"
+                      : "rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-600"
+                  }
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
           </section>
 
           <div className="grid gap-4 lg:grid-cols-3">
