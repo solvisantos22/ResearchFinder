@@ -1,8 +1,12 @@
+import "@testing-library/jest-dom/vitest";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
   canViewUserResearch: vi.fn(),
+  canEditProfile: vi.fn(),
   getInboxItems: vi.fn(),
+  ensureProfileForUser: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
@@ -17,7 +21,8 @@ const mocked = vi.hoisted(() => ({
       findUnique: vi.fn()
     }
   },
-  requireCurrentUser: vi.fn()
+  requireCurrentUser: vi.fn(),
+  toEditableProfile: vi.fn()
 }));
 
 vi.mock("@/lib/auth/session", () => ({
@@ -25,6 +30,7 @@ vi.mock("@/lib/auth/session", () => ({
 }));
 
 vi.mock("@/lib/auth/permissions", () => ({
+  canEditProfile: mocked.canEditProfile,
   canViewUserResearch: mocked.canViewUserResearch
 }));
 
@@ -34,6 +40,11 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/inbox/service", () => ({
   getInboxItems: mocked.getInboxItems
+}));
+
+vi.mock("@/lib/profiles/service", () => ({
+  ensureProfileForUser: mocked.ensureProfileForUser,
+  toEditableProfile: mocked.toEditableProfile
 }));
 
 vi.mock("next/navigation", () => ({
@@ -125,5 +136,37 @@ describe("app page auth", () => {
       currentUserId: "current-user",
       targetUserId: "target-user"
     });
+  });
+
+  it("renders profile data read-only for a permitted non-owner viewer", async () => {
+    const { default: ProfilePage } = await import("@/app/profiles/[userId]/page");
+
+    mocked.requireCurrentUser.mockResolvedValue({ id: "current-user" });
+    mocked.canViewUserResearch.mockReturnValue(true);
+    mocked.canEditProfile.mockReturnValue(false);
+    mocked.prisma.user.findUnique.mockResolvedValue({
+      id: "target-user",
+      name: "Target User"
+    });
+    mocked.ensureProfileForUser.mockResolvedValue({ id: "profile-1" });
+    mocked.toEditableProfile.mockReturnValue({
+      fieldPresetKey: "ai_ml",
+      keywords: ["LLM evaluation"],
+      preferredOutputs: ["benchmark"],
+      constraints: ["No frontier-scale training"],
+      arxivQuery: "cat:cs.AI AND all:evaluation",
+      normalDailyRuntimeMin: 45,
+      maxDailyRuntimeMin: 120,
+      maxPapersScreened: 40,
+      maxPapersDeepRead: 6,
+      allowPdfFetch: false,
+      allowRelatedWorkSearch: true
+    });
+
+    render(await ProfilePage({ params: Promise.resolve({ userId: "target-user" }) }));
+
+    expect(screen.getByText("LLM evaluation")).toBeInTheDocument();
+    expect(screen.getByText("cat:cs.AI AND all:evaluation")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save profile" })).not.toBeInTheDocument();
   });
 });

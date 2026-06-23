@@ -1,25 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { requireCurrentUser } from "@/lib/auth/session";
-import { prisma } from "@/lib/db";
-import { createWorkerToken, hashWorkerToken } from "@/lib/jobs/worker-auth";
+import { registerWorkerForUser } from "@/lib/jobs/worker-registration";
 
 export async function POST() {
   const currentUser = await requireCurrentUser();
-  const token = createWorkerToken();
-  const tokenHash = await hashWorkerToken(token);
-
-  const worker = await prisma.workerRegistration.create({
-    data: {
-      userId: currentUser.id,
-      label: `Worker ${new Date().toISOString()}`,
-      tokenHash,
-      status: "active"
-    }
+  const registration = await registerWorkerForUser({
+    userId: currentUser.id,
+    label: `Worker ${new Date().toISOString()}`
   });
 
   return NextResponse.json({
-    workerId: worker.id,
-    token
+    workerId: registration.workerId,
+    token: registration.token
   });
 }

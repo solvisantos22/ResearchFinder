@@ -1,7 +1,7 @@
 import React from "react";
 import { notFound } from "next/navigation";
 
-import { ProfileForm } from "@/components/ProfileForm";
+import { ProfileForm, ProfileReadOnly } from "@/components/ProfileForm";
 import { canEditProfile, canViewUserResearch } from "@/lib/auth/permissions";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
@@ -22,7 +22,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userId
     notFound();
   }
 
-  const profile = await ensureProfileForUser(userId, "ai_ml");
+  const profile = toEditableProfile(await ensureProfileForUser(userId, "ai_ml"));
   const editable = canEditProfile({ currentUserId: currentUser.id, targetUserId: userId });
 
   return (
@@ -39,7 +39,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userId
 
       {editable ? (
         <ProfileForm
-          profile={toEditableProfile(profile)}
+          profile={profile}
           saveAction={async (formData) => {
             "use server";
             formData.set("userId", userId);
@@ -47,9 +47,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ userId
           }}
         />
       ) : (
-        <div className="rounded-lg border border-line bg-white p-5 text-slate-700">
-          You can view this profile, but only {targetUser.name} can edit it.
-        </div>
+        <ProfileReadOnly profile={profile} />
       )}
     </div>
   );
