@@ -162,8 +162,11 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-900">
           <h2 className="text-xl font-semibold">Sprint is not complete</h2>
           <p className="mt-2 text-sm leading-6">
-            Run <code>npm run worker:once</code> to process the queued viability sprint, then
-            return here to review the generated decision.
+            Connect or run your connected worker from the{" "}
+            <Link className="font-medium underline" href={"/workers" as Route}>
+              Workers page
+            </Link>
+            , then return here to review the generated decision.
           </p>
         </section>
       ) : (

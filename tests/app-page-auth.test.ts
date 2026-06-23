@@ -256,6 +256,33 @@ describe("app page auth", () => {
     expect(screen.queryByText("No signal summary was generated.")).not.toBeInTheDocument();
   });
 
+  it("points incomplete v2 jobs to the connected worker flow instead of worker:once", async () => {
+    const { default: JobPage } = await import("@/app/jobs/[jobId]/page");
+
+    mocked.requireCurrentUser.mockResolvedValue({ id: "current-user" });
+    mocked.canViewUserResearch.mockReturnValue(true);
+    mocked.prisma.viabilityJob.findUnique.mockResolvedValue({
+      id: "job-1",
+      userId: "current-user",
+      status: "queued",
+      verdict: null,
+      idea: null,
+      generatedIdea: {
+        title: "Generated idea",
+        paper: {}
+      },
+      artifacts: [],
+      evidence: []
+    });
+
+    render(await JobPage({ params: Promise.resolve({ jobId: "job-1" }) }));
+
+    expect(screen.getByText("Sprint is not complete")).toBeInTheDocument();
+    expect(screen.getByText(/connected worker/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /workers/i })).toHaveAttribute("href", "/workers");
+    expect(screen.queryByText(/npm run worker:once/i)).not.toBeInTheDocument();
+  });
+
   it("renders profile data read-only for a permitted non-owner viewer", async () => {
     const { default: ProfilePage } = await import("@/app/profiles/[userId]/page");
 

@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+import { parseViabilityOutput } from "@/worker/output-validation";
 
 type WorkerConfig = {
   appUrl: string;
@@ -7,11 +10,48 @@ type WorkerConfig = {
   codexCommand?: string;
 };
 
+type ClaimedWorkerJob = {
+  id: string;
+  type: string;
+  input: unknown;
+};
+
+type ViabilityJobInput = {
+  jobId: string;
+  userId: string;
+  sprintDepth: string;
+  autonomyLevel: string;
+  idea: {
+    id: string;
+    title: string;
+    summary: string;
+    details: string;
+    smallestSprint: string;
+  };
+  paper: {
+    id: string;
+    title: string;
+    abstract: string;
+    url: string;
+    authors: string[];
+    categories: string[];
+    publishedAt: string;
+  };
+  citations: Array<{
+    sourceType: "paper" | "related_work" | "web" | "generated_analysis";
+    title: string;
+    url: string;
+    sourceId?: string | null;
+    claim: string;
+    confidence: number;
+  }>;
+};
+
 function isMissingFileError(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
-function loadConfig(): WorkerConfig {
+export function loadConfig(): WorkerConfig {
   const configPath = process.env.RESEARCHFINDER_WORKER_CONFIG ?? join(process.cwd(), ".worker.json");
 
   try {
@@ -27,9 +67,8 @@ function loadConfig(): WorkerConfig {
   }
 }
 
-async function main() {
-  const config = loadConfig();
-  const response = await fetch(`${config.appUrl}/api/workers/claim`, {
+export async function runResearchFinderWorker(config: WorkerConfig = loadConfig()) {
+  const response = await fetch(`${normalizeAppUrl(config.appUrl)}/api/workers/claim`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${config.workerToken}`
@@ -40,17 +79,154 @@ async function main() {
     throw new Error(`Worker claim failed with ${response.status}`);
   }
 
-  const payload = (await response.json()) as { job: null | { id: string; type: string; input: unknown } };
+  const payload = (await response.json()) as { job: null | ClaimedWorkerJob };
   if (!payload.job) {
     console.log("No ResearchFinder worker job available");
     return;
   }
 
   console.log(`Claimed ${payload.job.type} job ${payload.job.id}`);
+
+  if (payload.job.type === "viability_check") {
+    const output = buildDeterministicViabilityOutput(payload.job);
+    await completeWorkerJob(config, payload.job, output);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return;
+  }
+
   throw new Error(`No local executor is registered for ${payload.job.type} in this worker slice`);
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+function normalizeAppUrl(appUrl: string) {
+  return appUrl.replace(/\/+$/, "");
+}
+
+function buildDeterministicViabilityOutput(job: ClaimedWorkerJob) {
+  const input = parseViabilityJobInput(job.input);
+  const citation = input.citations[0] ?? {
+    sourceType: "paper" as const,
+    title: input.paper.title,
+    url: input.paper.url,
+    sourceId: input.paper.id,
+    claim: `The local worker used the claimed source paper "${input.paper.title}" as deterministic grounding for this placeholder viability result.`,
+    confidence: 0.5
+  };
+
+  return parseViabilityOutput(
+    JSON.stringify({
+      jobId: job.id,
+      verdict: "needs_novelty_check",
+      summary:
+        "Deterministic local worker result: this job was completed locally without a Codex executor, so it should be reviewed before expansion.",
+      feasibility: `A bounded ${input.sprintDepth} sprint can start from: ${input.idea.smallestSprint}`,
+      noveltyRisk:
+        "Novelty was not independently checked by the local placeholder executor; run a focused related-work review before expansion.",
+      minimumExperiment: input.idea.smallestSprint,
+      blockers: [
+        "This result was produced by the deterministic local worker fallback, not a deep AI viability analysis."
+      ],
+      citations: [citation]
+    })
+  );
+}
+
+function parseViabilityJobInput(value: unknown): ViabilityJobInput {
+  if (!isRecord(value)) {
+    throw new Error("Viability job input must be an object");
+  }
+
+  const input = value as Partial<ViabilityJobInput>;
+  if (!isRecord(input.idea) || !isRecord(input.paper)) {
+    throw new Error("Viability job input is missing idea or paper context");
+  }
+
+  return {
+    jobId: readString(input.jobId, "jobId"),
+    userId: readString(input.userId, "userId"),
+    sprintDepth: readString(input.sprintDepth, "sprintDepth"),
+    autonomyLevel: readString(input.autonomyLevel, "autonomyLevel"),
+    idea: {
+      id: readString(input.idea.id, "idea.id"),
+      title: readString(input.idea.title, "idea.title"),
+      summary: readString(input.idea.summary, "idea.summary"),
+      details: readString(input.idea.details, "idea.details"),
+      smallestSprint: readString(input.idea.smallestSprint, "idea.smallestSprint")
+    },
+    paper: {
+      id: readString(input.paper.id, "paper.id"),
+      title: readString(input.paper.title, "paper.title"),
+      abstract: readString(input.paper.abstract, "paper.abstract"),
+      url: readString(input.paper.url, "paper.url"),
+      authors: readStringArray(input.paper.authors, "paper.authors"),
+      categories: readStringArray(input.paper.categories, "paper.categories"),
+      publishedAt: readString(input.paper.publishedAt, "paper.publishedAt")
+    },
+    citations: Array.isArray(input.citations)
+      ? input.citations.filter(isRecord).map((citation) => ({
+          sourceType:
+            citation.sourceType === "paper" ||
+            citation.sourceType === "related_work" ||
+            citation.sourceType === "web" ||
+            citation.sourceType === "generated_analysis"
+              ? citation.sourceType
+              : "generated_analysis",
+          title: readString(citation.title, "citation.title"),
+          url: typeof citation.url === "string" ? citation.url : "",
+          sourceId: typeof citation.sourceId === "string" ? citation.sourceId : undefined,
+          claim: readString(citation.claim, "citation.claim"),
+          confidence:
+            typeof citation.confidence === "number" && Number.isFinite(citation.confidence)
+              ? citation.confidence
+              : 0.5
+        }))
+      : []
+  };
+}
+
+async function completeWorkerJob(config: WorkerConfig, job: ClaimedWorkerJob, output: unknown) {
+  const response = await fetch(
+    `${normalizeAppUrl(config.appUrl)}/api/workers/jobs/${encodeURIComponent(job.id)}/complete`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.workerToken}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        type: job.type,
+        output
+      })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Worker completion failed with ${response.status}`);
+  }
+}
+
+function readString(value: unknown, fieldName: string) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${fieldName} must be a non-empty string`);
+  }
+
+  return value;
+}
+
+function readStringArray(value: unknown, fieldName: string) {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`${fieldName} must be an array of strings`);
+  }
+
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runResearchFinderWorker().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
