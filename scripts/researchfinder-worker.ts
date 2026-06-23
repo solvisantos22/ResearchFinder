@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
-import { parseViabilityOutput } from "@/worker/output-validation";
+import { InboxGenerationJobInputSchema, type InboxGenerationJobInput } from "@/lib/v2/schemas";
+import { runCodex as defaultRunCodex } from "@/worker/codex-runner";
+import { parseInboxGenerationOutput, parseViabilityOutput } from "@/worker/output-validation";
 
 type WorkerConfig = {
   appUrl: string;
@@ -14,6 +18,10 @@ type ClaimedWorkerJob = {
   id: string;
   type: string;
   input: unknown;
+};
+
+type WorkerRunOptions = {
+  runCodex?: typeof defaultRunCodex;
 };
 
 type ViabilityJobInput = {
@@ -67,7 +75,10 @@ export function loadConfig(): WorkerConfig {
   }
 }
 
-export async function runResearchFinderWorker(config: WorkerConfig = loadConfig()) {
+export async function runResearchFinderWorker(
+  config: WorkerConfig = loadConfig(),
+  options: WorkerRunOptions = {}
+) {
   const response = await fetch(`${normalizeAppUrl(config.appUrl)}/api/workers/claim`, {
     method: "POST",
     headers: {
@@ -89,6 +100,13 @@ export async function runResearchFinderWorker(config: WorkerConfig = loadConfig(
 
   if (payload.job.type === "viability_check") {
     const output = buildDeterministicViabilityOutput(payload.job);
+    await completeWorkerJob(config, payload.job, output);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return;
+  }
+
+  if (payload.job.type === "inbox_generation") {
+    const output = await runInboxGenerationJob(payload.job, config, options);
     await completeWorkerJob(config, payload.job, output);
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
     return;
@@ -128,6 +146,50 @@ function buildDeterministicViabilityOutput(job: ClaimedWorkerJob) {
       citations: [citation]
     })
   );
+}
+
+async function runInboxGenerationJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+) {
+  const input = InboxGenerationJobInputSchema.parse(job.input);
+  const prompt = await writeInboxGenerationPrompt(job.id, input);
+
+  try {
+    const rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
+      codexCommand: config.codexCommand
+    });
+
+    return parseInboxGenerationOutput(rawOutput);
+  } finally {
+    await rm(prompt.dir, { force: true, recursive: true });
+  }
+}
+
+async function writeInboxGenerationPrompt(jobId: string, input: InboxGenerationJobInput) {
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-inbox-"));
+  const promptFile = join(promptDir, `${jobId}.prompt.md`);
+
+  await writeFile(promptFile, buildInboxGenerationPrompt(input), "utf8");
+  return { dir: promptDir, file: promptFile };
+}
+
+function buildInboxGenerationPrompt(input: InboxGenerationJobInput) {
+  return [
+    "You are generating a ResearchFinder v2 AI inbox from candidate arXiv papers.",
+    "Return only valid JSON. Do not wrap the result in Markdown.",
+    "The JSON must match the GeneratedInbox schema exactly:",
+    "- inboxDate: the claimed inbox date.",
+    "- generatedForUserId: the claimed user id.",
+    "- papers: one or more arXiv paper groups from candidatePapers only.",
+    "- each idea must cite its source arXiv paper using sourceType \"paper\", matching sourceId and url.",
+    "- produce no more than profile.maxIdeas ideas total and no more than profile.maxIdeasPerPaper per paper.",
+    "Use the user's profile to choose relevant, feasible, original research directions.",
+    "",
+    "Claimed job input:",
+    JSON.stringify(input, null, 2)
+  ].join("\n");
 }
 
 function parseViabilityJobInput(value: unknown): ViabilityJobInput {

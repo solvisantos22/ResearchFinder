@@ -111,6 +111,44 @@ describe("inbox generation jobs", () => {
     });
   });
 
+  it("resets a failed inbox generation job when the same daily cron job is created again", async () => {
+    const { createInboxGenerationJob } = await jobServicePromise;
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+
+      const { user } = await createProfileOwner(client);
+      const batch = await createCandidateBatch(client, user.id);
+      const failedJob = await client.inboxGenerationJob.create({
+        data: {
+          userId: user.id,
+          candidateBatchId: batch.id,
+          inboxDate: "2026-06-23",
+          status: "failed",
+          claimedByWorkerId: "worker-1",
+          errorMessage: "Malformed worker output",
+          completedAt: new Date("2026-06-23T12:30:00.000Z"),
+          outputJson: JSON.stringify({ malformed: true }),
+          inputJson: JSON.stringify({ candidateBatchId: batch.id })
+        }
+      });
+
+      const resetJob = await createInboxGenerationJob({
+        userId: user.id,
+        candidateBatchId: batch.id,
+        inboxDate: "2026-06-23"
+      });
+
+      expect(resetJob.id).toBe(failedJob.id);
+      expect(resetJob.status).toBe("queued");
+      expect(resetJob.claimedByWorkerId).toBeNull();
+      expect(resetJob.startedAt).toBeNull();
+      expect(resetJob.completedAt).toBeNull();
+      expect(resetJob.errorMessage).toBeNull();
+      expect(resetJob.outputJson).toBeNull();
+    });
+  });
+
   it("rejects a candidate batch owned by another user", async () => {
     const { createInboxGenerationJob } = await jobServicePromise;
 

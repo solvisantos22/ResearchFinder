@@ -1,6 +1,7 @@
 import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 import { validateDispatchSettingsWithDefaults } from "@/lib/dispatch/service";
+import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
 import { ViabilityResultSchema } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
@@ -41,10 +42,14 @@ export async function createV2ViabilityJob(input: {
 
 export async function claimNextViabilityJob(input: { userId: string; workerId: string }) {
   for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
+    const staleStartedBefore = staleRunningJobStartedBefore();
     const job = await prisma.viabilityJob.findFirst({
       where: {
         userId: input.userId,
-        status: "queued"
+        OR: [
+          { status: "queued" },
+          { status: "running", startedAt: { lte: staleStartedBefore } }
+        ]
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }]
     });
@@ -55,12 +60,16 @@ export async function claimNextViabilityJob(input: { userId: string; workerId: s
       where: {
         id: job.id,
         userId: input.userId,
-        status: "queued"
+        OR: [
+          { status: "queued" },
+          { status: "running", startedAt: { lte: staleStartedBefore } }
+        ]
       },
       data: {
         status: "running",
         claimedByWorkerId: input.workerId,
         startedAt: new Date(),
+        completedAt: null,
         errorMessage: null
       }
     });

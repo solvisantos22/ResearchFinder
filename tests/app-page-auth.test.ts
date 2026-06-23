@@ -28,6 +28,9 @@ const mocked = vi.hoisted(() => ({
       findUnique: vi.fn()
     }
   },
+  redirect: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  }),
   requireCurrentUser: vi.fn(),
   toEditableProfile: vi.fn()
 }));
@@ -56,13 +59,27 @@ vi.mock("@/lib/profiles/service", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  notFound: mocked.notFound
+  notFound: mocked.notFound,
+  redirect: mocked.redirect
 }));
 
 describe("app page auth", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.prisma.generatedIdea.findUnique.mockResolvedValue(null);
+  });
+
+  it("redirects the signed-in current user from root to their own inbox", async () => {
+    const { default: HomePage } = await import("@/app/page");
+
+    mocked.requireCurrentUser.mockResolvedValue({ id: "current-user" });
+    mocked.ensureProfileForUser.mockResolvedValue({ userId: "current-user" });
+
+    await expect(HomePage()).rejects.toThrow("NEXT_REDIRECT:/inbox/current-user");
+
+    expect(mocked.requireCurrentUser).toHaveBeenCalledOnce();
+    expect(mocked.ensureProfileForUser).toHaveBeenCalledWith("current-user", "ai_ml");
+    expect(mocked.redirect).toHaveBeenCalledWith("/inbox/current-user");
   });
 
   it("checks shared visibility before rendering another user's inbox", async () => {

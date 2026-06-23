@@ -29,8 +29,12 @@ function formatDate(value: Date | null) {
   return value ? value.toISOString() : "Never";
 }
 
+function quotePowerShellLiteral(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
 function setupCommand(appUrl: string, token: string) {
-  return `powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl "${appUrl}" -WorkerToken "${token}"`;
+  return `powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl ${quotePowerShellLiteral(appUrl)} -WorkerToken ${quotePowerShellLiteral(token)}`;
 }
 
 export function WorkerSetupContent({

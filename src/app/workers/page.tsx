@@ -5,15 +5,7 @@ import { WorkerSetupContent } from "@/components/WorkerSetupContent";
 import { registerWorker } from "@/app/workers/actions";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
-
-function resolveAppUrl(headerList: Headers) {
-  const configured = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL;
-  if (configured) return configured;
-
-  const host = headerList.get("x-forwarded-host") || headerList.get("host") || "localhost:3000";
-  const protocol = headerList.get("x-forwarded-proto") || "http";
-  return `${protocol}://${host}`;
-}
+import { resolveWorkerSetupAppUrl } from "@/lib/jobs/worker-setup-url";
 
 export default async function WorkersPage() {
   const currentUser = await requireCurrentUser();
@@ -35,7 +27,7 @@ export default async function WorkersPage() {
 
   return (
     <WorkerSetupContent
-      appUrl={resolveAppUrl(headerList)}
+      appUrl={resolveWorkerSetupAppUrl(headerList)}
       workers={workers}
       registrationAction={registerWorker}
       registrationResult={null}

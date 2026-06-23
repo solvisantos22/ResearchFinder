@@ -53,10 +53,43 @@ export async function POST(
       });
     }
   } catch (error) {
-    return NextResponse.json({ error: formatErrorMessage(error) }, { status: 400 });
+    const errorMessage = formatErrorMessage(error);
+    await markWorkerJobFailed({
+      jobId,
+      workerId: worker.id,
+      jobType,
+      errorMessage
+    });
+
+    return NextResponse.json({ error: errorMessage }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true });
+}
+
+async function markWorkerJobFailed(input: {
+  jobId: string;
+  workerId: string;
+  jobType: WorkerJobType;
+  errorMessage: string;
+}) {
+  const where = {
+    id: input.jobId,
+    claimedByWorkerId: input.workerId,
+    status: "running"
+  };
+  const data = {
+    status: "failed",
+    errorMessage: input.errorMessage,
+    completedAt: new Date()
+  };
+
+  if (input.jobType === "inbox_generation") {
+    await prisma.inboxGenerationJob.updateMany({ where, data });
+    return;
+  }
+
+  await prisma.viabilityJob.updateMany({ where, data });
 }
 
 async function resolveJobType(input: {

@@ -1,6 +1,7 @@
 import type { CandidatePaper, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
+import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
 import { GeneratedInboxSchema, type GeneratedInbox } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
@@ -28,6 +29,27 @@ export async function createInboxGenerationJob(input: {
       throw new Error("Candidate batch is not complete");
     }
 
+    await tx.inboxGenerationJob.updateMany({
+      where: {
+        userId: input.userId,
+        candidateBatchId: input.candidateBatchId,
+        inboxDate: input.inboxDate,
+        OR: [
+          { status: "failed" },
+          { status: "running", startedAt: { lte: staleRunningJobStartedBefore() } }
+        ]
+      },
+      data: {
+        status: "queued",
+        claimedByWorkerId: null,
+        startedAt: null,
+        completedAt: null,
+        errorMessage: null,
+        outputJson: null,
+        inputJson: JSON.stringify({ candidateBatchId: input.candidateBatchId })
+      }
+    });
+
     return tx.inboxGenerationJob.upsert({
       where: {
         userId_candidateBatchId_inboxDate: {
@@ -50,10 +72,14 @@ export async function createInboxGenerationJob(input: {
 
 export async function claimNextInboxGenerationJob(input: { userId: string; workerId: string }) {
   for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
+    const staleStartedBefore = staleRunningJobStartedBefore();
     const job = await prisma.inboxGenerationJob.findFirst({
       where: {
         userId: input.userId,
-        status: "queued"
+        OR: [
+          { status: "queued" },
+          { status: "running", startedAt: { lte: staleStartedBefore } }
+        ]
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }]
     });
@@ -63,13 +89,18 @@ export async function claimNextInboxGenerationJob(input: { userId: string; worke
     const claim = await prisma.inboxGenerationJob.updateMany({
       where: {
         id: job.id,
-        status: "queued",
-        userId: input.userId
+        userId: input.userId,
+        OR: [
+          { status: "queued" },
+          { status: "running", startedAt: { lte: staleStartedBefore } }
+        ]
       },
       data: {
         status: "running",
         claimedByWorkerId: input.workerId,
-        startedAt: new Date()
+        startedAt: new Date(),
+        completedAt: null,
+        errorMessage: null
       }
     });
 

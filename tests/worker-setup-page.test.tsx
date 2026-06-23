@@ -1,7 +1,7 @@
 import React from "react";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
   cookies: vi.fn(),
@@ -44,6 +44,7 @@ vi.mock("next/navigation", () => ({
 import { WorkerSetupContent } from "@/components/WorkerSetupContent";
 import { registerWorker } from "@/app/workers/actions";
 import WorkersPage from "@/app/workers/page";
+import { resolveWorkerSetupAppUrl } from "@/lib/jobs/worker-setup-url";
 
 describe("WorkerSetupContent", () => {
   beforeEach(() => {
@@ -63,6 +64,10 @@ describe("WorkerSetupContent", () => {
     mocked.createWorkerToken.mockReturnValue("plain-worker-token");
     mocked.findWorkers.mockResolvedValue([]);
     mocked.hashWorkerToken.mockResolvedValue("hashed-worker-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("renders setup command and current worker status", () => {
@@ -90,9 +95,63 @@ describe("WorkerSetupContent", () => {
     expect(screen.getByText("Last seen timestamp")).toBeInTheDocument();
     expect(
       screen.getByText(
-        'powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl "https://research.example.com" -WorkerToken "plain-worker-token"'
+        "powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl 'https://research.example.com' -WorkerToken 'plain-worker-token'"
       )
     ).toBeInTheDocument();
+  });
+
+  it("single-quotes PowerShell arguments and escapes embedded single quotes", () => {
+    render(
+      <WorkerSetupContent
+        appUrl="https://research.example.com/a'b"
+        registrationAction={vi.fn()}
+        registrationResult={{ token: "token'with'quotes" }}
+        workers={[]}
+      />
+    );
+
+    expect(
+      screen.getByText(
+        "powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl 'https://research.example.com/a''b' -WorkerToken 'token''with''quotes'"
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("uses the configured app URL in production instead of forwarded host headers", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://configured.example.com");
+
+    expect(
+      resolveWorkerSetupAppUrl(
+        new Headers({
+          "x-forwarded-host": "poisoned.example.com",
+          "x-forwarded-proto": "https"
+        })
+      )
+    ).toBe("https://configured.example.com");
+  });
+
+  it("requires a configured app URL in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+    vi.stubEnv("APP_URL", "");
+
+    expect(() => resolveWorkerSetupAppUrl(new Headers({ host: "research.example.com" }))).toThrow(
+      "APP_URL or NEXT_PUBLIC_APP_URL is required in production"
+    );
+  });
+
+  it("rejects invalid derived app origins outside production", () => {
+    vi.stubEnv("NODE_ENV", "test");
+
+    expect(() =>
+      resolveWorkerSetupAppUrl(
+        new Headers({
+          "x-forwarded-host": "research.example.com/path",
+          "x-forwarded-proto": "https"
+        })
+      )
+    ).toThrow("Derived app URL must be an HTTP(S) origin");
   });
 
   it("does not render a setup command without an action result token", () => {
