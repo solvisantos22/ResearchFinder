@@ -12,7 +12,17 @@ function strictObject<Shape extends z.ZodRawShape>(shape: Shape) {
 }
 
 const NonEmptyTrimmedStringSchema = z.string().trim().min(1);
-const RequiredUrlSchema = z.string().trim().url();
+const RequiredUrlSchema = z
+  .string()
+  .trim()
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "Expected an HTTP(S) URL");
 const CalendarDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -88,8 +98,8 @@ export const GeneratedPaperGroupSchema = strictObject({
   title: NonEmptyTrimmedStringSchema,
   abstract: NonEmptyTrimmedStringSchema,
   url: RequiredUrlSchema,
-  authors: z.array(NonEmptyTrimmedStringSchema),
-  categories: z.array(NonEmptyTrimmedStringSchema),
+  authors: z.array(NonEmptyTrimmedStringSchema).min(1),
+  categories: z.array(NonEmptyTrimmedStringSchema).min(1),
   publishedAt: z.string().datetime(),
   whyPaperMatters: NonEmptyTrimmedStringSchema,
   ideas: z.array(GeneratedIdeaSchema).min(1).max(MAX_IDEAS_PER_PAPER)
@@ -146,8 +156,8 @@ export const InboxGenerationJobInputSchema = strictObject({
       title: NonEmptyTrimmedStringSchema,
       abstract: NonEmptyTrimmedStringSchema,
       url: RequiredUrlSchema,
-      authors: z.array(NonEmptyTrimmedStringSchema),
-      categories: z.array(NonEmptyTrimmedStringSchema),
+      authors: z.array(NonEmptyTrimmedStringSchema).min(1),
+      categories: z.array(NonEmptyTrimmedStringSchema).min(1),
       publishedAt: z.string().datetime()
     })
   )

@@ -221,6 +221,67 @@ describe("v2 worker schemas", () => {
     expect(generatedAnalysisCitation.url).toBe("");
   });
 
+  it("rejects non-http urls for citations, generated papers, and candidate papers", () => {
+    const unsafeUrls = ["javascript:alert(1)", "mailto:test@example.com", "ftp://example.com/file"];
+
+    expect(
+      CitationSchema.parse(
+        createCitation({
+          url: "https://arxiv.org/abs/2606.00001"
+        })
+      ).url
+    ).toBe("https://arxiv.org/abs/2606.00001");
+
+    for (const url of unsafeUrls) {
+      expect(() =>
+        CitationSchema.parse(
+          createCitation({
+            url
+          })
+        )
+      ).toThrow();
+
+      expect(() =>
+        GeneratedInboxSchema.parse(
+          createInbox({
+            papers: [
+              createPaper({
+                url,
+                ideas: [
+                  createIdea({
+                    citations: [
+                      createCitation({
+                        url
+                      })
+                    ]
+                  })
+                ]
+              })
+            ]
+          })
+        )
+      ).toThrow();
+
+      expect(() =>
+        InboxGenerationJobInputSchema.parse(
+          createJobInput({
+            candidatePapers: [
+              {
+                sourceId: "2606.00001",
+                title: "Paper title",
+                abstract: "Paper abstract",
+                url,
+                authors: ["A. Researcher"],
+                categories: ["cs.AI"],
+                publishedAt: "2026-06-23T00:00:00.000Z"
+              }
+            ]
+          })
+        )
+      ).toThrow();
+    }
+  });
+
   it("rejects invalid calendar dates for inboxes and job inputs", () => {
     expect(() =>
       GeneratedInboxSchema.parse(
@@ -301,6 +362,40 @@ describe("v2 worker schemas", () => {
         })
       )
     ).toThrow();
+  });
+
+  it("rejects generated and candidate papers without authors or categories", () => {
+    for (const field of ["authors", "categories"] as const) {
+      expect(() =>
+        GeneratedInboxSchema.parse(
+          createInbox({
+            papers: [
+              createPaper({
+                [field]: []
+              })
+            ]
+          })
+        )
+      ).toThrow();
+
+      expect(() =>
+        InboxGenerationJobInputSchema.parse(
+          createJobInput({
+            candidatePapers: [
+              {
+                sourceId: "2606.00001",
+                title: "Paper title",
+                abstract: "Paper abstract",
+                url: "https://arxiv.org/abs/2606.00001",
+                authors: field === "authors" ? [] : ["A. Researcher"],
+                categories: field === "categories" ? [] : ["cs.AI"],
+                publishedAt: "2026-06-23T00:00:00.000Z"
+              }
+            ]
+          })
+        )
+      ).toThrow();
+    }
   });
 
   it("accepts the inbox job input bundle sent to Codex", () => {
