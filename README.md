@@ -49,6 +49,9 @@ generated worker config.
 
 ## Cron and Deployment
 
+See [ResearchFinder deployment](docs/deployment.md) for hosted setup, required
+services, environment variables, database migrations, cron, and worker setup.
+
 The hosted daily ingest entrypoint is:
 
 ```text
