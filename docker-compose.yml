@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    ports:
+      - "54329:5432"
+    environment:
+      POSTGRES_USER: researchfinder
+      POSTGRES_PASSWORD: researchfinder
+      POSTGRES_DB: researchfinder
+    volumes:
+      - researchfinder-postgres:/var/lib/postgresql/data
+
+volumes:
+  researchfinder-postgres:
