@@ -62,4 +62,19 @@ describe("private access helpers", () => {
       })
     ).toBe(true);
   });
+
+  it("fails closed when APP_ACCESS_TOKENS is non-empty but malformed", () => {
+    const malformedTokens = "demo-solvi=secret-1";
+
+    expect(parseAccessTokenMap(malformedTokens)).toEqual([]);
+    expect(isPrivateAccessEnabled(malformedTokens)).toBe(true);
+    expect(
+      isAuthorizedPrivateUser({
+        configuredTokens: malformedTokens,
+        requestedUserId: "demo-solvi",
+        cookieUserId: "demo-solvi",
+        cookieToken: "secret-1"
+      })
+    ).toBe(false);
+  });
 });

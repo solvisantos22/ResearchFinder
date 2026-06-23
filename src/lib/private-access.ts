@@ -34,7 +34,7 @@ export function parseAccessTokenMap(configuredTokens: string | null | undefined)
 }
 
 export function isPrivateAccessEnabled(configuredTokens: string | null | undefined): boolean {
-  return parseAccessTokenMap(configuredTokens).length > 0;
+  return Boolean(configuredTokens?.trim());
 }
 
 export function getAccessUserIdForToken(
