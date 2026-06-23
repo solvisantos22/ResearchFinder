@@ -122,8 +122,15 @@ describe("processNextViabilityJob", () => {
         expect(completedJob.artifacts.filter((artifact) => artifact.kind === "decision-report"))
           .toHaveLength(1);
         expect(completedJob.evidence.length).toBeGreaterThan(0);
-        expect(completedJob.evidence.every((evidence) => evidence.sourceUrl === oldest.paperUrl))
-          .toBe(true);
+        expect(
+          completedJob.evidence.some((evidence) => evidence.sourceUrl === oldest.paperUrl)
+        ).toBe(true);
+        expect(
+          completedJob.evidence.some(
+            (evidence) =>
+              evidence.sourceUrl === "" && evidence.sourceTitle !== `Paper ${oldest.suffix}`
+          )
+        ).toBe(true);
 
         const remainingJob = await client.viabilityJob.findUniqueOrThrow({
           where: { id: newer.jobId },
@@ -208,7 +215,7 @@ async function createQueuedJob(
     suffix: string;
     createdAt: Date;
   }
-): Promise<{ jobId: string; paperUrl: string }> {
+): Promise<{ jobId: string; paperUrl: string; suffix: string }> {
   const user = await client.user.upsert({
     where: { id: "user-1" },
     update: {},
@@ -260,6 +267,7 @@ async function createQueuedJob(
 
   return {
     jobId: job.id,
-    paperUrl
+    paperUrl,
+    suffix: input.suffix
   };
 }

@@ -31,6 +31,7 @@ export type ViabilityDecision = {
 export function buildViabilityDecision(input: {
   ideaTitle: string;
   paperTitle: string;
+  paperUrl?: string;
   sprintDepth: string;
   autonomyLevel: string;
 }): ViabilityDecision {
@@ -93,7 +94,7 @@ export function buildViabilityDecision(input: {
     ],
     evidence: [
       {
-        sourceTitle: input.paperTitle,
+        sourceTitle: "Dispatch settings",
         sourceUrl: "",
         claim: prototypeSignal.summary,
         support: prototypeSignal.evidence.join(" "),
@@ -101,13 +102,13 @@ export function buildViabilityDecision(input: {
       },
       {
         sourceTitle: input.paperTitle,
-        sourceUrl: "",
+        sourceUrl: input.paperUrl ?? "",
         claim: researchSignal.summary,
         support: researchSignal.evidence.join(" "),
         confidence: 0.9
       },
       {
-        sourceTitle: input.paperTitle,
+        sourceTitle: "Generated viability analysis",
         sourceUrl: "",
         claim: noveltySignal.summary,
         support: noveltySignal.evidence.join(" "),
@@ -154,6 +155,7 @@ export async function processNextViabilityJob(): Promise<string | null> {
     const decision = buildViabilityDecision({
       ideaTitle: job.idea.title,
       paperTitle: job.idea.paper.title,
+      paperUrl: job.idea.paper.url,
       sprintDepth: job.sprintDepth,
       autonomyLevel: job.autonomyLevel
     });
@@ -171,7 +173,7 @@ export async function processNextViabilityJob(): Promise<string | null> {
         data: decision.evidence.map((evidence) => ({
           jobId: job.id,
           sourceTitle: evidence.sourceTitle,
-          sourceUrl: evidence.sourceUrl || job.idea.paper.url || "",
+          sourceUrl: evidence.sourceUrl,
           claim: evidence.claim,
           support: evidence.support,
           confidence: evidence.confidence

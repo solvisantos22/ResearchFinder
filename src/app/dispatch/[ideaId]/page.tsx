@@ -9,6 +9,7 @@ import {
   type SprintDepth
 } from "@/lib/domain";
 import type { InboxReasoning } from "@/lib/inbox/service";
+import { getActivePrivateUserId, isPrivateAccessConfigured } from "@/lib/private-access-server";
 
 const fallbackReasoning: InboxReasoning = {
   whyPaperMatters: "",
@@ -68,12 +69,20 @@ export default async function DispatchPage({
 }) {
   const [{ ideaId }, query] = await Promise.all([params, searchParams]);
   const requestedUserId = typeof query.userId === "string" ? query.userId : undefined;
+  const privateAccessEnabled = isPrivateAccessConfigured();
+  const activePrivateUserId = privateAccessEnabled ? await getActivePrivateUserId() : null;
+
+  if (privateAccessEnabled && !activePrivateUserId) {
+    notFound();
+  }
+
+  const inboxUserId = privateAccessEnabled ? activePrivateUserId : requestedUserId;
   const idea = await prisma.idea.findUnique({
     where: { id: ideaId },
     include: {
       paper: true,
       inboxItems: {
-        ...(requestedUserId ? { where: { userId: requestedUserId } } : {}),
+        ...(inboxUserId ? { where: { userId: inboxUserId } } : {}),
         orderBy: [{ inboxDate: "desc" }, { createdAt: "desc" }],
         take: 1,
         include: { user: true }

@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 
 import { SignalPanel, type SignalStatus } from "@/components/SignalPanel";
 import { prisma } from "@/lib/db";
+import { getActivePrivateUserId, isPrivateAccessConfigured } from "@/lib/private-access-server";
 
 type SignalPanelData = {
   title: string;
@@ -75,6 +76,8 @@ function deriveSignalPanels(content: string): SignalPanelData[] {
 
 export default async function JobPage({ params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
+  const privateAccessEnabled = isPrivateAccessConfigured();
+  const activePrivateUserId = privateAccessEnabled ? await getActivePrivateUserId() : null;
   const job = await prisma.viabilityJob.findUnique({
     where: { id: jobId },
     include: {
@@ -92,7 +95,7 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
     }
   });
 
-  if (!job) {
+  if (!job || (privateAccessEnabled && job.userId !== activePrivateUserId)) {
     notFound();
   }
 

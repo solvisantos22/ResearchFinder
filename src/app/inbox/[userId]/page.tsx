@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PaperCard } from "@/components/PaperCard";
 import { prisma } from "@/lib/db";
 import { getInboxItems } from "@/lib/inbox/service";
+import { canAccessPrivateUser } from "@/lib/private-access-server";
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
@@ -11,6 +12,11 @@ function todayIsoDate() {
 
 export default async function InboxPage({ params }: { params: Promise<{ userId: string }> }) {
   const { userId } = await params;
+
+  if (!(await canAccessPrivateUser(userId))) {
+    notFound();
+  }
+
   const user = await prisma.user.findUnique({ where: { id: userId } });
 
   if (!user) {
