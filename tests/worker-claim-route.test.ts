@@ -69,7 +69,7 @@ describe("worker claim route", () => {
       user: {
         profile: {
           fieldPresetKey: "ai_ml",
-          keywordsJson: "not-json",
+          keywordsJson: JSON.stringify({ corrupted: true }),
           constraintsJson: JSON.stringify(["Constraint"]),
           preferredOutputsJson: JSON.stringify(["benchmark"]),
           arxivQuery: "cat:cs.AI"
@@ -89,7 +89,7 @@ describe("worker claim route", () => {
       where: { id: "job-1" },
       data: {
         status: "failed",
-        errorMessage: expect.stringContaining("Unexpected token"),
+        errorMessage: "keywordsJson must be a JSON array",
         completedAt: expect.any(Date)
       }
     });

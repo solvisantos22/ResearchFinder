@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 
+const MAX_CLAIM_ATTEMPTS = 3;
+
 export async function createInboxGenerationJob(input: {
   userId: string;
   candidateBatchId: string;
@@ -44,44 +46,48 @@ export async function createInboxGenerationJob(input: {
 }
 
 export async function claimNextInboxGenerationJob(input: { userId: string; workerId: string }) {
-  const job = await prisma.inboxGenerationJob.findFirst({
-    where: {
-      userId: input.userId,
-      status: "queued"
-    },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }]
-  });
-
-  if (!job) return null;
-
-  const claim = await prisma.inboxGenerationJob.updateMany({
-    where: {
-      id: job.id,
-      status: "queued",
-      userId: input.userId
-    },
-    data: {
-      status: "running",
-      claimedByWorkerId: input.workerId,
-      startedAt: new Date()
-    }
-  });
-
-  if (claim.count !== 1) return null;
-
-  return prisma.inboxGenerationJob.findUniqueOrThrow({
-    where: { id: job.id },
-    include: {
-      candidateBatch: {
-        include: {
-          candidates: {
-            orderBy: [{ createdAt: "asc" }, { id: "asc" }]
-          }
-        }
+  for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
+    const job = await prisma.inboxGenerationJob.findFirst({
+      where: {
+        userId: input.userId,
+        status: "queued"
       },
-      user: {
-        include: { profile: true }
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+    });
+
+    if (!job) return null;
+
+    const claim = await prisma.inboxGenerationJob.updateMany({
+      where: {
+        id: job.id,
+        status: "queued",
+        userId: input.userId
+      },
+      data: {
+        status: "running",
+        claimedByWorkerId: input.workerId,
+        startedAt: new Date()
       }
-    }
-  });
+    });
+
+    if (claim.count !== 1) continue;
+
+    return prisma.inboxGenerationJob.findUniqueOrThrow({
+      where: { id: job.id },
+      include: {
+        candidateBatch: {
+          include: {
+            candidates: {
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+            }
+          }
+        },
+        user: {
+          include: { profile: true }
+        }
+      }
+    });
+  }
+
+  return null;
 }

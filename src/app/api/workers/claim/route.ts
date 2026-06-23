@@ -47,9 +47,12 @@ export async function POST(request: Request) {
       inboxDate: job.inboxDate,
       profile: {
         fieldPreset: job.user.profile.fieldPresetKey,
-        keywords: parseJsonArray(job.user.profile.keywordsJson),
-        constraints: parseJsonArray(job.user.profile.constraintsJson),
-        preferredOutputs: parseJsonArray(job.user.profile.preferredOutputsJson),
+        keywords: parseJsonArray(job.user.profile.keywordsJson, "keywordsJson"),
+        constraints: parseJsonArray(job.user.profile.constraintsJson, "constraintsJson"),
+        preferredOutputs: parseJsonArray(
+          job.user.profile.preferredOutputsJson,
+          "preferredOutputsJson"
+        ),
         arxivQuery: job.user.profile.arxivQuery,
         maxIdeas: MAX_DAILY_IDEAS,
         maxIdeasPerPaper: MAX_IDEAS_PER_PAPER
@@ -59,8 +62,8 @@ export async function POST(request: Request) {
         title: candidate.title,
         abstract: candidate.abstract,
         url: candidate.url,
-        authors: parseJsonArray(candidate.authorsJson),
-        categories: parseJsonArray(candidate.categoriesJson),
+        authors: parseJsonArray(candidate.authorsJson, "authorsJson"),
+        categories: parseJsonArray(candidate.categoriesJson, "categoriesJson"),
         publishedAt: candidate.publishedAt.toISOString()
       }))
     });
@@ -111,9 +114,13 @@ async function findWorkerByToken(token: string) {
   return null;
 }
 
-function parseJsonArray(json: string) {
+function parseJsonArray(json: string, fieldName: string) {
   const value: unknown = JSON.parse(json);
-  return Array.isArray(value) ? value : [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be a JSON array`);
+  }
+
+  return value;
 }
 
 function formatErrorMessage(error: unknown) {
