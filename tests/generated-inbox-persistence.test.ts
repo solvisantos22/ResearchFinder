@@ -169,6 +169,66 @@ describe("generated inbox persistence", () => {
   );
 
   it(
+    "returns ready ideas in descending score order with paper and citations",
+    async () => {
+      const { completeInboxGenerationJob, getGeneratedInboxState } = await jobServicePromise;
+
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        const { user, job } = await createRunningInboxGenerationJob(client);
+        const output = createGeneratedInbox({
+          generatedForUserId: user.id,
+          inboxDate: job.inboxDate,
+          papers: [
+            createPaperGroup(1, [
+              createGeneratedIdea(1, 1, "2606.00001", {
+                title: "Lower score idea",
+                scores: createScores(0.62)
+              })
+            ]),
+            createPaperGroup(2, [
+              createGeneratedIdea(2, 1, "2606.00002", {
+                title: "Higher score idea",
+                scores: createScores(0.94)
+              })
+            ])
+          ]
+        });
+
+        await completeInboxGenerationJob({
+          jobId: job.id,
+          workerId: "worker-1",
+          output
+        });
+
+        const state = await getGeneratedInboxState(user.id, job.inboxDate);
+
+        expect(state.status).toBe("ready");
+        expect(state.ideas.map((idea) => idea.title)).toEqual([
+          "Higher score idea",
+          "Lower score idea"
+        ]);
+        expect(state.ideas[0]?.overallScore).toBe(0.94);
+        expect(state.ideas[0]?.paper).toEqual(
+          expect.objectContaining({
+            arxivId: "2606.00002",
+            title: "Paper 2"
+          })
+        );
+        expect(state.ideas[0]?.citations).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              sourceType: "paper",
+              sourceId: "2606.00002"
+            })
+          ])
+        );
+      });
+    },
+    15000
+  );
+
+  it(
     "does not persist worker output for a different claimed user or date",
     async () => {
       const { completeInboxGenerationJob } = await jobServicePromise;
@@ -198,6 +258,93 @@ describe("generated inbox persistence", () => {
     },
     15000
   );
+
+  it(
+    "rejects completion for a non-running job without leaving generated ideas",
+    async () => {
+      const { completeInboxGenerationJob } = await jobServicePromise;
+
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        const { user, job } = await createRunningInboxGenerationJob(client);
+        await client.inboxGenerationJob.update({
+          where: { id: job.id },
+          data: {
+            status: "completed",
+            outputJson: "{}",
+            completedAt: new Date("2026-06-23T12:10:00.000Z")
+          }
+        });
+
+        await expect(
+          completeInboxGenerationJob({
+            jobId: job.id,
+            workerId: "worker-1",
+            output: createGeneratedInbox({
+              generatedForUserId: user.id,
+              inboxDate: job.inboxDate
+            })
+          })
+        ).rejects.toThrow();
+
+        expect(await client.generatedIdea.count()).toBe(0);
+        expect(await client.ideaCitation.count()).toBe(0);
+      });
+    },
+    15000
+  );
+
+  it("rejects when the final running-job update guard does not match", async () => {
+    const { completeInboxGenerationJob } = await jobServicePromise;
+    const job = {
+      id: "job-1",
+      userId: "user-1",
+      inboxDate: "2026-06-23"
+    };
+    const tx = {
+      inboxGenerationJob: {
+        findFirstOrThrow: vi.fn().mockResolvedValue(job),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 })
+      },
+      generatedIdea: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn().mockResolvedValue({ id: "idea-1" })
+      },
+      paper: {
+        upsert: vi.fn().mockResolvedValue({ id: "paper-1" })
+      },
+      ideaCitation: {
+        createMany: vi.fn().mockResolvedValue({ count: 1 })
+      }
+    };
+    mocked.prisma = {
+      $transaction: vi.fn(async (run: (transactionClient: typeof tx) => Promise<unknown>) =>
+        run(tx)
+      )
+    } as unknown as PrismaClient;
+
+    await expect(
+      completeInboxGenerationJob({
+        jobId: job.id,
+        workerId: "worker-1",
+        output: createGeneratedInbox()
+      })
+    ).rejects.toThrow("Inbox generation job is no longer running");
+
+    expect(tx.inboxGenerationJob.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: job.id,
+        claimedByWorkerId: "worker-1",
+        status: "running"
+      },
+      data: expect.objectContaining({
+        status: "completed",
+        completedAt: expect.any(Date)
+      })
+    });
+    const updateInput = tx.inboxGenerationJob.updateMany.mock.calls[0]?.[0];
+    expect(JSON.parse(updateInput?.data.outputJson ?? "{}")).toEqual(createGeneratedInbox());
+  });
 });
 
 async function createRunningInboxGenerationJob(
@@ -244,8 +391,13 @@ function createGeneratedInbox(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createPaperGroup(paperIndex: number, ideaCount: number) {
+function createPaperGroup(paperIndex: number, ideas: number | ReturnType<typeof createGeneratedIdea>[]) {
   const sourceId = `2606.0000${paperIndex}`;
+  const generatedIdeas = Array.isArray(ideas)
+    ? ideas
+    : Array.from({ length: ideas }, (_, index) =>
+        createGeneratedIdea(paperIndex, index + 1, sourceId)
+      );
 
   return {
     source: "arxiv",
@@ -257,13 +409,16 @@ function createPaperGroup(paperIndex: number, ideaCount: number) {
     categories: ["cs.AI"],
     publishedAt: "2026-06-23T00:00:00.000Z",
     whyPaperMatters: `Why paper ${paperIndex} matters`,
-    ideas: Array.from({ length: ideaCount }, (_, index) =>
-      createGeneratedIdea(paperIndex, index + 1, sourceId)
-    )
+    ideas: generatedIdeas
   };
 }
 
-function createGeneratedIdea(paperIndex: number, ideaIndex: number, sourceId: string) {
+function createGeneratedIdea(
+  paperIndex: number,
+  ideaIndex: number,
+  sourceId: string,
+  overrides: Record<string, unknown> = {}
+) {
   return {
     title: `Idea ${ideaIndex}`,
     summary: `Summary ${ideaIndex}`,
@@ -276,7 +431,7 @@ function createGeneratedIdea(paperIndex: number, ideaIndex: number, sourceId: st
       significance: 0.82,
       originality: 0.73,
       feasibility: 0.64,
-      overall: 0.85 - ideaIndex * 0.01
+      overall: 0.86 - ideaIndex * 0.01
     },
     scoreExplanations: {
       relevance: `Relevance ${ideaIndex}`,
@@ -303,6 +458,17 @@ function createGeneratedIdea(paperIndex: number, ideaIndex: number, sourceId: st
         claim: `Generated claim ${ideaIndex}`,
         confidence: 0.7
       }
-    ]
+    ],
+    ...overrides
+  };
+}
+
+function createScores(overall: number) {
+  return {
+    relevance: 0.91,
+    significance: 0.82,
+    originality: 0.73,
+    feasibility: 0.64,
+    overall
   };
 }

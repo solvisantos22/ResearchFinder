@@ -1,3 +1,5 @@
+import type { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/db";
 import { GeneratedInboxSchema, type GeneratedInbox } from "@/lib/v2/schemas";
 
@@ -100,102 +102,118 @@ export async function completeInboxGenerationJob(input: {
 }) {
   const parsed = GeneratedInboxSchema.parse(input.output);
 
-  const job = await prisma.inboxGenerationJob.findFirstOrThrow({
-    where: {
-      id: input.jobId,
-      claimedByWorkerId: input.workerId,
-      status: "running"
-    }
-  });
-
-  if (parsed.generatedForUserId !== job.userId || parsed.inboxDate !== job.inboxDate) {
-    throw new Error("Generated inbox output does not match claimed job user/date");
-  }
-
-  await persistGeneratedInbox(parsed, job.id);
-
-  return prisma.inboxGenerationJob.update({
-    where: { id: job.id },
-    data: {
-      status: "completed",
-      outputJson: JSON.stringify(parsed),
-      completedAt: new Date()
-    }
-  });
-}
-
-async function persistGeneratedInbox(inbox: GeneratedInbox, jobId: string) {
   return prisma.$transaction(async (tx) => {
-    await tx.generatedIdea.deleteMany({
+    const job = await tx.inboxGenerationJob.findFirstOrThrow({
       where: {
-        userId: inbox.generatedForUserId,
-        inboxDate: inbox.inboxDate
+        id: input.jobId,
+        claimedByWorkerId: input.workerId,
+        status: "running"
       }
     });
 
-    for (const paperGroup of inbox.papers) {
-      const paper = await tx.paper.upsert({
-        where: { arxivId: paperGroup.sourceId },
-        update: {
-          title: paperGroup.title,
-          abstract: paperGroup.abstract,
-          url: paperGroup.url,
-          publishedAt: new Date(paperGroup.publishedAt),
-          arxivUpdatedAt: new Date(paperGroup.publishedAt),
-          authorsJson: JSON.stringify(paperGroup.authors),
-          categoriesJson: JSON.stringify(paperGroup.categories)
-        },
-        create: {
-          arxivId: paperGroup.sourceId,
-          title: paperGroup.title,
-          abstract: paperGroup.abstract,
-          url: paperGroup.url,
-          publishedAt: new Date(paperGroup.publishedAt),
-          arxivUpdatedAt: new Date(paperGroup.publishedAt),
-          authorsJson: JSON.stringify(paperGroup.authors),
-          categoriesJson: JSON.stringify(paperGroup.categories)
+    if (parsed.generatedForUserId !== job.userId || parsed.inboxDate !== job.inboxDate) {
+      throw new Error("Generated inbox output does not match claimed job user/date");
+    }
+
+    await persistGeneratedInbox(tx, parsed, job.id);
+
+    const completion = await tx.inboxGenerationJob.updateMany({
+      where: {
+        id: job.id,
+        claimedByWorkerId: input.workerId,
+        status: "running"
+      },
+      data: {
+        status: "completed",
+        outputJson: JSON.stringify(parsed),
+        completedAt: new Date()
+      }
+    });
+
+    if (completion.count !== 1) {
+      throw new Error("Inbox generation job is no longer running");
+    }
+
+    return tx.inboxGenerationJob.findUniqueOrThrow({
+      where: { id: job.id }
+    });
+  });
+}
+
+async function persistGeneratedInbox(
+  tx: Prisma.TransactionClient,
+  inbox: GeneratedInbox,
+  jobId: string
+) {
+  await tx.generatedIdea.deleteMany({
+    where: {
+      userId: inbox.generatedForUserId,
+      inboxDate: inbox.inboxDate
+    }
+  });
+
+  for (const paperGroup of inbox.papers) {
+    const paper = await tx.paper.upsert({
+      where: { arxivId: paperGroup.sourceId },
+      update: {
+        title: paperGroup.title,
+        abstract: paperGroup.abstract,
+        url: paperGroup.url,
+        publishedAt: new Date(paperGroup.publishedAt),
+        arxivUpdatedAt: new Date(paperGroup.publishedAt),
+        authorsJson: JSON.stringify(paperGroup.authors),
+        categoriesJson: JSON.stringify(paperGroup.categories)
+      },
+      create: {
+        arxivId: paperGroup.sourceId,
+        title: paperGroup.title,
+        abstract: paperGroup.abstract,
+        url: paperGroup.url,
+        publishedAt: new Date(paperGroup.publishedAt),
+        arxivUpdatedAt: new Date(paperGroup.publishedAt),
+        authorsJson: JSON.stringify(paperGroup.authors),
+        categoriesJson: JSON.stringify(paperGroup.categories)
+      }
+    });
+
+    for (const ideaInput of paperGroup.ideas) {
+      const idea = await tx.generatedIdea.create({
+        data: {
+          userId: inbox.generatedForUserId,
+          paperId: paper.id,
+          inboxGenerationJobId: jobId,
+          inboxDate: inbox.inboxDate,
+          title: ideaInput.title,
+          summary: ideaInput.summary,
+          expandedExplanation: ideaInput.expandedExplanation,
+          trajectory: ideaInput.trajectory,
+          recommended: ideaInput.recommended,
+          noveltyStatus: ideaInput.noveltyStatus,
+          relevanceScore: ideaInput.scores.relevance,
+          significanceScore: ideaInput.scores.significance,
+          originalityScore: ideaInput.scores.originality,
+          feasibilityScore: ideaInput.scores.feasibility,
+          overallScore: ideaInput.scores.overall,
+          scoreExplanationsJson: JSON.stringify(ideaInput.scoreExplanations),
+          risksJson: JSON.stringify(ideaInput.risks),
+          smallestSprint: ideaInput.smallestViabilitySprint,
+          generatedBy: "codex"
         }
       });
 
-      for (const ideaInput of paperGroup.ideas) {
-        const idea = await tx.generatedIdea.create({
-          data: {
-            userId: inbox.generatedForUserId,
-            paperId: paper.id,
-            inboxGenerationJobId: jobId,
-            inboxDate: inbox.inboxDate,
-            title: ideaInput.title,
-            summary: ideaInput.summary,
-            expandedExplanation: ideaInput.expandedExplanation,
-            trajectory: ideaInput.trajectory,
-            recommended: ideaInput.recommended,
-            noveltyStatus: ideaInput.noveltyStatus,
-            relevanceScore: ideaInput.scores.relevance,
-            significanceScore: ideaInput.scores.significance,
-            originalityScore: ideaInput.scores.originality,
-            feasibilityScore: ideaInput.scores.feasibility,
-            overallScore: ideaInput.scores.overall,
-            scoreExplanationsJson: JSON.stringify(ideaInput.scoreExplanations),
-            risksJson: JSON.stringify(ideaInput.risks),
-            smallestSprint: ideaInput.smallestViabilitySprint,
-            generatedBy: "codex"
-          }
-        });
-
-        await tx.ideaCitation.createMany({
-          data: ideaInput.citations.map((citation) => ({
-            generatedIdeaId: idea.id,
-            sourceType: citation.sourceType,
-            title: citation.title,
-            url: citation.url,
-            sourceId: citation.sourceId,
-            claim: citation.claim,
-            confidence: citation.confidence
-          }))
-        });
-      }
+      await tx.ideaCitation.createMany({
+        data: ideaInput.citations.map((citation) => ({
+          generatedIdeaId: idea.id,
+          sourceType: citation.sourceType,
+          title: citation.title,
+          url: citation.url,
+          sourceId: citation.sourceId,
+          claim: citation.claim,
+          confidence: citation.confidence
+        }))
+      });
     }
-  });
+  }
 }
 
 export async function getGeneratedInboxState(userId: string, inboxDate: string) {
