@@ -18,4 +18,12 @@ describe("worker installer", () => {
     expect(installerScript).toContain("New-Object System.Text.UTF8Encoding $false");
     expect(installerScript).toContain("[System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)");
   });
+
+  it("fails fast when the local tsx cli is missing", () => {
+    expect(installerScript).toContain("$tsxPath = Join-Path $repoPath \"node_modules/tsx/dist/cli.mjs\"");
+    expect(installerScript).toContain("if (!(Test-Path -LiteralPath $tsxPath))");
+    expect(installerScript).toContain("ResearchFinder worker install requires node_modules/tsx/dist/cli.mjs");
+    expect(installerScript).toContain("$tsxLiteral = ConvertTo-PowerShellLiteral $tsxPath");
+    expect(installerScript).toContain("& $nodeLiteral $tsxLiteral \"scripts/researchfinder-worker.ts\"");
+  });
 });

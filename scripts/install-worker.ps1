@@ -22,17 +22,23 @@ $node = (Get-Command node -ErrorAction Stop).Source
 $codex = (Get-Command codex -ErrorAction Stop).Source
 $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
 $repoPath = (Get-Location).Path
+$tsxPath = Join-Path $repoPath "node_modules/tsx/dist/cli.mjs"
+if (!(Test-Path -LiteralPath $tsxPath)) {
+  throw "ResearchFinder worker install requires node_modules/tsx/dist/cli.mjs. Run npm install before installing the worker."
+}
+
 $runnerPath = Join-Path $InstallDir "run-worker.ps1"
 
 $configLiteral = ConvertTo-PowerShellLiteral $configPath
 $repoLiteral = ConvertTo-PowerShellLiteral $repoPath
 $nodeLiteral = ConvertTo-PowerShellLiteral $node
+$tsxLiteral = ConvertTo-PowerShellLiteral $tsxPath
 
 @"
 `$ErrorActionPreference = "Stop"
 `$env:RESEARCHFINDER_WORKER_CONFIG = $configLiteral
 Set-Location -LiteralPath $repoLiteral
-& $nodeLiteral "node_modules/tsx/dist/cli.mjs" "scripts/researchfinder-worker.ts"
+& $nodeLiteral $tsxLiteral "scripts/researchfinder-worker.ts"
 exit `$LASTEXITCODE
 "@ | Set-Content -Path $runnerPath -Encoding UTF8
 

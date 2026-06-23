@@ -23,12 +23,22 @@ type RunCodexOptions = {
   spawn?: CodexSpawn;
 };
 
+type CodexSpawnCommand = {
+  command: string;
+  args: string[];
+  options: SpawnOptions;
+};
+
 export function buildCodexExecArgs(promptFile: string) {
   return ["exec", "--json", "--skip-git-repo-check", "--file", promptFile];
 }
 
 function quoteCmdPart(value: string) {
   return `"${value.replaceAll("\"", "\"\"")}"`;
+}
+
+function wrapCmdPayload(value: string) {
+  return `"${value}"`;
 }
 
 function getDefaultCodexCommand(platform: NodeJS.Platform) {
@@ -50,14 +60,19 @@ export function createCodexSpawnCommand(
   codexCommand: string,
   args: string[],
   platform: NodeJS.Platform
-) {
+): CodexSpawnCommand {
   if (!shouldUseCmdShim(codexCommand, platform)) {
-    return { command: codexCommand, args };
+    return { command: codexCommand, args, options: {} };
   }
+
+  const payload = [codexCommand, ...args].map(quoteCmdPart).join(" ");
 
   return {
     command: "cmd.exe",
-    args: ["/d", "/s", "/c", [codexCommand, ...args].map(quoteCmdPart).join(" ")]
+    args: ["/d", "/s", "/c", wrapCmdPayload(payload)],
+    options: {
+      windowsVerbatimArguments: true
+    }
   };
 }
 
@@ -76,6 +91,7 @@ export async function runCodex(
 
   return new Promise((resolve, reject) => {
     const child = spawnCodex(commandPlan.command, commandPlan.args, {
+      ...commandPlan.options,
       stdio: ["ignore", "pipe", "pipe"]
     });
     let stdout = "";
