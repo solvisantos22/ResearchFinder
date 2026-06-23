@@ -18,9 +18,8 @@ The current V2 candidate cron creates arXiv candidate batches and inbox generati
 - `GOOGLE_CLIENT_SECRET`
 - `ALLOWED_GOOGLE_EMAILS`
 - `CRON_SECRET`
-- `WORKER_TOKEN_SECRET`
 
-Set `NEXTAUTH_URL` to the deployed application URL. `ALLOWED_GOOGLE_EMAILS` is a comma-separated allowlist; only those Google accounts can sign in.
+Set `NEXTAUTH_URL` to the deployed application URL. `ALLOWED_GOOGLE_EMAILS` is a comma-separated allowlist; only those Google accounts can sign in. If the hosting platform does not forward the public host and protocol headers correctly, set `APP_URL` or `NEXT_PUBLIC_APP_URL` to the deployed application URL so the `/workers` setup command uses the hosted origin.
 
 ## Database
 

@@ -52,12 +52,14 @@ generated worker config.
 See [ResearchFinder deployment](docs/deployment.md) for hosted setup, required
 services, environment variables, database migrations, cron, and worker setup.
 
-The hosted daily ingest entrypoint is:
+The hosted V2 candidate cron entrypoint is:
 
 ```text
-POST /api/cron/ingest
+POST /api/cron/candidates
 Authorization: Bearer <CRON_SECRET>
 ```
+
+The older direct-ingest route remains available at `POST /api/cron/ingest`.
 
 The values in `.env.example` are development-only. Set deployment-specific `CRON_SECRET`,
 Google OAuth credentials, and an `ALLOWED_GOOGLE_EMAILS` allowlist before exposing the app.
