@@ -409,6 +409,14 @@ describe("generated inbox persistence", () => {
                   {
                     sourceType: "paper",
                     title: "Paper 1",
+                    url: "https://arxiv.org/abs/2606.00001v2",
+                    sourceId: "2606.00001",
+                    claim: "Canonical source paper claim",
+                    confidence: 0.96
+                  },
+                  {
+                    sourceType: "paper",
+                    title: "Paper 1",
                     url: "https://arxiv.org/abs/poisoned",
                     sourceId: "2606.00001",
                     claim: "Poisoned source paper claim",
@@ -417,7 +425,7 @@ describe("generated inbox persistence", () => {
                 ]
               })
             ], {
-              url: "https://arxiv.org/abs/poisoned"
+              url: "https://arxiv.org/abs/2606.00001v2"
             })
           ]
         })
