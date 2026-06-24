@@ -15,7 +15,7 @@ export const authConfig = {
   providers: [googleProvider()],
   callbacks: {
     authorized({ auth }) {
-      return Boolean(auth?.user);
+      return isAllowedGoogleEmail(auth?.user?.email);
     },
     async signIn({ user }) {
       return isAllowedGoogleEmail(user.email);
