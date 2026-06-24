@@ -199,7 +199,26 @@ describe("researchfinder local worker", () => {
     });
   });
 
-  it("completes claimed viability jobs with a validated deterministic result", async () => {
+  it("completes claimed viability jobs with validated Codex output", async () => {
+    const codexOutput = {
+      jobId: "viability-job-1",
+      verdict: "needs_novelty_check",
+      summary: "Codex found the project plausible after checking the idea and source paper.",
+      feasibility: "A small sprint can create the benchmark slice and compare two baselines.",
+      noveltyRisk: "Related-work overlap still needs a focused search before paper writing.",
+      minimumExperiment: "Create 20 examples.",
+      blockers: ["Need access to baseline model outputs."],
+      citations: [
+        {
+          sourceType: "paper",
+          title: "Benchmark paper",
+          url: "https://arxiv.org/abs/2606.00001",
+          sourceId: "paper-1",
+          claim: "The paper motivates the benchmark direction.",
+          confidence: 0.91
+        }
+      ]
+    };
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -234,15 +253,21 @@ describe("researchfinder local worker", () => {
         })
       )
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    const runCodex = vi.fn().mockResolvedValue(JSON.stringify(codexOutput));
     globalThis.fetch = fetchMock;
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    const processed = await runResearchFinderWorkerOnce({
-      appUrl: "https://research.example.com",
-      workerToken: "worker-token"
-    });
+    const processed = await runResearchFinderWorkerOnce(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token",
+        codexCommand: "codex-test"
+      },
+      { runCodex }
+    );
 
     expect(processed).toBe(true);
+    expect(runCodex).toHaveBeenCalledWith(expect.any(String), { codexCommand: "codex-test" });
     expect(fetchMock).toHaveBeenNthCalledWith(1, "https://research.example.com/api/workers/claim", {
       method: "POST",
       headers: {
@@ -264,19 +289,38 @@ describe("researchfinder local worker", () => {
 
     const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
     expect(completionBody.type).toBe("viability_check");
-    const parsedOutput = parseViabilityOutput(JSON.stringify(completionBody.output));
-    expect(parsedOutput).toMatchObject({
-      jobId: "viability-job-1",
-      verdict: "needs_novelty_check",
-      summary: expect.stringContaining("local worker")
+    expect(parseViabilityOutput(JSON.stringify(completionBody.output))).toEqual(codexOutput);
+  });
+
+  it("reports invalid Codex viability output to the completion endpoint before throwing", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-1") }))
+      .mockResolvedValueOnce(createJsonResponse({ error: "Viability schema error" }, { status: 400 }));
+    const runCodex = vi.fn().mockResolvedValue("{not valid json");
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(
+      runResearchFinderWorkerOnce(
+        {
+          appUrl: "https://research.example.com",
+          workerToken: "worker-token"
+        },
+        { runCodex }
+      )
+    ).rejects.toThrow("Worker completion failed with 400");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const completionRequest = fetchMock.mock.calls[1];
+    expect(completionRequest?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/viability-job-1/complete"
+    );
+    const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
+    expect(completionBody).toEqual({
+      type: "viability_check",
+      output: "{not valid json"
     });
-    expect(parsedOutput.citations).toEqual([
-      expect.objectContaining({
-        sourceType: "paper",
-        title: "Benchmark paper",
-        url: "https://arxiv.org/abs/2606.00001"
-      })
-    ]);
   });
 
   it("returns false from one-shot mode when no job is available", async () => {
@@ -302,6 +346,10 @@ describe("researchfinder local worker", () => {
       .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-2") }))
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
     const sleep = vi.fn().mockResolvedValue(undefined);
+    const runCodex = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify(createViabilityCodexOutput("viability-job-1")))
+      .mockResolvedValueOnce(JSON.stringify(createViabilityCodexOutput("viability-job-2")));
     globalThis.fetch = fetchMock;
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -310,7 +358,7 @@ describe("researchfinder local worker", () => {
         appUrl: "https://research.example.com",
         workerToken: "worker-token"
       },
-      { sleep, maxIterations: 2 }
+      { runCodex, sleep, maxIterations: 2 }
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -335,6 +383,8 @@ describe("researchfinder local worker", () => {
       .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-1") }))
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
     const runCodex = vi.fn().mockResolvedValue("{not valid json");
+    runCodex.mockResolvedValueOnce("{not valid json");
+    runCodex.mockResolvedValueOnce(JSON.stringify(createViabilityCodexOutput("viability-job-1")));
     const sleep = vi.fn().mockResolvedValue(undefined);
     globalThis.fetch = fetchMock;
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -370,6 +420,10 @@ describe("researchfinder local worker", () => {
       .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-2") }))
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
     const sleep = vi.fn().mockResolvedValue(undefined);
+    const runCodex = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify(createViabilityCodexOutput("viability-job-1")))
+      .mockResolvedValueOnce(JSON.stringify(createViabilityCodexOutput("viability-job-2")));
     globalThis.fetch = fetchMock;
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -379,7 +433,7 @@ describe("researchfinder local worker", () => {
         appUrl: "https://research.example.com",
         workerToken: "worker-token"
       },
-      { sleep, maxIterations: 2 }
+      { runCodex, sleep, maxIterations: 2 }
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -402,6 +456,7 @@ describe("researchfinder local worker", () => {
       .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-1") }))
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
     const sleep = vi.fn().mockResolvedValue(undefined);
+    const runCodex = vi.fn().mockResolvedValue(JSON.stringify(createViabilityCodexOutput("viability-job-1")));
     globalThis.fetch = fetchMock;
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -411,7 +466,7 @@ describe("researchfinder local worker", () => {
         appUrl: "https://research.example.com",
         workerToken: "worker-token"
       },
-      { sleep, pollMs: 1234, maxIterations: 2 }
+      { runCodex, sleep, pollMs: 1234, maxIterations: 2 }
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -541,5 +596,27 @@ function createViabilityJob(id: string) {
       },
       citations: []
     }
+  };
+}
+
+function createViabilityCodexOutput(jobId: string) {
+  return {
+    jobId,
+    verdict: "needs_novelty_check",
+    summary: `Codex viability summary for ${jobId}.`,
+    feasibility: "A small sprint can create a benchmark slice and compare two baselines.",
+    noveltyRisk: "Related-work overlap still needs a focused search before paper writing.",
+    minimumExperiment: "Create 20 examples.",
+    blockers: ["Need access to baseline model outputs."],
+    citations: [
+      {
+        sourceType: "paper",
+        title: "Benchmark paper",
+        url: "https://arxiv.org/abs/2606.00001",
+        sourceId: `paper-${jobId}`,
+        claim: "The paper motivates the benchmark direction.",
+        confidence: 0.91
+      }
+    ]
   };
 }

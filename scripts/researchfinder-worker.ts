@@ -30,7 +30,7 @@ type WorkerRunOptions = {
   shouldStop?: () => boolean;
 };
 
-type InboxGenerationRunResult = {
+type WorkerJobRunResult = {
   output: unknown;
   validationError?: unknown;
 };
@@ -174,8 +174,9 @@ export async function runResearchFinderWorkerOnce(
   console.log(`Claimed ${payload.job.type} job ${payload.job.id}`);
 
   if (payload.job.type === "viability_check") {
-    const output = buildDeterministicViabilityOutput(payload.job);
-    await completeWorkerJob(config, payload.job, output);
+    const result = await runViabilityJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
     return true;
   }
@@ -347,46 +348,11 @@ function normalizeAppUrl(appUrl: string) {
   return appUrl.replace(/\/+$/, "");
 }
 
-function buildDeterministicViabilityOutput(job: ClaimedWorkerJob) {
-  let input: ViabilityJobInput;
-  try {
-    input = parseViabilityJobInput(job.input);
-  } catch (error) {
-    throw new FatalWorkerError(`Viability job input failed validation: ${formatErrorMessage(error)}`);
-  }
-
-  const citation = input.citations[0] ?? {
-    sourceType: "paper" as const,
-    title: input.paper.title,
-    url: input.paper.url,
-    sourceId: input.paper.id,
-    claim: `The local worker used the claimed source paper "${input.paper.title}" as deterministic grounding for this placeholder viability result.`,
-    confidence: 0.5
-  };
-
-  return parseViabilityOutput(
-    JSON.stringify({
-      jobId: job.id,
-      verdict: "needs_novelty_check",
-      summary:
-        "Deterministic local worker result: this job was completed locally without a Codex executor, so it should be reviewed before expansion.",
-      feasibility: `A bounded ${input.sprintDepth} sprint can start from: ${input.idea.smallestSprint}`,
-      noveltyRisk:
-        "Novelty was not independently checked by the local placeholder executor; run a focused related-work review before expansion.",
-      minimumExperiment: input.idea.smallestSprint,
-      blockers: [
-        "This result was produced by the deterministic local worker fallback, not a deep AI viability analysis."
-      ],
-      citations: [citation]
-    })
-  );
-}
-
 async function runInboxGenerationJob(
   job: ClaimedWorkerJob,
   config: WorkerConfig,
   options: WorkerRunOptions
-): Promise<InboxGenerationRunResult> {
+): Promise<WorkerJobRunResult> {
   const input = parseInboxGenerationJobInput(job.input);
   const prompt = await writeInboxGenerationPrompt(job.id, input);
 
@@ -397,6 +363,32 @@ async function runInboxGenerationJob(
 
     try {
       return { output: parseInboxGenerationOutput(rawOutput) };
+    } catch (error) {
+      return {
+        output: parseRawCodexOutputForCompletion(rawOutput),
+        validationError: error
+      };
+    }
+  } finally {
+    await rm(prompt.dir, { force: true, recursive: true });
+  }
+}
+
+async function runViabilityJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parseViabilityJobInputForRun(job.input);
+  const prompt = await writeViabilityPrompt(job.id, input);
+
+  try {
+    const rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
+      codexCommand: config.codexCommand
+    });
+
+    try {
+      return { output: parseViabilityOutput(rawOutput) };
     } catch (error) {
       return {
         output: parseRawCodexOutputForCompletion(rawOutput),
@@ -445,6 +437,42 @@ function buildInboxGenerationPrompt(input: InboxGenerationJobInput) {
     "- each idea must cite its source arXiv paper using sourceType \"paper\", matching sourceId and url.",
     "- produce no more than profile.maxIdeas ideas total and no more than profile.maxIdeasPerPaper per paper.",
     "Use the user's profile to choose relevant, feasible, original research directions.",
+    "",
+    "Claimed job input:",
+    JSON.stringify(input, null, 2)
+  ].join("\n");
+}
+
+function parseViabilityJobInputForRun(value: unknown) {
+  try {
+    return parseViabilityJobInput(value);
+  } catch (error) {
+    throw new FatalWorkerError(`Viability job input failed validation: ${formatErrorMessage(error)}`);
+  }
+}
+
+async function writeViabilityPrompt(jobId: string, input: ViabilityJobInput) {
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-viability-"));
+  const promptFile = join(promptDir, `${jobId}.prompt.md`);
+
+  await writeFile(promptFile, buildViabilityPrompt(jobId, input), "utf8");
+  return { dir: promptDir, file: promptFile };
+}
+
+function buildViabilityPrompt(jobId: string, input: ViabilityJobInput) {
+  return [
+    "You are running a ResearchFinder v2 viability check for one AI-generated research idea.",
+    "Return only valid JSON. Do not wrap the result in Markdown.",
+    "The JSON must match the ViabilityResult schema exactly:",
+    `- jobId: exactly ${JSON.stringify(jobId)}.`,
+    "- verdict: one of viable, needs_novelty_check, too_risky, blocked.",
+    "- summary: concise viability assessment.",
+    "- feasibility: concrete feasibility analysis for the requested sprint depth and autonomy level.",
+    "- noveltyRisk: brief related-work and prior-art risk assessment.",
+    "- minimumExperiment: the smallest credible experiment or build sprint.",
+    "- blockers: array of concrete blockers, or an empty array if none are known.",
+    "- citations: one or more citations grounding the analysis. Use sourceType paper for the source paper.",
+    "Do not invent citations. Prefer the provided source paper and provided citations; use generated_analysis only for your own reasoning.",
     "",
     "Claimed job input:",
     JSON.stringify(input, null, 2)
