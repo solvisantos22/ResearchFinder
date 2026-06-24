@@ -65,6 +65,28 @@ describe("candidate cron route", () => {
     });
   });
 
+  it("skips inbox generation jobs for empty candidate batches", async () => {
+    vi.stubEnv("CRON_SECRET", "secret");
+    mocked.findUsers.mockResolvedValue([{ id: "user-1" }]);
+    mocked.createBatch.mockResolvedValue({ id: "batch-1", candidates: [] });
+
+    const { POST } = await routePromise;
+    const response = await POST(
+      new Request("https://example.com/api/cron/candidates", {
+        method: "POST",
+        headers: { authorization: "Bearer secret" }
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      createdJobs: 0,
+      skippedUsers: [{ userId: "user-1", reason: "No arXiv candidates" }],
+      failedUsers: []
+    });
+    expect(mocked.createJob).not.toHaveBeenCalled();
+  });
+
   it("returns 500 with a summary when every profiled user fails", async () => {
     vi.stubEnv("CRON_SECRET", "secret");
     mocked.findUsers.mockResolvedValue([{ id: "user-1" }, { id: "user-2" }]);

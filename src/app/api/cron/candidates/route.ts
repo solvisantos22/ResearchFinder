@@ -23,9 +23,18 @@ export async function POST(request: Request) {
 
   const jobs = [];
   const failedUsers = [];
+  const skippedUsers = [];
   for (const user of users) {
     try {
       const batch = await createArxivCandidateBatchForUser(user.id, inboxDate);
+      if (Array.isArray(batch.candidates) && batch.candidates.length === 0) {
+        skippedUsers.push({
+          userId: user.id,
+          reason: "No arXiv candidates"
+        });
+        continue;
+      }
+
       jobs.push(
         await createInboxGenerationJob({
           userId: user.id,
@@ -41,7 +50,10 @@ export async function POST(request: Request) {
     }
   }
 
-  const response = { createdJobs: jobs.length, failedUsers };
+  const response =
+    skippedUsers.length > 0
+      ? { createdJobs: jobs.length, skippedUsers, failedUsers }
+      : { createdJobs: jobs.length, failedUsers };
   const allUsersFailed = users.length > 0 && failedUsers.length === users.length;
 
   return NextResponse.json(response, { status: allUsersFailed ? 500 : 200 });

@@ -18,7 +18,14 @@ export async function createInboxGenerationJob(input: {
         userId: input.userId,
         inboxDate: input.inboxDate
       },
-      select: { completedAt: true, id: true, status: true }
+      select: {
+        completedAt: true,
+        id: true,
+        status: true,
+        _count: {
+          select: { candidates: true }
+        }
+      }
     });
 
     if (!candidateBatch) {
@@ -27,6 +34,10 @@ export async function createInboxGenerationJob(input: {
 
     if (candidateBatch.status !== "completed" || !candidateBatch.completedAt) {
       throw new Error("Candidate batch is not complete");
+    }
+
+    if (candidateBatch._count.candidates === 0) {
+      throw new Error("Candidate batch has no papers for inbox generation");
     }
 
     await tx.inboxGenerationJob.updateMany({
