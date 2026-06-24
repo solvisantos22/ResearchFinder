@@ -193,16 +193,30 @@ describe("v2 worker schemas", () => {
   });
 
   it("rejects inbox outputs with more than 10 total ideas", () => {
-    const papers = Array.from({ length: 4 }, () =>
-      createPaper({
+    const papers = Array.from({ length: 4 }, (_, paperIndex) => {
+      const sourceId = `2606.0000${paperIndex + 1}`;
+      const url = `https://arxiv.org/abs/${sourceId}`;
+      const title = `Paper ${paperIndex + 1}`;
+
+      return createPaper({
+        sourceId,
+        url,
+        title,
         ideas: Array.from({ length: 3 }, (_, index) =>
           createIdea({
             title: `Idea ${index}`,
-            recommended: index === 0
+            recommended: index === 0,
+            citations: [
+              createCitation({
+                sourceId,
+                title,
+                url
+              })
+            ]
           })
         )
-      })
-    );
+      });
+    });
 
     expect(() =>
       GeneratedInboxSchema.parse(
@@ -210,7 +224,7 @@ describe("v2 worker schemas", () => {
           papers
         })
       )
-    ).toThrow();
+    ).toThrow(/contains 12 ideas; maximum is 10/);
   });
 
   it("requires each generated idea to cite the source arxiv paper", () => {
