@@ -172,7 +172,8 @@ describe("createInboxGenerationJob retry lifecycle", () => {
     mocked.candidateBatchFindFirst.mockResolvedValue({
       id: "batch-1",
       status: "completed",
-      completedAt: new Date("2026-06-23T10:00:00.000Z")
+      completedAt: new Date("2026-06-23T10:00:00.000Z"),
+      _count: { candidates: 1 }
     });
     mocked.updateMany.mockResolvedValue({ count: 1 });
     mocked.upsert.mockResolvedValue({

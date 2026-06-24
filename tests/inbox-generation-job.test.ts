@@ -47,16 +47,7 @@ describe("inbox generation jobs", () => {
         }
       });
 
-      const batch = await client.candidateBatch.create({
-        data: {
-          userId: user.id,
-          inboxDate: "2026-06-23",
-          source: "arxiv",
-          query: "cat:cs.AI",
-          status: "completed",
-          completedAt: new Date("2026-06-23T12:00:00.000Z")
-        }
-      });
+      const batch = await createCandidateBatch(client, user.id);
 
       const first = await createInboxGenerationJob({
         userId: user.id,
@@ -292,7 +283,7 @@ async function createCandidateBatch(
   inboxDate = "2026-06-23",
   overrides: { status?: string; completedAt?: Date | null } = {}
 ) {
-  return client.candidateBatch.create({
+  const batch = await client.candidateBatch.create({
     data: {
       userId,
       inboxDate,
@@ -305,6 +296,24 @@ async function createCandidateBatch(
           : overrides.completedAt
     }
   });
+
+  if ((overrides.status ?? "completed") === "completed") {
+    await client.candidatePaper.create({
+      data: {
+        batchId: batch.id,
+        arxivId: "2606.00001",
+        title: "Candidate paper",
+        abstract: "Candidate paper abstract",
+        url: "https://arxiv.org/abs/2606.00001",
+        publishedAt: new Date("2026-06-01T00:00:00.000Z"),
+        authorsJson: JSON.stringify(["A. Researcher"]),
+        categoriesJson: JSON.stringify(["cs.AI"]),
+        rawJson: JSON.stringify(buildPaperInput("2606.00001", "Candidate paper"))
+      }
+    });
+  }
+
+  return batch;
 }
 
 function buildPaperInput(arxivId: string, title: string) {
