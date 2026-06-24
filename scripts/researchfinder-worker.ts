@@ -149,7 +149,11 @@ export async function runResearchFinderWorkerOnce(
   });
 
   if (!response.ok) {
-    throwWorkerHttpError("claim", response.status);
+    throwWorkerHttpError(
+      "claim",
+      response.status,
+      await buildWorkerHttpErrorMessage("claim", response)
+    );
   }
 
   let rawPayload: unknown;
@@ -189,14 +193,73 @@ export async function runResearchFinderWorkerOnce(
   );
 }
 
-function throwWorkerHttpError(stage: "claim" | "completion", status: number): never {
-  const message = `Worker ${stage} failed with ${status}`;
+type WorkerHttpErrorClassification = "fatal" | "processed" | "transient";
 
-  if (status === 401 || status === 403 || (stage === "claim" && status < 500)) {
+function throwWorkerHttpError(
+  stage: "claim" | "completion",
+  status: number,
+  message = `Worker ${stage} failed with ${status}`
+): never {
+  const classification = classifyWorkerHttpError(stage, status);
+
+  if (classification === "fatal") {
     throw new FatalWorkerError(message);
   }
 
+  if (classification === "processed") {
+    throw new ProcessedWorkerError(new Error(message));
+  }
+
   throw new Error(message);
+}
+
+function classifyWorkerHttpError(
+  stage: "claim" | "completion",
+  status: number
+): WorkerHttpErrorClassification {
+  if (status === 401 || status === 403) {
+    return "fatal";
+  }
+
+  if (stage === "claim") {
+    return status < 500 ? "fatal" : "transient";
+  }
+
+  if (status === 400) {
+    return "processed";
+  }
+
+  if (status === 404) {
+    return "fatal";
+  }
+
+  if (status === 429 || status >= 500) {
+    return "transient";
+  }
+
+  return "fatal";
+}
+
+async function buildWorkerHttpErrorMessage(
+  stage: "claim" | "completion",
+  response: Response
+) {
+  const baseMessage = `Worker ${stage} failed with ${response.status}`;
+  const responseError = await readResponseError(response);
+  return responseError ? `${baseMessage}: ${responseError}` : baseMessage;
+}
+
+async function readResponseError(response: Response) {
+  try {
+    const body = (await response.clone().json()) as unknown;
+    if (isRecord(body) && typeof body.error === "string" && body.error.trim().length > 0) {
+      return body.error.trim();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function validateWorkerConfig(config: WorkerConfig) {
@@ -450,15 +513,11 @@ async function completeWorkerJob(config: WorkerConfig, job: ClaimedWorkerJob, ou
   );
 
   if (!response.ok) {
-    try {
-      throwWorkerHttpError("completion", response.status);
-    } catch (error) {
-      if (error instanceof FatalWorkerError) {
-        throw error;
-      }
-
-      throw new ProcessedWorkerError(error);
-    }
+    throwWorkerHttpError(
+      "completion",
+      response.status,
+      await buildWorkerHttpErrorMessage("completion", response)
+    );
   }
 }
 

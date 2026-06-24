@@ -360,6 +360,41 @@ describe("researchfinder local worker", () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
+  it("sleeps before the next claim after transient completion outages", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-1") }))
+      .mockResolvedValueOnce(
+        createJsonResponse({ error: "Completion service unavailable" }, { status: 503 })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-2") }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runResearchFinderWorker(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      },
+      { sleep, maxIterations: 2 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://research.example.com/api/workers/claim");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/viability-job-1/complete"
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("https://research.example.com/api/workers/claim");
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/viability-job-2/complete"
+    );
+    expect(sleep).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledWith(30_000);
+  });
+
   it("exits the polling loop on fatal claim authorization errors", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       createJsonResponse({ error: "Unauthorized" }, { status: 401 })
