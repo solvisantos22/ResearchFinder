@@ -37,6 +37,20 @@ type InboxGenerationRunResult = {
 
 const DEFAULT_WORKER_POLL_MS = 30_000;
 
+export class FatalWorkerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FatalWorkerError";
+  }
+}
+
+class ProcessedWorkerError extends Error {
+  constructor(error: unknown) {
+    super(formatErrorMessage(error));
+    this.name = "ProcessedWorkerError";
+  }
+}
+
 type ViabilityJobInput = {
   jobId: string;
   userId: string;
@@ -102,6 +116,11 @@ export async function runResearchFinderWorker(
     try {
       processed = await runResearchFinderWorkerOnce(config, options);
     } catch (error) {
+      if (error instanceof FatalWorkerError) {
+        throw error;
+      }
+
+      processed = error instanceof ProcessedWorkerError;
       console.error(formatErrorMessage(error));
     }
 
@@ -120,6 +139,8 @@ export async function runResearchFinderWorkerOnce(
   config: WorkerConfig = loadConfig(),
   options: WorkerRunOptions = {}
 ) {
+  validateWorkerConfig(config);
+
   const response = await fetch(`${normalizeAppUrl(config.appUrl)}/api/workers/claim`, {
     method: "POST",
     headers: {
@@ -128,10 +149,19 @@ export async function runResearchFinderWorkerOnce(
   });
 
   if (!response.ok) {
-    throw new Error(`Worker claim failed with ${response.status}`);
+    throwWorkerHttpError("claim", response.status);
   }
 
-  const payload = (await response.json()) as { job: null | ClaimedWorkerJob };
+  let rawPayload: unknown;
+  try {
+    rawPayload = await response.json();
+  } catch (error) {
+    throw new FatalWorkerError(
+      `Worker claim response was not valid JSON: ${formatErrorMessage(error)}`
+    );
+  }
+
+  const payload = parseClaimPayload(rawPayload);
   if (!payload.job) {
     console.log("No ResearchFinder worker job available");
     return false;
@@ -149,12 +179,74 @@ export async function runResearchFinderWorkerOnce(
   if (payload.job.type === "inbox_generation") {
     const result = await runInboxGenerationJob(payload.job, config, options);
     await completeWorkerJob(config, payload.job, result.output);
-    if (result.validationError) throw result.validationError;
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
     return true;
   }
 
-  throw new Error(`No local executor is registered for ${payload.job.type} in this worker slice`);
+  throw new FatalWorkerError(
+    `No local executor is registered for ${payload.job.type} in this worker slice`
+  );
+}
+
+function throwWorkerHttpError(stage: "claim" | "completion", status: number): never {
+  const message = `Worker ${stage} failed with ${status}`;
+
+  if (status === 401 || status === 403 || (stage === "claim" && status < 500)) {
+    throw new FatalWorkerError(message);
+  }
+
+  throw new Error(message);
+}
+
+function validateWorkerConfig(config: WorkerConfig) {
+  if (typeof config.workerToken !== "string" || config.workerToken.trim().length === 0) {
+    throw new FatalWorkerError("ResearchFinder worker token must be a non-empty string");
+  }
+
+  try {
+    const url = new URL(config.appUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("Expected HTTP(S) URL");
+    }
+  } catch {
+    throw new FatalWorkerError("ResearchFinder worker appUrl must be an HTTP(S) URL");
+  }
+}
+
+function parseClaimPayload(value: unknown): { job: null | ClaimedWorkerJob } {
+  if (!isRecord(value) || !("job" in value)) {
+    throw new FatalWorkerError("Worker claim response did not include a job field");
+  }
+
+  if (value.job === null) {
+    return { job: null };
+  }
+
+  if (!isRecord(value.job)) {
+    throw new FatalWorkerError("Worker claim response job must be an object or null");
+  }
+
+  const job = value.job;
+  if (typeof job.id !== "string" || job.id.trim().length === 0) {
+    throw new FatalWorkerError("Worker claim response job.id must be a non-empty string");
+  }
+
+  if (job.type !== "inbox_generation" && job.type !== "viability_check") {
+    throw new FatalWorkerError(`Unsupported worker job type: ${String(job.type)}`);
+  }
+
+  if (!("input" in job)) {
+    throw new FatalWorkerError("Worker claim response job.input is missing");
+  }
+
+  return {
+    job: {
+      id: job.id,
+      type: job.type,
+      input: job.input
+    }
+  };
 }
 
 function sleepMs(ms: number) {
@@ -185,7 +277,13 @@ function normalizeAppUrl(appUrl: string) {
 }
 
 function buildDeterministicViabilityOutput(job: ClaimedWorkerJob) {
-  const input = parseViabilityJobInput(job.input);
+  let input: ViabilityJobInput;
+  try {
+    input = parseViabilityJobInput(job.input);
+  } catch (error) {
+    throw new FatalWorkerError(`Viability job input failed validation: ${formatErrorMessage(error)}`);
+  }
+
   const citation = input.citations[0] ?? {
     sourceType: "paper" as const,
     title: input.paper.title,
@@ -218,7 +316,7 @@ async function runInboxGenerationJob(
   config: WorkerConfig,
   options: WorkerRunOptions
 ): Promise<InboxGenerationRunResult> {
-  const input = InboxGenerationJobInputSchema.parse(job.input);
+  const input = parseInboxGenerationJobInput(job.input);
   const prompt = await writeInboxGenerationPrompt(job.id, input);
 
   try {
@@ -236,6 +334,16 @@ async function runInboxGenerationJob(
     }
   } finally {
     await rm(prompt.dir, { force: true, recursive: true });
+  }
+}
+
+function parseInboxGenerationJobInput(value: unknown) {
+  try {
+    return InboxGenerationJobInputSchema.parse(value);
+  } catch (error) {
+    throw new FatalWorkerError(
+      `Inbox generation job input failed validation: ${formatErrorMessage(error)}`
+    );
   }
 }
 
@@ -342,7 +450,15 @@ async function completeWorkerJob(config: WorkerConfig, job: ClaimedWorkerJob, ou
   );
 
   if (!response.ok) {
-    throw new Error(`Worker completion failed with ${response.status}`);
+    try {
+      throwWorkerHttpError("completion", response.status);
+    } catch (error) {
+      if (error instanceof FatalWorkerError) {
+        throw error;
+      }
+
+      throw new ProcessedWorkerError(error);
+    }
   }
 }
 

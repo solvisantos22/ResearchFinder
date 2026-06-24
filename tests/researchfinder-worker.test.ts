@@ -325,6 +325,63 @@ describe("researchfinder local worker", () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
+  it("does not sleep before the next claim after invalid Codex output is reported", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ job: createInboxGenerationJob("inbox-job-1") }))
+      .mockResolvedValueOnce(
+        createJsonResponse({ error: "Generated inbox schema error" }, { status: 400 })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-1") }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    const runCodex = vi.fn().mockResolvedValue("{not valid json");
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runResearchFinderWorker(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      },
+      { runCodex, sleep, maxIterations: 2 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://research.example.com/api/workers/claim");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/inbox-job-1/complete"
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("https://research.example.com/api/workers/claim");
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/viability-job-1/complete"
+    );
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("exits the polling loop on fatal claim authorization errors", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      createJsonResponse({ error: "Unauthorized" }, { status: 401 })
+    );
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      runResearchFinderWorker(
+        {
+          appUrl: "https://research.example.com",
+          workerToken: "bad-worker-token"
+        },
+        { sleep, maxIterations: 3 }
+      )
+    ).rejects.toThrow("Worker claim failed with 401");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it("sleeps between polls when no job is available", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -347,6 +404,38 @@ describe("researchfinder local worker", () => {
     expect(sleep).toHaveBeenCalledWith(1234);
   });
 });
+
+function createInboxGenerationJob(id: string) {
+  return {
+    type: "inbox_generation",
+    id,
+    input: {
+      jobId: id,
+      userId: "user-1",
+      inboxDate: "2026-06-23",
+      profile: {
+        fieldPreset: "ai_ml",
+        keywords: ["LLM evaluation"],
+        constraints: ["No frontier-scale training"],
+        preferredOutputs: ["benchmark"],
+        arxivQuery: "cat:cs.AI",
+        maxIdeas: 10,
+        maxIdeasPerPaper: 3
+      },
+      candidatePapers: [
+        {
+          sourceId: "2606.00001",
+          title: "Paper title",
+          abstract: "Paper abstract",
+          url: "https://arxiv.org/abs/2606.00001",
+          authors: ["A. Researcher"],
+          categories: ["cs.AI"],
+          publishedAt: "2026-06-23T00:00:00.000Z"
+        }
+      ]
+    }
+  };
+}
 
 function createViabilityJob(id: string) {
   return {
