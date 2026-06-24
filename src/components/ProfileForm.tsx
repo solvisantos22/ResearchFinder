@@ -8,6 +8,10 @@ type ProfileFormProps = {
   saveAction: (formData: FormData) => void | Promise<void>;
 };
 
+type ProfileReadOnlyProps = {
+  profile: EditableProfileData;
+};
+
 function lines(values: string[]) {
   return values.join("\n");
 }
@@ -135,5 +139,78 @@ export function ProfileForm({ profile, saveAction }: ProfileFormProps) {
         Save profile
       </button>
     </form>
+  );
+}
+
+function ListValue({ values }: { values: string[] }) {
+  if (values.length === 0) {
+    return <p className="text-slate-500">None configured</p>;
+  }
+
+  return (
+    <ul className="grid gap-1">
+      {values.map((value) => (
+        <li key={value}>{value}</li>
+      ))}
+    </ul>
+  );
+}
+
+export function ProfileReadOnly({ profile }: ProfileReadOnlyProps) {
+  return (
+    <section className="grid gap-5 rounded-lg border border-line bg-white p-5 text-sm text-slate-700">
+      <div>
+        <h2 className="font-semibold text-slate-900">Field preset</h2>
+        <p className="mt-1">{fieldPresets[profile.fieldPresetKey].label}</p>
+      </div>
+      <div>
+        <h2 className="font-semibold text-slate-900">Keywords</h2>
+        <div className="mt-1">
+          <ListValue values={profile.keywords} />
+        </div>
+      </div>
+      <div>
+        <h2 className="font-semibold text-slate-900">Preferred outputs</h2>
+        <div className="mt-1">
+          <ListValue values={profile.preferredOutputs} />
+        </div>
+      </div>
+      <div>
+        <h2 className="font-semibold text-slate-900">Constraints</h2>
+        <div className="mt-1">
+          <ListValue values={profile.constraints} />
+        </div>
+      </div>
+      <div>
+        <h2 className="font-semibold text-slate-900">arXiv query</h2>
+        <p className="mt-1 whitespace-pre-wrap font-mono text-slate-950">{profile.arxivQuery}</p>
+      </div>
+      <dl className="grid gap-4 md:grid-cols-2">
+        <div>
+          <dt className="font-semibold text-slate-900">Normal daily runtime minutes</dt>
+          <dd className="mt-1">{profile.normalDailyRuntimeMin}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-900">Maximum daily runtime minutes</dt>
+          <dd className="mt-1">{profile.maxDailyRuntimeMin}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-900">Maximum papers screened</dt>
+          <dd className="mt-1">{profile.maxPapersScreened}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-900">Maximum papers deep read</dt>
+          <dd className="mt-1">{profile.maxPapersDeepRead}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-900">PDF fetch</dt>
+          <dd className="mt-1">{profile.allowPdfFetch ? "Allowed" : "Disabled"}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate-900">Related-work search</dt>
+          <dd className="mt-1">{profile.allowRelatedWorkSearch ? "Allowed" : "Disabled"}</dd>
+        </div>
+      </dl>
+    </section>
   );
 }

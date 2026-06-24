@@ -1,10 +1,7 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { PrismaClient } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
+
+import { withPostgresTestDatabase } from "./helpers/postgres";
 
 const mocked = vi.hoisted(() => ({
   prisma: null as PrismaClient | null
@@ -21,45 +18,6 @@ vi.mock("@/lib/db", () => ({
 }));
 
 const serviceModulePromise = import("@/lib/viability/service");
-
-function toSqliteUrl(path: string): string {
-  return `file:${path.replace(/\\/g, "/")}`;
-}
-
-function pushSchema(databaseUrl: string): void {
-  const prismaCli = join(process.cwd(), "node_modules", "prisma", "build", "index.js");
-
-  execFileSync(
-    process.execPath,
-    [prismaCli, "db", "push", "--schema", "prisma/schema.prisma", "--skip-generate"],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        DATABASE_URL: databaseUrl
-      },
-      stdio: "ignore"
-    }
-  );
-}
-
-async function withTestDatabase(run: (client: PrismaClient) => Promise<void>): Promise<void> {
-  const tempDir = mkdtempSync(join(tmpdir(), "research-finder-viability-"));
-  const databaseUrl = toSqliteUrl(join(tempDir, "test.db"));
-  const client = new PrismaClient({
-    datasourceUrl: databaseUrl
-  });
-
-  try {
-    pushSchema(databaseUrl);
-    mocked.prisma = client;
-    await run(client);
-  } finally {
-    mocked.prisma = null;
-    await client.$disconnect();
-    rmSync(tempDir, { recursive: true, force: true });
-  }
-}
 
 describe("buildViabilityDecision", () => {
   it("requires prototype, research, and novelty signals for expand verdict", async () => {
@@ -93,56 +51,61 @@ describe("processNextViabilityJob", () => {
     async () => {
       const { processNextViabilityJob } = await serviceModulePromise;
 
-      await withTestDatabase(async (client) => {
-        const oldest = await createQueuedJob(client, {
-          suffix: "oldest",
-          createdAt: new Date("2026-06-20T00:00:00.000Z")
-        });
-        const newer = await createQueuedJob(client, {
-          suffix: "newer",
-          createdAt: new Date("2026-06-21T00:00:00.000Z")
-        });
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        try {
+          const oldest = await createQueuedJob(client, {
+            suffix: "oldest",
+            createdAt: new Date("2026-06-20T00:00:00.000Z")
+          });
+          const newer = await createQueuedJob(client, {
+            suffix: "newer",
+            createdAt: new Date("2026-06-21T00:00:00.000Z")
+          });
 
-        const processedId = await processNextViabilityJob();
+          const processedId = await processNextViabilityJob();
 
-        expect(processedId).toBe(oldest.jobId);
+          expect(processedId).toBe(oldest.jobId);
 
-        const completedJob = await client.viabilityJob.findUniqueOrThrow({
-          where: { id: oldest.jobId },
-          include: {
-            artifacts: true,
-            evidence: true
-          }
-        });
+          const completedJob = await client.viabilityJob.findUniqueOrThrow({
+            where: { id: oldest.jobId },
+            include: {
+              artifacts: true,
+              evidence: true
+            }
+          });
 
-        expect(completedJob.status).toBe("completed");
-        expect(completedJob.verdict).toBe("expand");
-        expect(completedJob.startedAt).toBeInstanceOf(Date);
-        expect(completedJob.completedAt).toBeInstanceOf(Date);
-        expect(completedJob.artifacts.filter((artifact) => artifact.kind === "decision-report"))
-          .toHaveLength(1);
-        expect(completedJob.evidence.length).toBeGreaterThan(0);
-        expect(
-          completedJob.evidence.some((evidence) => evidence.sourceUrl === oldest.paperUrl)
-        ).toBe(true);
-        expect(
-          completedJob.evidence.some(
-            (evidence) =>
-              evidence.sourceUrl === "" && evidence.sourceTitle !== `Paper ${oldest.suffix}`
-          )
-        ).toBe(true);
+          expect(completedJob.status).toBe("completed");
+          expect(completedJob.verdict).toBe("expand");
+          expect(completedJob.startedAt).toBeInstanceOf(Date);
+          expect(completedJob.completedAt).toBeInstanceOf(Date);
+          expect(completedJob.artifacts.filter((artifact) => artifact.kind === "decision-report"))
+            .toHaveLength(1);
+          expect(completedJob.evidence.length).toBeGreaterThan(0);
+          expect(
+            completedJob.evidence.some((evidence) => evidence.sourceUrl === oldest.paperUrl)
+          ).toBe(true);
+          expect(
+            completedJob.evidence.some(
+              (evidence) =>
+                evidence.sourceUrl === "" && evidence.sourceTitle !== `Paper ${oldest.suffix}`
+            )
+          ).toBe(true);
 
-        const remainingJob = await client.viabilityJob.findUniqueOrThrow({
-          where: { id: newer.jobId },
-          include: {
-            artifacts: true,
-            evidence: true
-          }
-        });
+          const remainingJob = await client.viabilityJob.findUniqueOrThrow({
+            where: { id: newer.jobId },
+            include: {
+              artifacts: true,
+              evidence: true
+            }
+          });
 
-        expect(remainingJob.status).toBe("queued");
-        expect(remainingJob.artifacts).toHaveLength(0);
-        expect(remainingJob.evidence).toHaveLength(0);
+          expect(remainingJob.status).toBe("queued");
+          expect(remainingJob.artifacts).toHaveLength(0);
+          expect(remainingJob.evidence).toHaveLength(0);
+        } finally {
+          mocked.prisma = null;
+        }
       });
     },
     15000
@@ -153,8 +116,13 @@ describe("processNextViabilityJob", () => {
     async () => {
       const { processNextViabilityJob } = await serviceModulePromise;
 
-      await withTestDatabase(async () => {
-        await expect(processNextViabilityJob()).resolves.toBeNull();
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        try {
+          await expect(processNextViabilityJob()).resolves.toBeNull();
+        } finally {
+          mocked.prisma = null;
+        }
       });
     },
     15000
@@ -203,6 +171,61 @@ describe("processNextViabilityJob", () => {
       expect(fakePrisma.artifact.createMany).not.toHaveBeenCalled();
       expect(fakePrisma.evidence.createMany).not.toHaveBeenCalled();
       expect(fakePrisma.$transaction).not.toHaveBeenCalled();
+    } finally {
+      mocked.prisma = null;
+    }
+  });
+
+  it("processes a queued generated idea job", async () => {
+    const { processNextViabilityJob } = await serviceModulePromise;
+    const fakePrisma = {
+      viabilityJob: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "v2-job-1",
+          sprintDepth: "default",
+          autonomyLevel: "medium",
+          idea: null,
+          generatedIdea: {
+            title: "Generated idea",
+            paper: {
+              title: "Generated paper",
+              url: "https://arxiv.org/abs/generated"
+            }
+          }
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update: vi.fn().mockReturnValue({ kind: "update-job" })
+      },
+      artifact: {
+        createMany: vi.fn().mockReturnValue({ kind: "create-artifacts" })
+      },
+      evidence: {
+        createMany: vi.fn().mockReturnValue({ kind: "create-evidence" })
+      },
+      $transaction: vi.fn().mockResolvedValue([])
+    };
+
+    mocked.prisma = fakePrisma as unknown as PrismaClient;
+
+    try {
+      await expect(processNextViabilityJob()).resolves.toBe("v2-job-1");
+      expect(fakePrisma.artifact.createMany).toHaveBeenCalledWith({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            jobId: "v2-job-1",
+            title: "Viability decision for Generated idea"
+          })
+        ])
+      });
+      expect(fakePrisma.evidence.createMany).toHaveBeenCalledWith({
+        data: expect.arrayContaining([
+          expect.objectContaining({
+            jobId: "v2-job-1",
+            sourceTitle: "Generated paper",
+            sourceUrl: "https://arxiv.org/abs/generated"
+          })
+        ])
+      });
     } finally {
       mocked.prisma = null;
     }

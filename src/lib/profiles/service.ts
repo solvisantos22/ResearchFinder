@@ -21,21 +21,40 @@ export type EditableProfileData = {
   allowRelatedWorkSearch: boolean;
 };
 
+export type ProfileUpdateData = {
+  fieldPresetKey?: FieldPresetKey;
+  keywords: string[];
+  preferredOutputs: string[];
+  constraints: string[];
+  arxivQuery: string;
+  normalDailyRuntimeMin?: number;
+  maxDailyRuntimeMin?: number;
+  maxPapersScreened?: number;
+  maxPapersDeepRead?: number;
+  allowPdfFetch?: boolean;
+  allowRelatedWorkSearch?: boolean;
+};
+
 function parseJsonList(value: string | null | undefined): string[] {
   if (!value) return [];
 
   try {
     const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
   } catch {
     return [];
   }
 }
 
 export function toEditableProfile(profile: ResearchProfile): EditableProfileData {
+  const keywords = parseJsonList(profile.keywordsJson);
+  const interests = parseJsonList(profile.interestsJson);
+
   return {
     fieldPresetKey: isFieldPresetKey(profile.fieldPresetKey) ? profile.fieldPresetKey : "ai_ml",
-    keywords: parseJsonList(profile.keywordsJson || profile.interestsJson),
+    keywords: keywords.length > 0 ? keywords : interests,
     preferredOutputs: parseJsonList(profile.preferredOutputsJson),
     constraints: parseJsonList(profile.constraintsJson),
     arxivQuery: profile.arxivQuery,
@@ -49,11 +68,10 @@ export function toEditableProfile(profile: ResearchProfile): EditableProfileData
 }
 
 export async function ensureProfileForUser(userId: string, presetKey: FieldPresetKey) {
-  const existing = await prisma.researchProfile.findUnique({ where: { userId } });
-  if (existing) return existing;
-
-  return prisma.researchProfile.create({
-    data: {
+  return prisma.researchProfile.upsert({
+    where: { userId },
+    update: {},
+    create: {
       userId,
       ...buildPresetProfileData(presetKey)
     }
@@ -63,7 +81,7 @@ export async function ensureProfileForUser(userId: string, presetKey: FieldPrese
 export async function updateOwnProfile(input: {
   currentUserId: string;
   targetUserId: string;
-} & EditableProfileData) {
+} & ProfileUpdateData) {
   if (input.currentUserId !== input.targetUserId) {
     throw new Error("Cannot edit another user's profile");
   }
@@ -71,18 +89,28 @@ export async function updateOwnProfile(input: {
   return prisma.researchProfile.update({
     where: { userId: input.targetUserId },
     data: {
-      fieldPresetKey: input.fieldPresetKey,
       arxivQuery: input.arxivQuery,
       keywordsJson: JSON.stringify(input.keywords),
       interestsJson: JSON.stringify(input.keywords),
       constraintsJson: JSON.stringify(input.constraints),
       preferredOutputsJson: JSON.stringify(input.preferredOutputs),
-      normalDailyRuntimeMin: input.normalDailyRuntimeMin,
-      maxDailyRuntimeMin: input.maxDailyRuntimeMin,
-      maxPapersScreened: input.maxPapersScreened,
-      maxPapersDeepRead: input.maxPapersDeepRead,
-      allowPdfFetch: input.allowPdfFetch,
-      allowRelatedWorkSearch: input.allowRelatedWorkSearch
+      ...(input.fieldPresetKey !== undefined ? { fieldPresetKey: input.fieldPresetKey } : {}),
+      ...(input.normalDailyRuntimeMin !== undefined
+        ? { normalDailyRuntimeMin: input.normalDailyRuntimeMin }
+        : {}),
+      ...(input.maxDailyRuntimeMin !== undefined
+        ? { maxDailyRuntimeMin: input.maxDailyRuntimeMin }
+        : {}),
+      ...(input.maxPapersScreened !== undefined
+        ? { maxPapersScreened: input.maxPapersScreened }
+        : {}),
+      ...(input.maxPapersDeepRead !== undefined
+        ? { maxPapersDeepRead: input.maxPapersDeepRead }
+        : {}),
+      ...(input.allowPdfFetch !== undefined ? { allowPdfFetch: input.allowPdfFetch } : {}),
+      ...(input.allowRelatedWorkSearch !== undefined
+        ? { allowRelatedWorkSearch: input.allowRelatedWorkSearch }
+        : {})
     }
   });
 }

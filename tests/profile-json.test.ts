@@ -1,11 +1,8 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { PrismaClient } from "@prisma/client";
 import { describe, expect, it } from "vitest";
+
 import { defaultRankingWeights } from "@/lib/domain";
 import { buildProfileSeedData, encodeJsonField, parseJsonField, seed } from "@/lib/seed";
+import { withPostgresTestDatabase } from "./helpers/postgres";
 
 const solviInterests = [
   "LLM evaluation",
@@ -23,50 +20,21 @@ const collaboratorInterests = [
 ];
 
 const profileSelect = {
+  fieldPresetKey: true,
   interestsJson: true,
+  keywordsJson: true,
   constraintsJson: true,
   preferredOutputsJson: true,
   rankingWeightsJson: true,
   arxivQuery: true,
-  maxDailyPapers: true
+  maxDailyPapers: true,
+  normalDailyRuntimeMin: true,
+  maxDailyRuntimeMin: true,
+  maxPapersScreened: true,
+  maxPapersDeepRead: true,
+  allowPdfFetch: true,
+  allowRelatedWorkSearch: true
 };
-
-function toSqliteUrl(path: string): string {
-  return `file:${path.replace(/\\/g, "/")}`;
-}
-
-function pushSchema(databaseUrl: string): void {
-  const prismaCli = join(process.cwd(), "node_modules", "prisma", "build", "index.js");
-
-  execFileSync(
-    process.execPath,
-    [prismaCli, "db", "push", "--schema", "prisma/schema.prisma", "--skip-generate"],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        DATABASE_URL: databaseUrl
-      },
-      stdio: "ignore"
-    }
-  );
-}
-
-async function withTestDatabase(run: (client: PrismaClient) => Promise<void>): Promise<void> {
-  const tempDir = mkdtempSync(join(tmpdir(), "research-finder-seed-"));
-  const databaseUrl = toSqliteUrl(join(tempDir, "test.db"));
-  const client = new PrismaClient({
-    datasourceUrl: databaseUrl
-  });
-
-  try {
-    pushSchema(databaseUrl);
-    await run(client);
-  } finally {
-    await client.$disconnect();
-    rmSync(tempDir, { recursive: true, force: true });
-  }
-}
 
 describe("profile JSON helpers", () => {
   it("round-trips arrays and objects", () => {
@@ -84,14 +52,24 @@ describe("profile JSON helpers", () => {
     expect(Object.keys(profile).sort()).toEqual(
       [
         "arxivQuery",
+        "allowPdfFetch",
+        "allowRelatedWorkSearch",
         "constraintsJson",
+        "fieldPresetKey",
         "interestsJson",
+        "keywordsJson",
+        "maxDailyRuntimeMin",
         "maxDailyPapers",
+        "maxPapersDeepRead",
+        "maxPapersScreened",
+        "normalDailyRuntimeMin",
         "preferredOutputsJson",
         "rankingWeightsJson"
       ].sort()
     );
+    expect(profile.fieldPresetKey).toBe("ai_ml");
     expect(parseJsonField<string[]>(profile.interestsJson)).toEqual(solviInterests);
+    expect(parseJsonField<string[]>(profile.keywordsJson)).toEqual(solviInterests);
     expect(parseJsonField<string[]>(profile.constraintsJson)).toEqual([
       "Prefer credible prototypes in 1-3 weeks",
       "Prefer projects that can become papers after experiments",
@@ -108,12 +86,18 @@ describe("profile JSON helpers", () => {
       "(cat:cs.AI OR cat:cs.CL OR cat:cs.LG) AND (all:LLM OR all:evaluation OR all:agent OR all:benchmark OR all:reasoning)"
     );
     expect(profile.maxDailyPapers).toBe(10);
+    expect(profile.normalDailyRuntimeMin).toBe(45);
+    expect(profile.maxDailyRuntimeMin).toBe(120);
+    expect(profile.maxPapersScreened).toBe(40);
+    expect(profile.maxPapersDeepRead).toBe(6);
+    expect(profile.allowPdfFetch).toBe(false);
+    expect(profile.allowRelatedWorkSearch).toBe(true);
   });
 });
 
 describe("seed", () => {
   it("refreshes an existing research profile with the full seed payload", async () => {
-    await withTestDatabase(async (client) => {
+    await withPostgresTestDatabase(async (client) => {
       await seed(client);
 
       const [solvi, collaborator] = await Promise.all([
@@ -164,7 +148,7 @@ describe("seed", () => {
   });
 
   it("reuses an existing user with the canonical email when seeding", async () => {
-    await withTestDatabase(async (client) => {
+    await withPostgresTestDatabase(async (client) => {
       await client.user.create({
         data: {
           id: "existing-solvi",
@@ -217,7 +201,7 @@ describe("seed", () => {
   });
 
   it("reconciles an existing canonical id with a wrong email", async () => {
-    await withTestDatabase(async (client) => {
+    await withPostgresTestDatabase(async (client) => {
       await client.user.create({
         data: {
           id: "demo-solvi",
@@ -265,7 +249,7 @@ describe("seed", () => {
   });
 
   it("rejects split rows for the same canonical id and email", async () => {
-    await withTestDatabase(async (client) => {
+    await withPostgresTestDatabase(async (client) => {
       await client.user.createMany({
         data: [
           {
@@ -318,7 +302,7 @@ describe("seed", () => {
   });
 
   it("rolls back all seed writes when one user fails", async () => {
-    await withTestDatabase(async (client) => {
+    await withPostgresTestDatabase(async (client) => {
       await expect(
         seed(client, [
           {

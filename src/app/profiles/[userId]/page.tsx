@@ -1,9 +1,9 @@
 import React from "react";
 import { notFound } from "next/navigation";
 
-import { ProfileForm } from "@/components/ProfileForm";
+import { ProfileForm, ProfileReadOnly } from "@/components/ProfileForm";
 import { canEditProfile, canViewUserResearch } from "@/lib/auth/permissions";
-import { requireCurrentUser } from "@/lib/auth/current-user";
+import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { ensureProfileForUser, toEditableProfile } from "@/lib/profiles/service";
 
@@ -22,8 +22,11 @@ export default async function ProfilePage({ params }: { params: Promise<{ userId
     notFound();
   }
 
-  const profile = await ensureProfileForUser(userId, "ai_ml");
   const editable = canEditProfile({ currentUserId: currentUser.id, targetUserId: userId });
+  const profileRecord = editable
+    ? await ensureProfileForUser(userId, "ai_ml")
+    : await prisma.researchProfile.findUnique({ where: { userId } });
+  const profile = profileRecord ? toEditableProfile(profileRecord) : null;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
@@ -37,18 +40,20 @@ export default async function ProfilePage({ params }: { params: Promise<{ userId
         </p>
       </header>
 
-      {editable ? (
+      {editable && profile ? (
         <ProfileForm
-          profile={toEditableProfile(profile)}
+          profile={profile}
           saveAction={async (formData) => {
             "use server";
             formData.set("userId", userId);
             await saveProfile(formData);
           }}
         />
+      ) : profile ? (
+        <ProfileReadOnly profile={profile} />
       ) : (
         <div className="rounded-lg border border-line bg-white p-5 text-slate-700">
-          You can view this profile, but only {targetUser.name} can edit it.
+          No research profile has been configured yet.
         </div>
       )}
     </div>

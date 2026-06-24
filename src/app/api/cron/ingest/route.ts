@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAllowedGoogleEmail } from "@/lib/auth/allowed-emails";
 import { prisma } from "@/lib/db";
 import { buildDailyInboxForUser } from "@/lib/inbox/service";
 import { isAuthorizedCronRequest } from "./auth";
@@ -15,12 +16,13 @@ export async function POST(request: NextRequest) {
 
   const users = await prisma.user.findMany({
     where: { profile: { isNot: null } },
-    select: { id: true }
+    select: { id: true, email: true }
   });
+  const allowedUsers = users.filter((user) => isAllowedGoogleEmail(user.email));
   const inboxDate = todayIsoDate();
   const results = [];
 
-  for (const user of users) {
+  for (const user of allowedUsers) {
     const items = await buildDailyInboxForUser(user.id, inboxDate);
     results.push({ userId: user.id, count: items.length });
   }

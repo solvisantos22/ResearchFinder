@@ -6,3 +6,10 @@ export function canViewUserResearch(input: { currentUserId: string; targetUserId
 export function canEditProfile(input: { currentUserId: string; targetUserId: string }) {
   return input.currentUserId === input.targetUserId;
 }
+
+export function canDispatchIdeaForProfile(input: {
+  currentUserId: string;
+  generatedForUserId: string;
+}) {
+  return input.currentUserId === input.generatedForUserId;
+}

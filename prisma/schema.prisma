@@ -3,95 +3,124 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id
-  email     String   @unique
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
 
-  profile ResearchProfile?
-  inboxItems InboxItem[]
-  jobs ViabilityJob[]
-  workers WorkerRegistration[]
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  profile             ResearchProfile?
+  accounts            Account[]
+  sessions            Session[]
+  inboxItems          InboxItem[]
+  jobs                ViabilityJob[]
+  generatedIdeas      GeneratedIdea[]
+  candidateBatches    CandidateBatch[]
+  inboxGenerationJobs InboxGenerationJob[]
+  workers             WorkerRegistration[]
 }
 
 model ResearchProfile {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  fieldPresetKey       String   @default("ai_ml")
-  interestsJson        String
-  keywordsJson         String   @default("[]")
-  constraintsJson      String
-  preferredOutputsJson String
-  rankingWeightsJson String
-  arxivQuery           String
-  maxDailyPapers       Int      @default(10)
-  normalDailyRuntimeMin Int     @default(45)
-  maxDailyRuntimeMin   Int      @default(120)
-  maxPapersScreened    Int      @default(40)
-  maxPapersDeepRead    Int      @default(6)
-  allowPdfFetch        Boolean  @default(false)
-  allowRelatedWorkSearch Boolean @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  interestsJson          String
+  constraintsJson        String
+  preferredOutputsJson   String
+  rankingWeightsJson     String
+  arxivQuery             String
+  maxDailyPapers         Int      @default(10)
+  fieldPresetKey         String   @default("ai_ml")
+  keywordsJson           String   @default("[]")
+  normalDailyRuntimeMin  Int      @default(45)
+  maxDailyRuntimeMin     Int      @default(120)
+  maxPapersScreened      Int      @default(40)
+  maxPapersDeepRead      Int      @default(6)
+  allowPdfFetch          Boolean  @default(false)
+  allowRelatedWorkSearch Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model WorkerRegistration {
-  id         String   @id @default(cuid())
-  userId     String
-  label      String
-  tokenHash  String
-  status     String
-  lastSeenAt DateTime?
-  createdAt  DateTime @default(now())
-  revokedAt  DateTime?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
 }
 
 model Paper {
-  id          String   @id @default(cuid())
-  arxivId     String   @unique
-  title       String
-  abstract    String
-  url         String
-  publishedAt DateTime
+  id             String   @id @default(cuid())
+  arxivId        String   @unique
+  title          String
+  abstract       String
+  url            String
+  publishedAt    DateTime
   arxivUpdatedAt DateTime
-  authorsJson String
+  authorsJson    String
   categoriesJson String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  ideas Idea[]
-  inboxItems InboxItem[]
+  ideas          Idea[]
+  inboxItems     InboxItem[]
+  generatedIdeas GeneratedIdea[]
 }
 
 model Idea {
-  id          String   @id @default(cuid())
-  paperId     String
-  title       String
-  summary     String
-  rationale   String
-  approach    String
-  risksJson   String
+  id            String   @id @default(cuid())
+  paperId       String
+  title         String
+  summary       String
+  rationale     String
+  approach      String
+  risksJson     String
   nextStepsJson String
-  tagsJson    String
-  generatedBy String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  tagsJson      String
+  generatedBy   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  paper Paper @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  paper      Paper          @relation(fields: [paperId], references: [id], onDelete: Cascade)
   inboxItems InboxItem[]
-  jobs ViabilityJob[]
+  jobs       ViabilityJob[]
 }
 
 model InboxItem {
@@ -107,32 +136,38 @@ model InboxItem {
   reasoningJson      String
   createdAt          DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  paper Paper @relation(fields: [paperId], references: [id], onDelete: Cascade)
-  bestIdea Idea @relation(fields: [bestIdeaId], references: [id], onDelete: Cascade)
+  user     User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paper    Paper @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  bestIdea Idea  @relation(fields: [bestIdeaId], references: [id], onDelete: Cascade)
 
   @@unique([userId, paperId, inboxDate])
   @@index([userId, inboxDate, overallScore])
 }
 
 model ViabilityJob {
-  id             String   @id @default(cuid())
-  userId         String
-  ideaId         String
-  sprintDepth    String
-  autonomyLevel  String
-  status         String
-  verdict        String?
-  errorMessage   String?
-  createdAt      DateTime @default(now())
-  startedAt      DateTime?
-  completedAt    DateTime?
-  updatedAt      DateTime @updatedAt
+  id                String    @id @default(cuid())
+  userId            String
+  ideaId            String?
+  sprintDepth       String
+  autonomyLevel     String
+  status            String
+  verdict           String?
+  errorMessage      String?
+  claimedByWorkerId String?
+  generatedIdeaId   String?
+  createdAt         DateTime  @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  updatedAt         DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  idea Idea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
-  artifacts Artifact[]
-  evidence Evidence[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idea          Idea?          @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  generatedIdea GeneratedIdea? @relation(fields: [generatedIdeaId], references: [id], onDelete: Cascade)
+  artifacts     Artifact[]
+  evidence      Evidence[]
+
+  @@index([userId, status, createdAt, id])
+  @@index([claimedByWorkerId, status])
 }
 
 model Artifact {
@@ -146,15 +181,182 @@ model Artifact {
   job ViabilityJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 }
 
-model Evidence {
+model AllowedEmail {
   id        String   @id @default(cuid())
-  jobId     String
-  sourceUrl String
-  sourceTitle String
-  claim     String
-  support   String
-  confidence Float
+  email     String   @unique
+  label     String
   createdAt DateTime @default(now())
+}
+
+model FieldPreset {
+  key                    String   @id
+  label                  String
+  arxivCategoriesJson    String
+  defaultKeywordsJson    String
+  defaultOutputsJson     String
+  defaultConstraintsJson String
+  defaultArxivQuery      String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model PaperSource {
+  id           String   @id @default(cuid())
+  type         String
+  sourceId     String
+  url          String
+  title        String
+  metadataJson String
+  createdAt    DateTime @default(now())
+
+  @@unique([type, sourceId])
+}
+
+model CandidateBatch {
+  id          String    @id @default(cuid())
+  userId      String
+  inboxDate   String
+  source      String
+  query       String
+  status      String
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  candidates          CandidatePaper[]
+  inboxGenerationJobs InboxGenerationJob[]
+
+  @@unique([userId, inboxDate, source])
+  @@index([userId, inboxDate])
+}
+
+model CandidatePaper {
+  id             String   @id @default(cuid())
+  batchId        String
+  arxivId        String
+  title          String
+  abstract       String
+  url            String
+  publishedAt    DateTime
+  authorsJson    String
+  categoriesJson String
+  rawJson        String
+  createdAt      DateTime @default(now())
+
+  batch CandidateBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([batchId, arxivId])
+}
+
+model InboxGenerationJob {
+  id                String    @id @default(cuid())
+  userId            String
+  candidateBatchId  String
+  inboxDate         String
+  status            String
+  claimedByWorkerId String?
+  errorMessage      String?
+  inputJson         String
+  outputJson        String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  candidateBatch CandidateBatch  @relation(fields: [candidateBatchId], references: [id], onDelete: Cascade)
+  generatedIdeas GeneratedIdea[]
+
+  @@unique([userId, candidateBatchId, inboxDate])
+  @@index([userId, inboxDate, status])
+}
+
+model GeneratedIdea {
+  id                    String   @id @default(cuid())
+  userId                String
+  paperId               String
+  inboxGenerationJobId  String?
+  inboxDate             String
+  title                 String
+  summary               String
+  expandedExplanation   String
+  trajectory            String
+  recommended           Boolean  @default(false)
+  noveltyStatus         String
+  relevanceScore        Float
+  significanceScore     Float
+  originalityScore      Float
+  feasibilityScore      Float
+  overallScore          Float
+  scoreExplanationsJson String
+  risksJson             String
+  smallestSprint        String
+  generatedBy           String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paper              Paper               @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  inboxGenerationJob InboxGenerationJob? @relation(fields: [inboxGenerationJobId], references: [id], onDelete: SetNull)
+  citations          IdeaCitation[]
+  viabilityJobs      ViabilityJob[]
+
+  @@index([userId, inboxDate, overallScore])
+}
+
+model IdeaCitation {
+  id              String   @id @default(cuid())
+  generatedIdeaId String
+  sourceType      String
+  title           String
+  url             String
+  sourceId        String?
+  claim           String
+  confidence      Float
+  createdAt       DateTime @default(now())
+
+  generatedIdea GeneratedIdea @relation(fields: [generatedIdeaId], references: [id], onDelete: Cascade)
+}
+
+model WorkerRegistration {
+  id         String    @id @default(cuid())
+  userId     String
+  label      String
+  tokenHash  String
+  status     String
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs WorkerJobLog[]
+
+  @@index([userId, status])
+}
+
+model WorkerJobLog {
+  id        String   @id @default(cuid())
+  workerId  String
+  jobType   String
+  jobId     String
+  level     String
+  message   String
+  createdAt DateTime @default(now())
+
+  worker WorkerRegistration @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([jobType, jobId])
+}
+
+model Evidence {
+  id          String   @id @default(cuid())
+  jobId       String
+  sourceUrl   String
+  sourceTitle String
+  claim       String
+  support     String
+  confidence  Float
+  createdAt   DateTime @default(now())
 
   job ViabilityJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 }
