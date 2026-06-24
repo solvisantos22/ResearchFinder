@@ -135,6 +135,26 @@ export const GeneratedInboxSchema = strictObject({
       path: ["papers"]
     });
   }
+
+  const seenSourceIds = new Map<string, number>();
+  value.papers.forEach((paper, paperIndex) => {
+    const firstIndex = seenSourceIds.get(paper.sourceId);
+    if (firstIndex !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Generated inbox repeats sourceId ${paper.sourceId}; each source paper must appear once`,
+        path: ["papers", paperIndex, "sourceId"]
+      });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Generated inbox repeats sourceId ${paper.sourceId}; each source paper must appear once`,
+        path: ["papers", firstIndex, "sourceId"]
+      });
+      return;
+    }
+
+    seenSourceIds.set(paper.sourceId, paperIndex);
+  });
 });
 
 export const InboxGenerationJobInputSchema = strictObject({

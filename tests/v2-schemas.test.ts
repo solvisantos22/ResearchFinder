@@ -151,6 +151,47 @@ describe("v2 worker schemas", () => {
     ).toThrow();
   });
 
+  it("rejects duplicate source papers even when each group stays under the per-paper idea limit", () => {
+    expect(() =>
+      GeneratedInboxSchema.parse(
+        createInbox({
+          papers: [
+            createPaper({
+              sourceId: "2606.00001",
+              url: "https://arxiv.org/abs/2606.00001",
+              ideas: Array.from({ length: 3 }, (_, index) =>
+                createIdea({
+                  title: `First group idea ${index}`,
+                  citations: [
+                    createCitation({
+                      sourceId: "2606.00001",
+                      url: "https://arxiv.org/abs/2606.00001"
+                    })
+                  ]
+                })
+              )
+            }),
+            createPaper({
+              sourceId: "2606.00001",
+              url: "https://arxiv.org/abs/2606.00001",
+              ideas: Array.from({ length: 3 }, (_, index) =>
+                createIdea({
+                  title: `Second group idea ${index}`,
+                  citations: [
+                    createCitation({
+                      sourceId: "2606.00001",
+                      url: "https://arxiv.org/abs/2606.00001"
+                    })
+                  ]
+                })
+              )
+            })
+          ]
+        })
+      )
+    ).toThrow(/repeats sourceId/);
+  });
+
   it("rejects inbox outputs with more than 10 total ideas", () => {
     const papers = Array.from({ length: 4 }, () =>
       createPaper({
