@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseInboxGenerationOutput, parseViabilityOutput } from "@/worker/output-validation";
-import { runResearchFinderWorker } from "../scripts/researchfinder-worker";
+import {
+  runResearchFinderWorker,
+  runResearchFinderWorkerOnce
+} from "../scripts/researchfinder-worker";
 
 const originalFetch = globalThis.fetch;
 
@@ -113,7 +116,7 @@ describe("researchfinder local worker", () => {
     globalThis.fetch = fetchMock;
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runResearchFinderWorker(
+    const processed = await runResearchFinderWorkerOnce(
       {
         appUrl: "https://research.example.com",
         workerToken: "worker-token",
@@ -122,6 +125,7 @@ describe("researchfinder local worker", () => {
       { runCodex }
     );
 
+    expect(processed).toBe(true);
     expect(runCodex).toHaveBeenCalledWith(expect.any(String), { codexCommand: "codex-test" });
     const completionRequest = fetchMock.mock.calls[1];
     expect(completionRequest?.[0]).toBe(
@@ -174,7 +178,7 @@ describe("researchfinder local worker", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await expect(
-      runResearchFinderWorker(
+      runResearchFinderWorkerOnce(
         {
           appUrl: "https://research.example.com",
           workerToken: "worker-token"
@@ -233,11 +237,12 @@ describe("researchfinder local worker", () => {
     globalThis.fetch = fetchMock;
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await runResearchFinderWorker({
+    const processed = await runResearchFinderWorkerOnce({
       appUrl: "https://research.example.com",
       workerToken: "worker-token"
     });
 
+    expect(processed).toBe(true);
     expect(fetchMock).toHaveBeenNthCalledWith(1, "https://research.example.com/api/workers/claim", {
       method: "POST",
       headers: {
@@ -273,4 +278,102 @@ describe("researchfinder local worker", () => {
       })
     ]);
   });
+
+  it("returns false from one-shot mode when no job is available", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(createJsonResponse({ job: null }));
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(
+      runResearchFinderWorkerOnce({
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      })
+    ).resolves.toBe(false);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("drains multiple queued jobs without sleeping between processed jobs", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-1") }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }))
+      .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-2") }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runResearchFinderWorker(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      },
+      { sleep, maxIterations: 2 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://research.example.com/api/workers/claim");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/viability-job-1/complete"
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("https://research.example.com/api/workers/claim");
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/viability-job-2/complete"
+    );
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("sleeps between polls when no job is available", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ job: null }))
+      .mockResolvedValueOnce(createJsonResponse({ job: null }));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runResearchFinderWorker(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      },
+      { sleep, pollMs: 1234, maxIterations: 2 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledWith(1234);
+  });
 });
+
+function createViabilityJob(id: string) {
+  return {
+    type: "viability_check",
+    id,
+    input: {
+      jobId: id,
+      userId: "user-1",
+      sprintDepth: "default",
+      autonomyLevel: "medium",
+      idea: {
+        id: `idea-${id}`,
+        title: "Build a benchmark slice",
+        summary: "Evaluate a small benchmark slice.",
+        details: "Create a focused pilot.",
+        smallestSprint: "Create 20 examples."
+      },
+      paper: {
+        id: `paper-${id}`,
+        title: "Benchmark paper",
+        abstract: "Paper abstract",
+        url: "https://arxiv.org/abs/2606.00001",
+        authors: ["A. Researcher"],
+        categories: ["cs.AI"],
+        publishedAt: "2026-06-23T00:00:00.000Z"
+      },
+      citations: []
+    }
+  };
+}

@@ -19,7 +19,7 @@
     "db:seed": "tsx src/lib/seed.ts",
     "ingest:daily": "tsx scripts/ingest-daily.ts",
     "worker:local": "tsx scripts/researchfinder-worker.ts",
-    "worker:once": "tsx scripts/process-viability-once.ts"
+    "worker:once": "tsx scripts/researchfinder-worker.ts --once"
   },
   "prisma": {
     "seed": "tsx src/lib/seed.ts"

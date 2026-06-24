@@ -14,6 +14,8 @@ type WorkerConfig = {
   codexCommand?: string;
 };
 
+type Sleep = (ms: number) => Promise<void>;
+
 type ClaimedWorkerJob = {
   id: string;
   type: string;
@@ -22,12 +24,18 @@ type ClaimedWorkerJob = {
 
 type WorkerRunOptions = {
   runCodex?: typeof defaultRunCodex;
+  sleep?: Sleep;
+  pollMs?: number;
+  maxIterations?: number;
+  shouldStop?: () => boolean;
 };
 
 type InboxGenerationRunResult = {
   output: unknown;
   validationError?: unknown;
 };
+
+const DEFAULT_WORKER_POLL_MS = 30_000;
 
 type ViabilityJobInput = {
   jobId: string;
@@ -84,6 +92,34 @@ export async function runResearchFinderWorker(
   config: WorkerConfig = loadConfig(),
   options: WorkerRunOptions = {}
 ) {
+  const sleep = options.sleep ?? sleepMs;
+  const pollMs = resolvePollMs(options.pollMs);
+  let iterations = 0;
+
+  while (!options.shouldStop?.()) {
+    let processed = false;
+
+    try {
+      processed = await runResearchFinderWorkerOnce(config, options);
+    } catch (error) {
+      console.error(formatErrorMessage(error));
+    }
+
+    iterations += 1;
+    if (options.maxIterations !== undefined && iterations >= options.maxIterations) {
+      return;
+    }
+
+    if (!processed) {
+      await sleep(pollMs);
+    }
+  }
+}
+
+export async function runResearchFinderWorkerOnce(
+  config: WorkerConfig = loadConfig(),
+  options: WorkerRunOptions = {}
+) {
   const response = await fetch(`${normalizeAppUrl(config.appUrl)}/api/workers/claim`, {
     method: "POST",
     headers: {
@@ -98,7 +134,7 @@ export async function runResearchFinderWorker(
   const payload = (await response.json()) as { job: null | ClaimedWorkerJob };
   if (!payload.job) {
     console.log("No ResearchFinder worker job available");
-    return;
+    return false;
   }
 
   console.log(`Claimed ${payload.job.type} job ${payload.job.id}`);
@@ -107,7 +143,7 @@ export async function runResearchFinderWorker(
     const output = buildDeterministicViabilityOutput(payload.job);
     await completeWorkerJob(config, payload.job, output);
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
-    return;
+    return true;
   }
 
   if (payload.job.type === "inbox_generation") {
@@ -115,10 +151,33 @@ export async function runResearchFinderWorker(
     await completeWorkerJob(config, payload.job, result.output);
     if (result.validationError) throw result.validationError;
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
-    return;
+    return true;
   }
 
   throw new Error(`No local executor is registered for ${payload.job.type} in this worker slice`);
+}
+
+function sleepMs(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function resolvePollMs(explicitPollMs?: number) {
+  if (isPositiveFiniteNumber(explicitPollMs)) {
+    return explicitPollMs;
+  }
+
+  const configured = Number.parseInt(process.env.RESEARCHFINDER_WORKER_POLL_MS ?? "", 10);
+  return isPositiveFiniteNumber(configured) ? configured : DEFAULT_WORKER_POLL_MS;
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function formatErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function normalizeAppUrl(appUrl: string) {
@@ -308,7 +367,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  runResearchFinderWorker().catch((error: unknown) => {
+  const command = process.argv.includes("--once")
+    ? runResearchFinderWorkerOnce()
+    : runResearchFinderWorker();
+
+  command.catch((error: unknown) => {
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);
   });

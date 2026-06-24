@@ -43,9 +43,10 @@ After signing in, open `/workers` to register and connect a local worker. Run
 the one-time PowerShell installer command shown on that page; it writes the
 worker config in the install directory and sets up the connected worker runner.
 
-For manual local development, `npm run worker:local` requires either a
-repo-local `.worker.json` file or `RESEARCHFINDER_WORKER_CONFIG` pointing at a
-generated worker config.
+For manual local development, `npm run worker:local` starts a polling worker
+loop. It requires either a repo-local `.worker.json` file or
+`RESEARCHFINDER_WORKER_CONFIG` pointing at a generated worker config. Use
+`npm run worker:once` to claim and process a single job for debugging.
 
 ## Cron and Deployment
 

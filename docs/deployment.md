@@ -50,4 +50,4 @@ Authorization: Bearer <CRON_SECRET>
 
 Sign in, open `/workers`, create a worker token, and run the displayed PowerShell installer once on the Windows machine that should run Codex jobs.
 
-The `/workers` page registers an active worker and displays the one-time token setup command. The installed local worker can claim jobs from the hosted app and currently completes viability jobs with deterministic placeholder output; real deep Codex execution is not wired into this worker slice yet.
+The `/workers` page registers an active worker and displays the one-time token setup command. The installed local worker runs a persistent polling loop, claims jobs from the hosted app, and drains queued jobs without waiting between successful completions. It uses Codex for inbox generation jobs and currently completes viability jobs with deterministic placeholder output. Set `RESEARCHFINDER_WORKER_POLL_MS` to tune the idle polling interval; the default is 30000 ms.
