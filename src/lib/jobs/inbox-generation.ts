@@ -158,9 +158,11 @@ export async function completeInboxGenerationJob(input: {
     );
 
     for (const paperGroup of parsed.papers) {
-      if (!candidatesByArxivId.has(paperGroup.sourceId)) {
+      const candidate = candidatesByArxivId.get(paperGroup.sourceId);
+      if (!candidate) {
         throw new Error("Generated inbox includes paper outside claimed candidate batch");
       }
+      assertGeneratedPaperMatchesCandidate(paperGroup, candidate);
     }
 
     await persistGeneratedInbox(tx, parsed, job.id, candidatesByArxivId);
@@ -186,6 +188,27 @@ export async function completeInboxGenerationJob(input: {
       where: { id: job.id }
     });
   });
+}
+
+function assertGeneratedPaperMatchesCandidate(
+  paperGroup: GeneratedInbox["papers"][number],
+  candidate: CandidatePaper
+) {
+  if (paperGroup.url !== candidate.url) {
+    throw new Error("Generated inbox source paper metadata does not match claimed candidate batch");
+  }
+
+  for (const idea of paperGroup.ideas) {
+    const invalidSourceCitation = idea.citations.some(
+      (citation) =>
+        citation.sourceType === "paper" &&
+        (citation.sourceId !== candidate.arxivId || citation.url !== candidate.url)
+    );
+
+    if (invalidSourceCitation) {
+      throw new Error("Generated inbox source paper metadata does not match claimed candidate batch");
+    }
+  }
 }
 
 async function persistGeneratedInbox(

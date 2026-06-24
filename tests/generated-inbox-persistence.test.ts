@@ -298,12 +298,13 @@ describe("generated inbox persistence", () => {
       await withPostgresTestDatabase(async (client) => {
         mocked.prisma = client;
         const canonicalPublishedAt = new Date("2026-06-20T10:30:00.000Z");
+        const canonicalUrl = "https://arxiv.org/abs/2606.00001v2";
         const { user, job } = await createRunningInboxGenerationJob(client, {
           candidates: [
             createCandidatePaperInput(1, {
               title: "Canonical candidate title",
               abstract: "Canonical candidate abstract",
-              url: "https://arxiv.org/abs/2606.00001v2",
+              url: canonicalUrl,
               publishedAt: canonicalPublishedAt,
               authors: ["Canonical Author"],
               categories: ["cs.LG"]
@@ -318,10 +319,23 @@ describe("generated inbox persistence", () => {
             generatedForUserId: user.id,
             inboxDate: job.inboxDate,
             papers: [
-              createPaperGroup(1, 1, {
+              createPaperGroup(1, [
+                createGeneratedIdea(1, 1, "2606.00001", {
+                  citations: [
+                    {
+                      sourceType: "paper",
+                      title: "Worker supplied title",
+                      url: canonicalUrl,
+                      sourceId: "2606.00001",
+                      claim: "Paper claim 1",
+                      confidence: 0.96
+                    }
+                  ]
+                })
+              ], {
                 title: "Worker supplied title",
                 abstract: "Worker supplied abstract",
-                url: "https://arxiv.org/abs/poisoned",
+                url: canonicalUrl,
                 authors: ["Worker Author"],
                 categories: ["cs.POISON"],
                 publishedAt: "2020-01-01T00:00:00.000Z"
@@ -345,6 +359,76 @@ describe("generated inbox persistence", () => {
     },
     15000
   );
+
+  it("rejects source paper metadata that does not match the claimed candidate", async () => {
+    const { completeInboxGenerationJob } = await jobServicePromise;
+    const job = {
+      id: "job-1",
+      userId: "user-1",
+      inboxDate: "2026-06-23",
+      candidateBatch: {
+        candidates: [
+          createCandidatePaperInput(1, {
+            url: "https://arxiv.org/abs/2606.00001v2"
+          })
+        ]
+      }
+    };
+    const tx = {
+      inboxGenerationJob: {
+        findFirstOrThrow: vi.fn().mockResolvedValue(job),
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ ...job, status: "completed" }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 })
+      },
+      generatedIdea: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn().mockResolvedValue({ id: "idea-1" })
+      },
+      paper: {
+        upsert: vi.fn().mockResolvedValue({ id: "paper-1" })
+      },
+      ideaCitation: {
+        createMany: vi.fn().mockResolvedValue({ count: 1 })
+      }
+    };
+    mocked.prisma = {
+      $transaction: vi.fn(async (run: (transactionClient: typeof tx) => Promise<unknown>) =>
+        run(tx)
+      )
+    } as unknown as PrismaClient;
+
+    await expect(
+      completeInboxGenerationJob({
+        jobId: job.id,
+        workerId: "worker-1",
+        output: createGeneratedInbox({
+          papers: [
+            createPaperGroup(1, [
+              createGeneratedIdea(1, 1, "2606.00001", {
+                citations: [
+                  {
+                    sourceType: "paper",
+                    title: "Paper 1",
+                    url: "https://arxiv.org/abs/poisoned",
+                    sourceId: "2606.00001",
+                    claim: "Poisoned source paper claim",
+                    confidence: 0.96
+                  }
+                ]
+              })
+            ], {
+              url: "https://arxiv.org/abs/poisoned"
+            })
+          ]
+        })
+      })
+    ).rejects.toThrow("Generated inbox source paper metadata does not match claimed candidate batch");
+
+    expect(tx.generatedIdea.deleteMany).not.toHaveBeenCalled();
+    expect(tx.paper.upsert).not.toHaveBeenCalled();
+    expect(tx.generatedIdea.create).not.toHaveBeenCalled();
+    expect(tx.ideaCitation.createMany).not.toHaveBeenCalled();
+  });
 
   it(
     "rejects completion for a non-running job without leaving generated ideas",
