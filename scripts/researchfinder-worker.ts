@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
+import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
 import { InboxGenerationJobInputSchema, type InboxGenerationJobInput } from "@/lib/v2/schemas";
 import { runCodex as defaultRunCodex } from "@/worker/codex-runner";
 import { parseInboxGenerationOutput, parseViabilityOutput } from "@/worker/output-validation";
@@ -465,7 +466,7 @@ function buildViabilityPrompt(jobId: string, input: ViabilityJobInput) {
     "Return only valid JSON. Do not wrap the result in Markdown.",
     "The JSON must match the ViabilityResult schema exactly:",
     `- jobId: exactly ${JSON.stringify(jobId)}.`,
-    "- verdict: one of viable, needs_novelty_check, too_risky, blocked.",
+    `- verdict: one of ${VIABILITY_VERDICTS.join(", ")}.`,
     "- summary: concise viability assessment.",
     "- feasibility: concrete feasibility analysis for the requested sprint depth and autonomy level.",
     "- noveltyRisk: brief related-work and prior-art risk assessment.",

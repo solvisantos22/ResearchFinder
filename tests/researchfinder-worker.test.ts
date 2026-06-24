@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
 
+import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
 import { parseInboxGenerationOutput, parseViabilityOutput } from "@/worker/output-validation";
 import {
   runResearchFinderWorker,
@@ -253,7 +255,11 @@ describe("researchfinder local worker", () => {
         })
       )
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
-    const runCodex = vi.fn().mockResolvedValue(JSON.stringify(codexOutput));
+    let promptText = "";
+    const runCodex = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(codexOutput);
+    });
     globalThis.fetch = fetchMock;
     vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -268,6 +274,8 @@ describe("researchfinder local worker", () => {
 
     expect(processed).toBe(true);
     expect(runCodex).toHaveBeenCalledWith(expect.any(String), { codexCommand: "codex-test" });
+    expect(promptText).toContain(`- verdict: one of ${VIABILITY_VERDICTS.join(", ")}.`);
+    expect(promptText).not.toContain("viable, needs_novelty_check, too_risky, blocked");
     expect(fetchMock).toHaveBeenNthCalledWith(1, "https://research.example.com/api/workers/claim", {
       method: "POST",
       headers: {
