@@ -455,4 +455,51 @@ describe("worker completion route", () => {
       }
     });
   });
+
+  it("marks a running worker job failed when the completion request body is malformed JSON", async () => {
+    mocked.routeReadBearerToken.mockReturnValue("worker-token");
+    mocked.routeFindWorkers.mockResolvedValue([
+      { id: "worker-1", userId: "user-1", tokenHash: "stored-hash" }
+    ]);
+    mocked.routeVerifyWorkerToken.mockResolvedValue(true);
+    mocked.routeUpdateWorker.mockResolvedValue({});
+    mocked.inboxFindFirst.mockResolvedValue({ id: "inbox-job-1" });
+    mocked.viabilityFindFirst.mockResolvedValue(null);
+    mocked.inboxUpdateMany.mockResolvedValue({ count: 1 });
+
+    vi.doMock("@/lib/jobs/viability", () => ({
+      claimNextViabilityJob: vi.fn(),
+      completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),
+      createV2ViabilityJob: vi.fn()
+    }));
+    vi.resetModules();
+    const { POST } = await import("@/app/api/workers/jobs/[jobId]/complete/route");
+
+    const response = await POST(
+      new Request("https://example.com/api/workers/jobs/inbox-job-1/complete", {
+        method: "POST",
+        body: "{not valid json"
+      }),
+      { params: Promise.resolve({ jobId: "inbox-job-1" }) }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Malformed worker completion request JSON"
+    });
+    expect(mocked.inboxUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: "inbox-job-1",
+        claimedByWorkerId: "worker-1",
+        status: "running"
+      },
+      data: {
+        status: "failed",
+        errorMessage: "Malformed worker completion request JSON",
+        completedAt: expect.any(Date)
+      }
+    });
+    expect(mocked.routeCompleteInbox).not.toHaveBeenCalled();
+    expect(mocked.routeCompleteViability).not.toHaveBeenCalled();
+  });
 });

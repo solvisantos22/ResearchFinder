@@ -27,7 +27,30 @@ export async function POST(
   });
 
   const { jobId } = await params;
-  const body = (await request.json()) as { type?: unknown; output?: unknown };
+  let body: { type?: unknown; output?: unknown };
+
+  try {
+    body = (await request.json()) as { type?: unknown; output?: unknown };
+  } catch {
+    const errorMessage = "Malformed worker completion request JSON";
+    const jobType = await resolveJobType({
+      requestedType: undefined,
+      jobId,
+      workerId: worker.id
+    });
+
+    if (jobType) {
+      await markWorkerJobFailed({
+        jobId,
+        workerId: worker.id,
+        jobType,
+        errorMessage
+      });
+    }
+
+    return NextResponse.json({ error: errorMessage }, { status: 400 });
+  }
+
   const jobType = await resolveJobType({
     requestedType: body.type,
     jobId,

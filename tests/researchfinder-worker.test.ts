@@ -132,6 +132,69 @@ describe("researchfinder local worker", () => {
     expect(parseInboxGenerationOutput(JSON.stringify(completionBody.output))).toEqual(codexOutput);
   });
 
+  it("reports invalid Codex inbox output to the completion endpoint before throwing", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "inbox_generation",
+            id: "inbox-job-1",
+            input: {
+              jobId: "inbox-job-1",
+              userId: "user-1",
+              inboxDate: "2026-06-23",
+              profile: {
+                fieldPreset: "ai_ml",
+                keywords: ["LLM evaluation"],
+                constraints: ["No frontier-scale training"],
+                preferredOutputs: ["benchmark"],
+                arxivQuery: "cat:cs.AI",
+                maxIdeas: 10,
+                maxIdeasPerPaper: 3
+              },
+              candidatePapers: [
+                {
+                  sourceId: "2606.00001",
+                  title: "Paper title",
+                  abstract: "Paper abstract",
+                  url: "https://arxiv.org/abs/2606.00001",
+                  authors: ["A. Researcher"],
+                  categories: ["cs.AI"],
+                  publishedAt: "2026-06-23T00:00:00.000Z"
+                }
+              ]
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ error: "Generated inbox schema error" }, { status: 400 }));
+    const runCodex = vi.fn().mockResolvedValue("{not valid json");
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(
+      runResearchFinderWorker(
+        {
+          appUrl: "https://research.example.com",
+          workerToken: "worker-token"
+        },
+        { runCodex }
+      )
+    ).rejects.toThrow("Worker completion failed with 400");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const completionRequest = fetchMock.mock.calls[1];
+    expect(completionRequest?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/inbox-job-1/complete"
+    );
+    const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
+    expect(completionBody).toEqual({
+      type: "inbox_generation",
+      output: "{not valid json"
+    });
+  });
+
   it("completes claimed viability jobs with a validated deterministic result", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

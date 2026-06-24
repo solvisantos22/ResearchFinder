@@ -24,6 +24,11 @@ type WorkerRunOptions = {
   runCodex?: typeof defaultRunCodex;
 };
 
+type InboxGenerationRunResult = {
+  output: unknown;
+  validationError?: unknown;
+};
+
 type ViabilityJobInput = {
   jobId: string;
   userId: string;
@@ -106,8 +111,9 @@ export async function runResearchFinderWorker(
   }
 
   if (payload.job.type === "inbox_generation") {
-    const output = await runInboxGenerationJob(payload.job, config, options);
-    await completeWorkerJob(config, payload.job, output);
+    const result = await runInboxGenerationJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw result.validationError;
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
     return;
   }
@@ -152,7 +158,7 @@ async function runInboxGenerationJob(
   job: ClaimedWorkerJob,
   config: WorkerConfig,
   options: WorkerRunOptions
-) {
+): Promise<InboxGenerationRunResult> {
   const input = InboxGenerationJobInputSchema.parse(job.input);
   const prompt = await writeInboxGenerationPrompt(job.id, input);
 
@@ -161,9 +167,24 @@ async function runInboxGenerationJob(
       codexCommand: config.codexCommand
     });
 
-    return parseInboxGenerationOutput(rawOutput);
+    try {
+      return { output: parseInboxGenerationOutput(rawOutput) };
+    } catch (error) {
+      return {
+        output: parseRawCodexOutputForCompletion(rawOutput),
+        validationError: error
+      };
+    }
   } finally {
     await rm(prompt.dir, { force: true, recursive: true });
+  }
+}
+
+function parseRawCodexOutputForCompletion(rawOutput: string) {
+  try {
+    return JSON.parse(rawOutput) as unknown;
+  } catch {
+    return rawOutput;
   }
 }
 
