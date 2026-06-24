@@ -201,6 +201,37 @@ describe("researchfinder local worker", () => {
     });
   });
 
+  it("reports Codex process failures to the completion endpoint before throwing", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ job: createInboxGenerationJob("inbox-job-1") }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    const runCodex = vi.fn().mockRejectedValue(new Error("Codex CLI is not authenticated"));
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(
+      runResearchFinderWorkerOnce(
+        {
+          appUrl: "https://research.example.com",
+          workerToken: "worker-token"
+        },
+        { runCodex }
+      )
+    ).rejects.toThrow("Codex CLI is not authenticated");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const completionRequest = fetchMock.mock.calls[1];
+    expect(completionRequest?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/inbox-job-1/complete"
+    );
+    const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
+    expect(completionBody).toEqual({
+      type: "inbox_generation",
+      error: "Codex CLI is not authenticated"
+    });
+  });
+
   it("completes claimed viability jobs with validated Codex output", async () => {
     const codexOutput = {
       jobId: "viability-job-1",

@@ -27,10 +27,10 @@ export async function POST(
   });
 
   const { jobId } = await params;
-  let body: { type?: unknown; output?: unknown };
+  let body: { type?: unknown; output?: unknown; error?: unknown };
 
   try {
-    body = (await request.json()) as { type?: unknown; output?: unknown };
+    body = (await request.json()) as { type?: unknown; output?: unknown; error?: unknown };
   } catch {
     const errorMessage = "Malformed worker completion request JSON";
     const jobType = await resolveJobType({
@@ -59,6 +59,18 @@ export async function POST(
 
   if (!jobType) {
     return NextResponse.json({ error: "Worker job is not claimable by this worker" }, { status: 404 });
+  }
+
+  const reportedError = readReportedWorkerError(body.error);
+  if (reportedError) {
+    await markWorkerJobFailed({
+      jobId,
+      workerId: worker.id,
+      jobType,
+      errorMessage: reportedError
+    });
+
+    return NextResponse.json({ ok: true });
   }
 
   try {
@@ -175,4 +187,11 @@ async function findWorkerByToken(token: string) {
 
 function formatErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown worker completion error";
+}
+
+function readReportedWorkerError(error: unknown) {
+  if (typeof error !== "string") return null;
+
+  const trimmed = error.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }

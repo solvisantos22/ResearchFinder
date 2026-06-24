@@ -358,9 +358,15 @@ async function runInboxGenerationJob(
   const prompt = await writeInboxGenerationPrompt(job.id, input);
 
   try {
-    const rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
-      codexCommand: config.codexCommand
-    });
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
+        codexCommand: config.codexCommand
+      });
+    } catch (error) {
+      await failWorkerJob(config, job, error);
+      throw new ProcessedWorkerError(error);
+    }
 
     try {
       return { output: parseInboxGenerationOutput(rawOutput) };
@@ -384,9 +390,15 @@ async function runViabilityJob(
   const prompt = await writeViabilityPrompt(job.id, input);
 
   try {
-    const rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
-      codexCommand: config.codexCommand
-    });
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
+        codexCommand: config.codexCommand
+      });
+    } catch (error) {
+      await failWorkerJob(config, job, error);
+      throw new ProcessedWorkerError(error);
+    }
 
     try {
       return { output: parseViabilityOutput(rawOutput) };
@@ -545,6 +557,31 @@ async function completeWorkerJob(config: WorkerConfig, job: ClaimedWorkerJob, ou
       body: JSON.stringify({
         type: job.type,
         output
+      })
+    }
+  );
+
+  if (!response.ok) {
+    throwWorkerHttpError(
+      "completion",
+      response.status,
+      await buildWorkerHttpErrorMessage("completion", response)
+    );
+  }
+}
+
+async function failWorkerJob(config: WorkerConfig, job: ClaimedWorkerJob, error: unknown) {
+  const response = await fetch(
+    `${normalizeAppUrl(config.appUrl)}/api/workers/jobs/${encodeURIComponent(job.id)}/complete`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.workerToken}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        type: job.type,
+        error: formatErrorMessage(error)
       })
     }
   );
