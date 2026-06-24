@@ -222,6 +222,10 @@ function classifyWorkerHttpError(
   }
 
   if (stage === "claim") {
+    if (status === 408 || status === 429) {
+      return "transient";
+    }
+
     return status < 500 ? "fatal" : "transient";
   }
 
@@ -263,6 +267,10 @@ async function readResponseError(response: Response) {
 }
 
 function validateWorkerConfig(config: WorkerConfig) {
+  if (!isRecord(config)) {
+    throw new FatalWorkerError("ResearchFinder worker config must be an object");
+  }
+
   if (typeof config.workerToken !== "string" || config.workerToken.trim().length === 0) {
     throw new FatalWorkerError("ResearchFinder worker token must be a non-empty string");
   }

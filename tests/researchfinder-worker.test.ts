@@ -395,6 +395,36 @@ describe("researchfinder local worker", () => {
     expect(sleep).toHaveBeenCalledWith(30_000);
   });
 
+  it("sleeps and retries after claim rate limit responses", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ error: "Rate limited" }, { status: 429 }))
+      .mockResolvedValueOnce(createJsonResponse({ job: createViabilityJob("viability-job-1") }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runResearchFinderWorker(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      },
+      { sleep, pollMs: 1234, maxIterations: 2 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://research.example.com/api/workers/claim");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("https://research.example.com/api/workers/claim");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/viability-job-1/complete"
+    );
+    expect(console.error).toHaveBeenCalledWith("Worker claim failed with 429: Rate limited");
+    expect(sleep).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledWith(1234);
+  });
+
   it("exits the polling loop on fatal claim authorization errors", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       createJsonResponse({ error: "Unauthorized" }, { status: 401 })
@@ -414,6 +444,18 @@ describe("researchfinder local worker", () => {
     ).rejects.toThrow("Worker claim failed with 401");
 
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("exits the polling loop on malformed config objects", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const config = null as unknown as Parameters<typeof runResearchFinderWorker>[0];
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runResearchFinderWorker(config, { sleep, maxIterations: 1 })).rejects.toThrow(
+      "ResearchFinder worker config must be an object"
+    );
+
     expect(sleep).not.toHaveBeenCalled();
   });
 
