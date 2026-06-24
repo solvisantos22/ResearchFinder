@@ -59,6 +59,7 @@ const servicePromise = import("@/lib/jobs/viability");
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   for (const mock of Object.values(mocked)) {
     mock.mockReset();
   }
@@ -87,7 +88,32 @@ function createViabilityOutput(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createCompletionTransaction(updateCount: number) {
+type CompletionSourcePaper = {
+  id: string;
+  arxivId: string;
+  url: string;
+};
+
+type CompletionJob = {
+  id: string;
+  generatedIdea: { paper: CompletionSourcePaper } | null;
+  idea: { paper: CompletionSourcePaper } | null;
+};
+
+function createCompletionTransaction(
+  updateCount: number,
+  job: CompletionJob = {
+    id: "viability-job-1",
+    generatedIdea: {
+      paper: {
+        id: "paper-1",
+        arxivId: "2606.00001",
+        url: "https://arxiv.org/abs/2606.00001"
+      }
+    },
+    idea: null
+  }
+) {
   return {
     artifact: {
       create: vi.fn().mockResolvedValue({})
@@ -96,6 +122,7 @@ function createCompletionTransaction(updateCount: number) {
       createMany: vi.fn().mockResolvedValue({})
     },
     viabilityJob: {
+      findFirst: vi.fn().mockResolvedValue(job),
       updateMany: vi.fn().mockResolvedValue({ count: updateCount })
     }
   };
@@ -264,6 +291,125 @@ describe("completeV2ViabilityJob", () => {
     );
   });
 
+  it("rejects source-paper citations that do not match the generated idea paper before persistence", async () => {
+    const tx = createCompletionTransaction(1);
+    mocked.transaction.mockImplementation(
+      async (run: (transactionClient: typeof tx) => Promise<unknown>) => run(tx)
+    );
+
+    const { completeV2ViabilityJob } = await servicePromise;
+
+    await expect(
+      completeV2ViabilityJob({
+        jobId: "viability-job-1",
+        workerId: "worker-1",
+        output: createViabilityOutput({
+          citations: [
+            {
+              sourceType: "paper",
+              title: "Wrong source paper",
+              url: "https://arxiv.org/abs/2606.99999",
+              sourceId: "2606.99999",
+              claim: "A different paper supports this project framing.",
+              confidence: 0.91
+            }
+          ]
+        })
+      })
+    ).rejects.toThrow("Viability source paper citation does not match the job source paper");
+
+    expect(tx.evidence.createMany).not.toHaveBeenCalled();
+    expect(tx.artifact.create).not.toHaveBeenCalled();
+  });
+
+  it("requires at least one citation for the generated idea source paper before persistence", async () => {
+    const tx = createCompletionTransaction(1);
+    mocked.transaction.mockImplementation(
+      async (run: (transactionClient: typeof tx) => Promise<unknown>) => run(tx)
+    );
+
+    const { completeV2ViabilityJob } = await servicePromise;
+
+    await expect(
+      completeV2ViabilityJob({
+        jobId: "viability-job-1",
+        workerId: "worker-1",
+        output: createViabilityOutput({
+          citations: [
+            {
+              sourceType: "related_work",
+              title: "Related work",
+              url: "https://example.com/related-work",
+              sourceId: "related-1",
+              claim: "Related work supports part of the viability analysis.",
+              confidence: 0.81
+            }
+          ]
+        })
+      })
+    ).rejects.toThrow("Viability result must cite the job source paper");
+
+    expect(tx.evidence.createMany).not.toHaveBeenCalled();
+    expect(tx.artifact.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts matching source-paper citations for legacy idea viability jobs", async () => {
+    const tx = createCompletionTransaction(1, {
+      id: "viability-job-1",
+      generatedIdea: null,
+      idea: {
+        paper: {
+          id: "legacy-paper-1",
+          arxivId: "2606.12345",
+          url: "https://arxiv.org/abs/2606.12345"
+        }
+      }
+    });
+    mocked.transaction.mockImplementation(
+      async (run: (transactionClient: typeof tx) => Promise<unknown>) => run(tx)
+    );
+
+    const { completeV2ViabilityJob } = await servicePromise;
+
+    await completeV2ViabilityJob({
+      jobId: "viability-job-1",
+      workerId: "worker-1",
+      output: createViabilityOutput({
+        citations: [
+          {
+            sourceType: "paper",
+            title: "Legacy source paper",
+            url: "https://arxiv.org/abs/2606.12345",
+            sourceId: "2606.12345",
+            claim: "The legacy inbox paper supports the project framing.",
+            confidence: 0.9
+          }
+        ]
+      })
+    });
+
+    expect(tx.evidence.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          jobId: "viability-job-1",
+          sourceTitle: "Legacy source paper",
+          sourceUrl: "https://arxiv.org/abs/2606.12345",
+          claim: "The legacy inbox paper supports the project framing.",
+          support: "The idea is viable enough to expand.",
+          confidence: 0.9
+        }
+      ]
+    });
+    expect(tx.artifact.create).toHaveBeenCalledWith({
+      data: {
+        jobId: "viability-job-1",
+        kind: "viability-report",
+        title: "Viability result: expand",
+        content: expect.any(String)
+      }
+    });
+  });
+
   it("requires the completing worker to be the worker that claimed the job", async () => {
     const tx = createCompletionTransaction(0);
     mocked.transaction.mockImplementation(
@@ -332,10 +478,69 @@ describe("completeV2ViabilityJob", () => {
 });
 
 describe("worker completion route", () => {
-  it("routes viability_check completion to the v2 viability completer", async () => {
+  it("rejects an active worker token when the owner email is no longer allowlisted", async () => {
+    vi.stubEnv("ALLOWED_GOOGLE_EMAILS", "allowed@example.com");
     mocked.routeReadBearerToken.mockReturnValue("worker-token");
     mocked.routeFindWorkers.mockResolvedValue([
-      { id: "worker-1", userId: "user-1", tokenHash: "stored-hash" }
+      {
+        id: "worker-1",
+        userId: "user-1",
+        tokenHash: "stored-hash",
+        user: { email: "removed@example.com" }
+      }
+    ]);
+    mocked.routeVerifyWorkerToken.mockResolvedValue(true);
+
+    vi.doMock("@/lib/jobs/viability", () => ({
+      claimNextViabilityJob: vi.fn(),
+      completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),
+      createV2ViabilityJob: vi.fn()
+    }));
+    vi.resetModules();
+    const { POST } = await import("@/app/api/workers/jobs/[jobId]/complete/route");
+
+    const response = await POST(
+      new Request("https://example.com/api/workers/jobs/inbox-job-1/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "inbox_generation",
+          output: { ignored: true }
+        })
+      }),
+      { params: Promise.resolve({ jobId: "inbox-job-1" }) }
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
+    expect(mocked.routeFindWorkers).toHaveBeenCalledWith({
+      where: {
+        status: "active",
+        revokedAt: null
+      },
+      select: {
+        id: true,
+        userId: true,
+        tokenHash: true,
+        user: { select: { email: true } }
+      }
+    });
+    expect(mocked.routeUpdateWorker).not.toHaveBeenCalled();
+    expect(mocked.inboxFindFirst).not.toHaveBeenCalled();
+    expect(mocked.viabilityFindFirst).not.toHaveBeenCalled();
+    expect(mocked.routeCompleteInbox).not.toHaveBeenCalled();
+    expect(mocked.routeCompleteViability).not.toHaveBeenCalled();
+  });
+
+  it("routes viability_check completion to the v2 viability completer", async () => {
+    vi.stubEnv("ALLOWED_GOOGLE_EMAILS", "allowed@example.com");
+    mocked.routeReadBearerToken.mockReturnValue("worker-token");
+    mocked.routeFindWorkers.mockResolvedValue([
+      {
+        id: "worker-1",
+        userId: "user-1",
+        tokenHash: "stored-hash",
+        user: { email: "allowed@example.com" }
+      }
     ]);
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
     mocked.routeUpdateWorker.mockResolvedValue({});
@@ -373,9 +578,15 @@ describe("worker completion route", () => {
   });
 
   it("rejects completion when the requested job type does not match the claimed database job", async () => {
+    vi.stubEnv("ALLOWED_GOOGLE_EMAILS", "allowed@example.com");
     mocked.routeReadBearerToken.mockReturnValue("worker-token");
     mocked.routeFindWorkers.mockResolvedValue([
-      { id: "worker-1", userId: "user-1", tokenHash: "stored-hash" }
+      {
+        id: "worker-1",
+        userId: "user-1",
+        tokenHash: "stored-hash",
+        user: { email: "allowed@example.com" }
+      }
     ]);
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
     mocked.routeUpdateWorker.mockResolvedValue({});
@@ -410,9 +621,15 @@ describe("worker completion route", () => {
   });
 
   it("marks a running worker job failed when completion output is malformed", async () => {
+    vi.stubEnv("ALLOWED_GOOGLE_EMAILS", "allowed@example.com");
     mocked.routeReadBearerToken.mockReturnValue("worker-token");
     mocked.routeFindWorkers.mockResolvedValue([
-      { id: "worker-1", userId: "user-1", tokenHash: "stored-hash" }
+      {
+        id: "worker-1",
+        userId: "user-1",
+        tokenHash: "stored-hash",
+        user: { email: "allowed@example.com" }
+      }
     ]);
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
     mocked.routeUpdateWorker.mockResolvedValue({});
@@ -457,9 +674,15 @@ describe("worker completion route", () => {
   });
 
   it("marks a running worker job failed when the worker reports an execution error", async () => {
+    vi.stubEnv("ALLOWED_GOOGLE_EMAILS", "allowed@example.com");
     mocked.routeReadBearerToken.mockReturnValue("worker-token");
     mocked.routeFindWorkers.mockResolvedValue([
-      { id: "worker-1", userId: "user-1", tokenHash: "stored-hash" }
+      {
+        id: "worker-1",
+        userId: "user-1",
+        tokenHash: "stored-hash",
+        user: { email: "allowed@example.com" }
+      }
     ]);
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
     mocked.routeUpdateWorker.mockResolvedValue({});
@@ -505,9 +728,15 @@ describe("worker completion route", () => {
   });
 
   it("marks a running worker job failed when the completion request body is malformed JSON", async () => {
+    vi.stubEnv("ALLOWED_GOOGLE_EMAILS", "allowed@example.com");
     mocked.routeReadBearerToken.mockReturnValue("worker-token");
     mocked.routeFindWorkers.mockResolvedValue([
-      { id: "worker-1", userId: "user-1", tokenHash: "stored-hash" }
+      {
+        id: "worker-1",
+        userId: "user-1",
+        tokenHash: "stored-hash",
+        user: { email: "allowed@example.com" }
+      }
     ]);
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
     mocked.routeUpdateWorker.mockResolvedValue({});

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { findAllowedWorkerByToken } from "@/lib/auth/worker-token";
 import { prisma } from "@/lib/db";
 import { claimNextInboxGenerationJob } from "@/lib/jobs/inbox-generation";
 import { claimNextViabilityJob } from "@/lib/jobs/viability";
-import { readBearerToken, verifyWorkerToken } from "@/lib/jobs/worker-auth";
+import { readBearerToken } from "@/lib/jobs/worker-auth";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
 import {
   type InboxGenerationJobInput,
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const worker = await findWorkerByToken(token);
+  const worker = await findAllowedWorkerByToken(token);
   if (!worker) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -122,28 +123,6 @@ export async function POST(request: Request) {
       input
     }
   });
-}
-
-async function findWorkerByToken(token: string) {
-  const workers = await prisma.workerRegistration.findMany({
-    where: {
-      status: "active",
-      revokedAt: null
-    },
-    select: {
-      id: true,
-      userId: true,
-      tokenHash: true
-    }
-  });
-
-  for (const worker of workers) {
-    if (await verifyWorkerToken(token, worker.tokenHash)) {
-      return worker;
-    }
-  }
-
-  return null;
 }
 
 function parseJsonArray(json: string, fieldName: string) {

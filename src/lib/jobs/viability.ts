@@ -2,7 +2,7 @@ import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 import { validateDispatchSettingsWithDefaults } from "@/lib/dispatch/service";
 import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
-import { ViabilityResultSchema } from "@/lib/v2/schemas";
+import { type Citation, ViabilityResultSchema } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
 
@@ -109,6 +109,42 @@ export async function completeV2ViabilityJob(input: {
   }
 
   await prisma.$transaction(async (tx) => {
+    const job = await tx.viabilityJob.findFirst({
+      where: {
+        id: input.jobId,
+        claimedByWorkerId: input.workerId,
+        status: "running"
+      },
+      include: {
+        idea: {
+          include: {
+            paper: true
+          }
+        },
+        generatedIdea: {
+          include: {
+            paper: true
+          }
+        }
+      }
+    });
+
+    if (!job) {
+      throw new Error("Viability job is no longer running");
+    }
+
+    const sourcePaper = job.generatedIdea?.paper ?? job.idea?.paper;
+
+    if (!sourcePaper) {
+      throw new Error("Viability job is missing a source paper");
+    }
+
+    assertViabilityCitationsMatchSourcePaper(parsed.citations, {
+      id: sourcePaper.id,
+      arxivId: sourcePaper.arxivId,
+      url: sourcePaper.url
+    });
+
     const completion = await tx.viabilityJob.updateMany({
       where: {
         id: input.jobId,
@@ -145,4 +181,31 @@ export async function completeV2ViabilityJob(input: {
       }
     });
   });
+}
+
+function assertViabilityCitationsMatchSourcePaper(
+  citations: Citation[],
+  sourcePaper: { id: string; arxivId: string; url: string }
+) {
+  const validSourceIds = new Set([sourcePaper.arxivId, sourcePaper.id]);
+  let citesSourcePaper = false;
+
+  for (const citation of citations) {
+    if (citation.sourceType !== "paper") continue;
+
+    const matchesSourcePaper =
+      citation.url === sourcePaper.url &&
+      citation.sourceId !== undefined &&
+      validSourceIds.has(citation.sourceId);
+
+    if (!matchesSourcePaper) {
+      throw new Error("Viability source paper citation does not match the job source paper");
+    }
+
+    citesSourcePaper = true;
+  }
+
+  if (!citesSourcePaper) {
+    throw new Error("Viability result must cite the job source paper");
+  }
 }

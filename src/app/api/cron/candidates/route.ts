@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isAuthorizedCronRequest } from "@/app/api/cron/ingest/auth";
+import { isAllowedGoogleEmail } from "@/lib/auth/allowed-emails";
 import { prisma } from "@/lib/db";
 import { createInboxGenerationJob } from "@/lib/jobs/inbox-generation";
 import { createArxivCandidateBatchForUser } from "@/lib/sources/arxiv-candidates";
@@ -18,13 +19,14 @@ export async function POST(request: Request) {
   const inboxDate = todayIsoDate();
   const users = await prisma.user.findMany({
     where: { profile: { isNot: null } },
-    select: { id: true }
+    select: { id: true, email: true }
   });
+  const allowedUsers = users.filter((user) => isAllowedGoogleEmail(user.email));
 
   const jobs = [];
   const failedUsers = [];
   const skippedUsers = [];
-  for (const user of users) {
+  for (const user of allowedUsers) {
     try {
       const batch = await createArxivCandidateBatchForUser(user.id, inboxDate);
       if (Array.isArray(batch.candidates) && batch.candidates.length === 0) {
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
     skippedUsers.length > 0
       ? { createdJobs: jobs.length, skippedUsers, failedUsers }
       : { createdJobs: jobs.length, failedUsers };
-  const allUsersFailed = users.length > 0 && failedUsers.length === users.length;
+  const allUsersFailed = allowedUsers.length > 0 && failedUsers.length === allowedUsers.length;
 
   return NextResponse.json(response, { status: allUsersFailed ? 500 : 200 });
 }
