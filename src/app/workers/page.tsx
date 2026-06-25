@@ -1,6 +1,7 @@
 import React from "react";
 import { headers } from "next/headers";
 
+import { PageShell } from "@/components/PageShell";
 import { WorkerSetupContent } from "@/components/WorkerSetupContent";
 import { registerWorker } from "@/app/workers/actions";
 import { requireCurrentUser } from "@/lib/auth/session";
@@ -26,11 +27,17 @@ export default async function WorkersPage() {
   ]);
 
   return (
-    <WorkerSetupContent
-      appUrl={resolveWorkerSetupAppUrl(headerList)}
-      workers={workers}
-      registrationAction={registerWorker}
-      registrationResult={null}
-    />
+    <PageShell
+      currentUserId={currentUser.id}
+      currentUserName={currentUser.name ?? "Researcher"}
+      activeSection="workers"
+    >
+      <WorkerSetupContent
+        appUrl={resolveWorkerSetupAppUrl(headerList)}
+        workers={workers}
+        registrationAction={registerWorker}
+        registrationResult={null}
+      />
+    </PageShell>
   );
 }
