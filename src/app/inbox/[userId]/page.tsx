@@ -142,6 +142,13 @@ function renderInboxStatus(status: string, inboxDate: string) {
           Generation took longer than expected for {inboxDate}. It can be retried later.
         </StatusCard>
       );
+    case "superseded":
+      return (
+        <StatusCard title="Day skipped">
+          Your worker was offline when {inboxDate} was scheduled, so it was skipped to keep your
+          inbox current. Only the latest day is generated when your worker reconnects.
+        </StatusCard>
+      );
     case "completed":
       return (
         <StatusCard title="No generated ideas yet">
