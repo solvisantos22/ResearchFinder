@@ -453,7 +453,7 @@ function buildInboxGenerationPrompt(input: InboxGenerationJobInput) {
     "- source must be exactly \"arxiv\" for every paper.",
     "- each idea must cite its source arXiv paper using sourceType \"paper\", matching sourceId and url.",
     "- every score must be a number from 0 to 1.",
-    "- noveltyStatus must be one of: verified, needs_novelty_check, not_novel.",
+    "- noveltyStatus should be \"not_checked\"; the separate morning novelty scan will calibrate it.",
     "- produce no more than profile.maxIdeas ideas total and no more than profile.maxIdeasPerPaper per paper.",
     "- Do not return alternate keys such as whyRelevant, feasibility, expectedOutput, or sources.",
     "Use the user's profile to choose relevant, feasible, original research directions.",
@@ -488,7 +488,7 @@ function buildGeneratedInboxJsonContract() {
               trajectory:
                 "<where the idea could go after a successful viability sprint, including possible paper direction>",
               recommended: true,
-              noveltyStatus: "needs_novelty_check",
+              noveltyStatus: "not_checked",
               scores: {
                 relevance: 0.0,
                 significance: 0.0,

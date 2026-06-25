@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  CALIBRATED_NOVELTY_LABELS,
   MAX_DAILY_IDEAS,
   MAX_IDEAS_PER_PAPER,
   NOVELTY_STATUSES,
@@ -183,6 +184,87 @@ export const InboxGenerationJobInputSchema = strictObject({
   )
 });
 
+const NoveltyScanStatusSchema = z.enum(["completed", "partial", "failed"]);
+const NoveltyEvidenceSourceTypeSchema = z.enum([
+  "arxiv",
+  "scholarly",
+  "web",
+  "github",
+  "generated_analysis"
+]);
+const NoveltyOverlapLevelSchema = z.enum(["exact", "close", "adjacent", "weak"]);
+
+export const NoveltyEvidenceSchema = strictObject({
+  sourceType: NoveltyEvidenceSourceTypeSchema,
+  title: NonEmptyTrimmedStringSchema,
+  url: RequiredUrlSchema.or(z.literal("")),
+  sourceId: NonEmptyTrimmedStringSchema.optional(),
+  claim: NonEmptyTrimmedStringSchema,
+  overlapLevel: NoveltyOverlapLevelSchema,
+  confidence: UnitScoreSchema
+});
+
+export const NoveltyScanItemSchema = strictObject({
+  generatedIdeaId: NonEmptyTrimmedStringSchema,
+  status: NoveltyScanStatusSchema,
+  label: z.enum(CALIBRATED_NOVELTY_LABELS),
+  confidence: UnitScoreSchema,
+  summary: NonEmptyTrimmedStringSchema,
+  overlapExplanation: NonEmptyTrimmedStringSchema,
+  queries: z.array(NonEmptyTrimmedStringSchema),
+  adaptersAttempted: z.array(NonEmptyTrimmedStringSchema),
+  adaptersFailed: z.array(NonEmptyTrimmedStringSchema),
+  evidence: z.array(NoveltyEvidenceSchema)
+}).superRefine((scan, ctx) => {
+  if (scan.label !== "not_checked" && scan.evidence.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Novelty scan evidence is required unless label is not_checked",
+      path: ["evidence"]
+    });
+  }
+});
+
+export const NoveltyScanResultSchema = strictObject({
+  jobId: NonEmptyTrimmedStringSchema,
+  generatedForUserId: NonEmptyTrimmedStringSchema,
+  inboxDate: CalendarDateSchema,
+  scans: z.array(NoveltyScanItemSchema).min(1)
+});
+
+export const NoveltyScanJobInputSchema = strictObject({
+  jobId: NonEmptyTrimmedStringSchema,
+  userId: NonEmptyTrimmedStringSchema,
+  inboxDate: CalendarDateSchema,
+  profile: strictObject({
+    fieldPreset: NonEmptyTrimmedStringSchema,
+    keywords: z.array(NonEmptyTrimmedStringSchema),
+    constraints: z.array(NonEmptyTrimmedStringSchema),
+    preferredOutputs: z.array(NonEmptyTrimmedStringSchema),
+    allowRelatedWorkSearch: z.boolean()
+  }),
+  ideas: z.array(
+    strictObject({
+      id: NonEmptyTrimmedStringSchema,
+      title: NonEmptyTrimmedStringSchema,
+      summary: NonEmptyTrimmedStringSchema,
+      expandedExplanation: NonEmptyTrimmedStringSchema,
+      trajectory: NonEmptyTrimmedStringSchema,
+      smallestSprint: NonEmptyTrimmedStringSchema,
+      paper: strictObject({
+        id: NonEmptyTrimmedStringSchema,
+        arxivId: NonEmptyTrimmedStringSchema,
+        title: NonEmptyTrimmedStringSchema,
+        abstract: NonEmptyTrimmedStringSchema,
+        url: RequiredUrlSchema,
+        authors: z.array(NonEmptyTrimmedStringSchema),
+        categories: z.array(NonEmptyTrimmedStringSchema),
+        publishedAt: z.string().datetime()
+      })
+    })
+  ).min(1)
+});
+
 export const ViabilityResultSchema = strictObject({
   jobId: NonEmptyTrimmedStringSchema,
   verdict: z.enum(VIABILITY_VERDICTS),
@@ -199,4 +281,6 @@ export type GeneratedInbox = z.infer<typeof GeneratedInboxSchema>;
 export type GeneratedPaperGroup = z.infer<typeof GeneratedPaperGroupSchema>;
 export type GeneratedIdea = z.infer<typeof GeneratedIdeaSchema>;
 export type InboxGenerationJobInput = z.infer<typeof InboxGenerationJobInputSchema>;
+export type NoveltyScanResult = z.infer<typeof NoveltyScanResultSchema>;
+export type NoveltyScanJobInput = z.infer<typeof NoveltyScanJobInputSchema>;
 export type ViabilityResult = z.infer<typeof ViabilityResultSchema>;
