@@ -73,13 +73,22 @@ export function parseArxivAtom(xml: string): ArxivPaperInput[] {
   });
 }
 
-export async function fetchArxivPapers(query: string, maxResults: number): Promise<ArxivPaperInput[]> {
+export type FetchArxivPapersOptions = {
+  sortBy?: "relevance" | "lastUpdatedDate" | "submittedDate";
+  sortOrder?: "ascending" | "descending";
+};
+
+export async function fetchArxivPapers(
+  query: string,
+  maxResults: number,
+  options: FetchArxivPapersOptions = {}
+): Promise<ArxivPaperInput[]> {
   const params = new URLSearchParams({
     search_query: query,
     start: "0",
     max_results: String(maxResults),
-    sortBy: "submittedDate",
-    sortOrder: "descending"
+    sortBy: options.sortBy ?? "submittedDate",
+    sortOrder: options.sortOrder ?? "descending"
   });
 
   const response = await fetch(`https://export.arxiv.org/api/query?${params.toString()}`, {
