@@ -855,21 +855,17 @@ In `src/app/dispatch/[ideaId]/page.tsx`:
 
 > `currentUser` here only has `{ id }` in some tests; `currentUser.name` is `undefined` then, so `?? "Researcher"` is required. `requireCurrentUser` returns the full user in production.
 
-- [ ] **Step 2: Update the dispatch page tests' Prisma mock for worker status**
+- [ ] **Step 2: Mock PageShell as a passthrough in the page tests**
 
-In `tests/app-page-auth.test.ts`, add `workerRegistration` to the hoisted `prisma` mock so PageShell can resolve status during render-path tests:
-
-```ts
-    workerRegistration: {
-      findFirst: vi.fn()
-    },
-```
-
-And in `beforeEach`, default it to null:
+`PageShell` is an async server component; rendering it in jsdom/RTL via `render(await Page())` would not resolve. The page unit tests only care about page logic and content, not the shell chrome, so mock `PageShell` to render its children directly. In `tests/app-page-auth.test.ts`, add this `vi.mock` alongside the other `vi.mock(...)` calls (it needs no hoisted state):
 
 ```ts
-    mocked.prisma.workerRegistration.findFirst.mockResolvedValue(null);
+vi.mock("@/components/PageShell", () => ({
+  PageShell: ({ children }: { children: React.ReactNode }) => children
+}));
 ```
+
+Ensure `React` is imported in that test file (add `import React from "react";` at the top if it is not already present). With this passthrough, the render-path tests (jobs, profiles) render the page's inner content and never invoke `resolveWorkerStatusForUser`, so no Prisma worker mock is needed.
 
 - [ ] **Step 3: Run dispatch-related tests**
 
@@ -1015,7 +1011,15 @@ export default async function WorkersPage() {
 - [ ] **Step 3: Run the worker setup page test**
 
 Run: `npm test -- tests/worker-setup-page.test.tsx`
-Expected: PASS. If the test mocks `prisma` without `workerRegistration.findFirst`, add `findFirst: vi.fn().mockResolvedValue(null)` to its mock so PageShell can resolve status. If it mocks `requireCurrentUser`, ensure it returns an object with `id`.
+Expected: PASS. If this test renders `WorkersPage` (which now returns `<PageShell>`), add a PageShell passthrough mock so the async shell does not break jsdom rendering:
+
+```ts
+vi.mock("@/components/PageShell", () => ({
+  PageShell: ({ children }: { children: React.ReactNode }) => children
+}));
+```
+
+Ensure `React` is imported in that test file. If the test only renders `WorkerSetupContent` directly (not the page), no change is needed.
 
 - [ ] **Step 4: Commit**
 
