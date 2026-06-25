@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
 
+import { developIdeaAction } from "@/app/research/actions";
 import { noveltyLabelStyles, type NoveltyLabelKey } from "@/lib/ui/status-styles";
 
 type IdeaCardProps = {
@@ -123,12 +124,23 @@ export function IdeaCard({ idea, canDispatch }: IdeaCardProps) {
       </details>
 
       {canDispatch ? (
-        <Link
-          href={`/dispatch/${idea.id}`}
-          className="mt-4 inline-flex rounded-md bg-rf-violet px-4 py-2 text-sm font-semibold text-rf-white"
-        >
-          Dispatch viability check
-        </Link>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            href={`/dispatch/${idea.id}`}
+            className="inline-flex rounded-md bg-rf-violet px-4 py-2 text-sm font-semibold text-rf-white"
+          >
+            Dispatch viability check
+          </Link>
+          <form action={developIdeaAction}>
+            <input type="hidden" name="generatedIdeaId" value={idea.id} />
+            <button
+              type="submit"
+              className="inline-flex rounded-md border border-rf-violetSoft bg-rf-surface px-4 py-2 text-sm font-semibold text-rf-white transition-colors hover:bg-rf-panel"
+            >
+              Develop this
+            </button>
+          </form>
+        </div>
       ) : null}
     </section>
   );

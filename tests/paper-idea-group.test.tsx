@@ -1,7 +1,9 @@
 import React from "react";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/app/research/actions", () => ({ developIdeaAction: vi.fn() }));
 
 import { PaperIdeaGroup } from "@/components/PaperIdeaGroup";
 
