@@ -142,6 +142,13 @@ function renderInboxStatus(status: string, inboxDate: string) {
           Generation took longer than expected for {inboxDate}. It can be retried later.
         </StatusCard>
       );
+    case "superseded":
+      return (
+        <StatusCard title="Day skipped">
+          Your worker was offline when {inboxDate} was scheduled, so it was skipped to keep your
+          inbox current. Only the latest day is generated when your worker reconnects.
+        </StatusCard>
+      );
     case "completed":
       return (
         <StatusCard title="No generated ideas yet">
@@ -189,8 +196,9 @@ export default async function InboxPage({
   const requestedDate = Array.isArray(requestedDateRaw) ? requestedDateRaw[0] : requestedDateRaw;
 
   const availableDates = await listInboxDatesForUser(userId);
+  const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
   const inboxDate =
-    requestedDate && availableDates.includes(requestedDate)
+    requestedDate && isIsoDate(requestedDate)
       ? requestedDate
       : availableDates[0] ?? todayIsoDate();
 

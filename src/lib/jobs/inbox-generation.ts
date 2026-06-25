@@ -62,6 +62,28 @@ export async function createInboxGenerationJob(input: {
       }
     });
 
+    // Backlog suppression: a worker that has been offline must never generate a
+    // pile of past-day inboxes. Mark every older still-pending inbox job for this
+    // user as superseded so only the newest day remains claimable. Scope to
+    // strictly older dates so today's upsert below is untouched, and only treat
+    // genuinely abandoned running jobs (past the stale cutoff) as supersedable.
+    await tx.inboxGenerationJob.updateMany({
+      where: {
+        userId: input.userId,
+        inboxDate: { lt: input.inboxDate },
+        OR: [
+          { status: "queued" },
+          { status: "running", startedAt: { lte: staleRunningJobStartedBefore() } }
+        ]
+      },
+      data: {
+        status: "superseded",
+        claimedByWorkerId: null,
+        completedAt: new Date(),
+        errorMessage: "Superseded by a newer day's inbox while the worker was offline"
+      }
+    });
+
     return tx.inboxGenerationJob.upsert({
       where: {
         userId_candidateBatchId_inboxDate: {
@@ -327,7 +349,7 @@ export async function listInboxDatesForUser(userId: string): Promise<string[]> {
       select: { inboxDate: true }
     }),
     prisma.inboxGenerationJob.findMany({
-      where: { userId },
+      where: { userId, status: { not: "superseded" } },
       distinct: ["inboxDate"],
       select: { inboxDate: true }
     })
@@ -372,6 +394,7 @@ export async function getGeneratedInboxState(userId: string, inboxDate: string) 
 
   if (!latestJob) return { status: "pending" as const, ideas: [] };
   if (latestJob.status === "failed") return { status: "failed" as const, ideas: [] };
+  if (latestJob.status === "superseded") return { status: "superseded" as const, ideas: [] };
   return {
     status: latestJob.status as "queued" | "running" | "completed" | "timed_out",
     ideas: []

@@ -7,6 +7,7 @@ const mocked = vi.hoisted(() => ({
   cookies: vi.fn(),
   createWorker: vi.fn(),
   createWorkerToken: vi.fn(),
+  findWorker: vi.fn(),
   findWorkers: vi.fn(),
   hashWorkerToken: vi.fn(),
   headers: vi.fn(),
@@ -22,7 +23,8 @@ vi.mock("@/lib/db", () => ({
   prisma: {
     workerRegistration: {
       create: (...args: unknown[]) => mocked.createWorker(...args),
-      findMany: (...args: unknown[]) => mocked.findWorkers(...args)
+      findMany: (...args: unknown[]) => mocked.findWorkers(...args),
+      findFirst: (...args: unknown[]) => mocked.findWorker(...args)
     }
   }
 }));
@@ -66,6 +68,7 @@ describe("WorkerSetupContent", () => {
     mocked.requireCurrentUser.mockResolvedValue({ id: "user-1" });
     mocked.createWorker.mockResolvedValue({ id: "worker-1" });
     mocked.createWorkerToken.mockReturnValue("plain-worker-token");
+    mocked.findWorker.mockResolvedValue(null);
     mocked.findWorkers.mockResolvedValue([]);
     mocked.hashWorkerToken.mockResolvedValue("hashed-worker-token");
   });

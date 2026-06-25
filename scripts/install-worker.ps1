@@ -65,15 +65,36 @@ $action = New-ScheduledTaskAction `
   -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$runnerPath`"" `
   -WorkingDirectory $repoPath
 
-$trigger = New-ScheduledTaskTrigger -Daily -At 6:00am
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun
+$dailyTrigger = New-ScheduledTaskTrigger -Daily -At 6:00am
+$logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet `
+  -StartWhenAvailable `
+  -MultipleInstances IgnoreNew `
+  -RestartCount 999 `
+  -RestartInterval (New-TimeSpan -Minutes 1) `
+  -ExecutionTimeLimit ([TimeSpan]::Zero)
 
 Register-ScheduledTask `
   -TaskName "ResearchFinder Worker" `
   -Action $action `
-  -Trigger $trigger `
+  -Trigger $dailyTrigger, $logonTrigger `
   -Settings $settings `
   -Description "Runs local Codex-backed ResearchFinder jobs for the signed-in user." `
   -Force | Out-Null
+
+$WshShell = New-Object -ComObject WScript.Shell
+$shortcutDirs = @(
+  [Environment]::GetFolderPath("Desktop"),
+  [Environment]::GetFolderPath("Programs")
+)
+foreach ($dir in $shortcutDirs) {
+  $shortcutPath = Join-Path $dir "ResearchFinder Worker.lnk"
+  $shortcut = $WshShell.CreateShortcut($shortcutPath)
+  $shortcut.TargetPath = $powershell
+  $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$runnerPath`""
+  $shortcut.WorkingDirectory = $repoPath
+  $shortcut.Description = "Start the ResearchFinder Codex worker"
+  $shortcut.Save()
+}
 
 Write-Output "ResearchFinder worker installed. Config: $configPath. Codex: $codex"
