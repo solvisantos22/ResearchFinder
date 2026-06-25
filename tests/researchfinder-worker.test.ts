@@ -605,6 +605,113 @@ describe("researchfinder local worker", () => {
     expect(sleep).toHaveBeenCalledOnce();
     expect(sleep).toHaveBeenCalledWith(1234);
   });
+
+  it("completes claimed novelty scan jobs with source evidence and validated Codex output", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "novelty_scan",
+            id: "novelty-job-1",
+            input: {
+              jobId: "novelty-job-1",
+              userId: "user-1",
+              inboxDate: "2026-06-25",
+              profile: {
+                fieldPreset: "ai_ml",
+                keywords: ["agent evaluation"],
+                constraints: [],
+                preferredOutputs: ["benchmark"],
+                allowRelatedWorkSearch: true
+              },
+              ideas: [
+                {
+                  id: "idea-1",
+                  title: "AutoBenchsmith",
+                  summary: "Generate benchmark items.",
+                  expandedExplanation: "Expanded.",
+                  trajectory: "Trajectory.",
+                  smallestSprint: "Build a pilot.",
+                  paper: {
+                    id: "paper-1",
+                    arxivId: "2606.00001",
+                    title: "Paper title",
+                    abstract: "Paper abstract",
+                    url: "https://arxiv.org/abs/2606.00001",
+                    authors: ["A. Researcher"],
+                    categories: ["cs.AI"],
+                    publishedAt: "2026-06-25T00:00:00.000Z"
+                  }
+                }
+              ]
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    const runCodex = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        jobId: "novelty-job-1",
+        generatedForUserId: "user-1",
+        inboxDate: "2026-06-25",
+        scans: [
+          {
+            generatedIdeaId: "idea-1",
+            status: "completed",
+            label: "unclear",
+            confidence: 0.64,
+            summary: "Adjacent evidence exists.",
+            overlapExplanation: "No exact duplicate was found in the bounded scan.",
+            queries: ["AutoBenchsmith benchmark"],
+            adaptersAttempted: ["arxiv"],
+            adaptersFailed: [],
+            evidence: [
+              {
+                sourceType: "arxiv",
+                title: "Adjacent source",
+                url: "https://arxiv.org/abs/2606.00002",
+                sourceId: "2606.00002",
+                claim: "Adjacent benchmark generation work exists.",
+                overlapLevel: "adjacent",
+                confidence: 0.61
+              }
+            ]
+          }
+        ]
+      })
+    );
+    const gatherNoveltySourceEvidence = vi.fn().mockResolvedValue({
+      adaptersAttempted: ["arxiv"],
+      adaptersFailed: [],
+      evidence: [
+        {
+          sourceType: "arxiv",
+          title: "Adjacent source",
+          url: "https://arxiv.org/abs/2606.00002",
+          sourceId: "2606.00002",
+          claim: "Adjacent work exists.",
+          overlapLevel: "adjacent",
+          confidence: 0.61
+        }
+      ]
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      },
+      { runCodex, gatherNoveltySourceEvidence }
+    );
+
+    expect(processed).toBe(true);
+    const completionBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(completionBody.type).toBe("novelty_scan");
+    expect(completionBody.output.scans[0].label).toBe("unclear");
+  });
 });
 
 function createInboxGenerationJob(id: string) {
