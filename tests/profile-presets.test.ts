@@ -70,4 +70,21 @@ describe("field presets", () => {
     expect(isFieldPresetKey("chemistry")).toBe(true);
     expect(isFieldPresetKey("toString")).toBe(false);
   });
+
+  it("includes biology and economics presets that map to their arXiv categories", () => {
+    expect(fieldPresets.biology.categories).toEqual(["q-bio.BM", "q-bio.GN", "q-bio.NC"]);
+    expect(fieldPresets.economics.categories).toEqual(["econ.EM", "econ.GN", "q-fin.EC"]);
+
+    for (const category of fieldPresets.biology.categories) {
+      expect(fieldPresets.biology.defaultArxivQuery).toContain(`cat:${category}`);
+    }
+    for (const category of fieldPresets.economics.categories) {
+      expect(fieldPresets.economics.defaultArxivQuery).toContain(`cat:${category}`);
+    }
+  });
+
+  it("treats biology and economics as valid field preset keys", () => {
+    expect(isFieldPresetKey("biology")).toBe(true);
+    expect(isFieldPresetKey("economics")).toBe(true);
+  });
 });

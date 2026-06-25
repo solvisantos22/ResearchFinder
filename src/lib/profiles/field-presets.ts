@@ -61,6 +61,68 @@ export const fieldPresets = {
       "reproducible notebook",
       "experimental validation plan"
     ]
+  },
+  biology: {
+    label: "Biology",
+    categories: ["q-bio.BM", "q-bio.GN", "q-bio.NC"],
+    defaultArxivQuery:
+      "(cat:q-bio.BM OR cat:q-bio.GN OR cat:q-bio.NC) AND (all:protein OR all:genomics OR all:sequencing OR all:neural OR all:modeling)",
+    interests: [
+      "computational biology",
+      "genomics",
+      "protein structure",
+      "systems biology",
+      "neuroscience modeling"
+    ],
+    keywords: [
+      "genomics",
+      "protein structure prediction",
+      "single-cell analysis",
+      "systems biology",
+      "biological sequence models"
+    ],
+    constraints: [
+      "Prefer methods with public biological datasets",
+      "Favor analyses that need no new wet-lab data",
+      "Avoid projects requiring proprietary clinical data"
+    ],
+    preferredOutputs: [
+      "analysis pipeline",
+      "benchmark",
+      "reproducible notebook",
+      "open dataset"
+    ]
+  },
+  economics: {
+    label: "Economics",
+    categories: ["econ.EM", "econ.GN", "q-fin.EC"],
+    defaultArxivQuery:
+      "(cat:econ.EM OR cat:econ.GN OR cat:q-fin.EC) AND (all:causal OR all:estimation OR all:market OR all:policy OR all:forecasting)",
+    interests: [
+      "econometrics",
+      "causal inference",
+      "market design",
+      "economic forecasting",
+      "policy evaluation"
+    ],
+    keywords: [
+      "causal inference",
+      "econometric estimation",
+      "market design",
+      "economic forecasting",
+      "policy evaluation"
+    ],
+    constraints: [
+      "Prefer methods with public economic datasets",
+      "Favor reproducible empirical designs",
+      "Avoid claims that need proprietary firm data"
+    ],
+    preferredOutputs: [
+      "empirical study",
+      "reproducible analysis",
+      "open dataset",
+      "policy brief"
+    ]
   }
 } as const;
 
