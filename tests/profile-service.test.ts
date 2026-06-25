@@ -1,5 +1,5 @@
 import type { PrismaClient, ResearchProfile } from "@prisma/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { withPostgresTestDatabase } from "./helpers/postgres";
 
@@ -18,6 +18,10 @@ vi.mock("@/lib/db", () => ({
 }));
 
 const servicePromise = import("@/lib/profiles/service");
+
+afterEach(() => {
+  mocked.prisma = null;
+});
 
 describe("profile service", () => {
   it("falls back to interests when editable keywords are empty", async () => {
@@ -208,6 +212,56 @@ describe("profile service", () => {
       } finally {
         mocked.prisma = null;
       }
+    });
+  });
+});
+
+describe("updateOwnProfile", () => {
+  it("persists interests independently from keywords", async () => {
+    const { updateOwnProfile } = await import("@/lib/profiles/service");
+    const { ensureProfileForUser } = await import("@/lib/profiles/service");
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const user = await client.user.create({ data: { email: "owner@example.com" } });
+      await ensureProfileForUser(user.id, "ai_ml");
+
+      await updateOwnProfile({
+        currentUserId: user.id,
+        targetUserId: user.id,
+        fieldPresetKey: "ai_ml",
+        keywords: ["agent evaluation"],
+        interests: ["long-horizon agents"],
+        preferredOutputs: ["benchmark"],
+        constraints: ["no frontier training"],
+        arxivQuery: "cat:cs.AI"
+      });
+
+      const saved = await client.researchProfile.findUniqueOrThrow({ where: { userId: user.id } });
+      expect(JSON.parse(saved.keywordsJson)).toEqual(["agent evaluation"]);
+      expect(JSON.parse(saved.interestsJson)).toEqual(["long-horizon agents"]);
+    });
+  });
+
+  it("defaults interests to keywords when interests are not provided", async () => {
+    const { updateOwnProfile, ensureProfileForUser } = await import("@/lib/profiles/service");
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const user = await client.user.create({ data: { email: "owner2@example.com" } });
+      await ensureProfileForUser(user.id, "ai_ml");
+
+      await updateOwnProfile({
+        currentUserId: user.id,
+        targetUserId: user.id,
+        keywords: ["agent evaluation"],
+        preferredOutputs: ["benchmark"],
+        constraints: [],
+        arxivQuery: "cat:cs.AI"
+      });
+
+      const saved = await client.researchProfile.findUniqueOrThrow({ where: { userId: user.id } });
+      expect(JSON.parse(saved.interestsJson)).toEqual(["agent evaluation"]);
     });
   });
 });

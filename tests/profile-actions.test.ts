@@ -103,6 +103,7 @@ describe("profile actions", () => {
       targetUserId: "user-1",
       fieldPresetKey: "ai_ml",
       keywords: ["agent evaluation", "benchmark drift"],
+      interests: [],
       preferredOutputs: ["benchmark"],
       constraints: ["No frontier-scale training"],
       arxivQuery: "cat:cs.AI AND all:evaluation",

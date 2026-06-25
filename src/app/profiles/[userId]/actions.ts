@@ -105,6 +105,7 @@ export async function saveProfile(formData: FormData) {
     targetUserId,
     fieldPresetKey: isFieldPresetKey(submittedPreset) ? submittedPreset : "ai_ml",
     keywords: parseList(formData.get("keywords")),
+    interests: parseList(formData.get("interests")),
     preferredOutputs: parseList(formData.get("preferredOutputs")),
     constraints: parseList(formData.get("constraints")),
     arxivQuery,

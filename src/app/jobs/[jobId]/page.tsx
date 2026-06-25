@@ -3,6 +3,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { PageShell } from "@/components/PageShell";
 import { SignalPanel, type SignalStatus } from "@/components/SignalPanel";
 import { canViewUserResearch } from "@/lib/auth/permissions";
 import { requireCurrentUser } from "@/lib/auth/session";
@@ -146,20 +147,24 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
   const verdictLabel = formatViabilityVerdict(v2Report?.verdict ?? job.verdict);
 
   return (
-    <main className="min-h-screen bg-paper text-ink [color-scheme:light]">
-      <div className="mx-auto max-w-6xl px-6 py-8">
+    <PageShell
+      currentUserId={currentUser.id}
+      currentUserName={currentUser.name ?? "Researcher"}
+      activeSection="inbox"
+    >
+      <div className="mx-auto max-w-6xl">
       <header className="mb-6">
-        <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
+        <p className="text-sm font-medium uppercase tracking-wide text-rf-muted">
           Viability decision
         </p>
-        <h1 className="break-words text-3xl font-semibold text-slate-900 [overflow-wrap:anywhere]">
+        <h1 className="break-words text-3xl font-semibold text-rf-white [overflow-wrap:anywhere]">
           {sourceIdea.title}
         </h1>
-        <p className="mt-2 break-words text-slate-600">Status: {job.status}</p>
+        <p className="mt-2 break-words text-rf-muted">Status: {job.status}</p>
       </header>
 
       {job.status !== "completed" ? (
-        <section className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-amber-900">
+        <section className="rounded-md border border-rf-warning/40 bg-rf-warning/10 p-6 text-rf-warning">
           <h2 className="text-xl font-semibold">Sprint is not complete</h2>
           <p className="mt-2 text-sm leading-6">
             Connect or run your connected worker from the{" "}
@@ -171,11 +176,11 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
         </section>
       ) : (
         <div className="grid gap-6">
-          <section className="rounded-lg border border-slate-200 bg-white p-6">
-            <h2 className="break-words text-xl font-semibold text-slate-900">
+          <section className="rounded-md border border-rf-border bg-rf-panel p-6">
+            <h2 className="break-words text-xl font-semibold text-rf-white">
               Verdict: {verdictLabel}
             </h2>
-            <p className="mt-2 break-words text-slate-600">
+            <p className="mt-2 break-words text-rf-muted">
               {v2Report?.summary ??
                 "Review the generated evidence before expanding this idea into a full agent team."}
             </p>
@@ -185,8 +190,8 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
                   key={value}
                   className={
                     value === (v2Report?.verdict ?? job.verdict)
-                      ? "rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800"
-                      : "rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-medium text-slate-600"
+                      ? "rounded-md border border-rf-success/40 bg-rf-success/10 px-3 py-1 text-sm font-medium text-rf-success"
+                      : "rounded-md border border-rf-border bg-rf-surface px-3 py-1 text-sm font-medium text-rf-muted"
                   }
                 >
                   {label}
@@ -196,27 +201,27 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
           </section>
 
           {v2Report ? (
-            <section className="rounded-lg border border-slate-200 bg-white p-6">
-              <h2 className="text-xl font-semibold text-slate-900">Viability report</h2>
+            <section className="rounded-md border border-rf-border bg-rf-panel p-6">
+              <h2 className="text-xl font-semibold text-rf-white">Viability report</h2>
               <div className="mt-4 grid gap-4 lg:grid-cols-3">
                 {[
                   ["Feasibility", v2Report.feasibility],
                   ["Novelty risk", v2Report.noveltyRisk],
                   ["Minimum experiment", v2Report.minimumExperiment]
                 ].map(([label, value]) => (
-                  <article key={label} className="min-w-0 rounded-lg border border-slate-200 p-4">
-                    <h3 className="break-words text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  <article key={label} className="min-w-0 rounded-md border border-rf-border p-4">
+                    <h3 className="break-words text-sm font-semibold uppercase tracking-wide text-rf-muted">
                       {label}
                     </h3>
-                    <p className="mt-2 break-words text-sm leading-6 text-slate-700">{value}</p>
+                    <p className="mt-2 break-words text-sm leading-6 text-rf-muted">{value}</p>
                   </article>
                 ))}
               </div>
 
               {v2Report.blockers.length > 0 ? (
                 <div className="mt-5">
-                  <h3 className="font-semibold text-slate-900">Blockers</h3>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-700">
+                  <h3 className="font-semibold text-rf-white">Blockers</h3>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-rf-muted">
                     {v2Report.blockers.map((blocker) => (
                       <li key={blocker} className="break-words">
                         {blocker}
@@ -227,25 +232,25 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
               ) : null}
 
               <div className="mt-5">
-                <h3 className="font-semibold text-slate-900">Citations used</h3>
+                <h3 className="font-semibold text-rf-white">Citations used</h3>
                 <div className="mt-2 grid gap-3">
                   {v2Report.citations.map((citation) => (
                     <article
                       key={`${citation.sourceType}-${citation.title}-${citation.claim}`}
-                      className="min-w-0 rounded-lg border border-slate-200 p-4"
+                      className="min-w-0 rounded-md border border-rf-border p-4"
                     >
-                      <h4 className="break-words text-sm font-semibold text-slate-900">
+                      <h4 className="break-words text-sm font-semibold text-rf-white">
                         {citation.title}
                       </h4>
-                      <p className="mt-2 break-words text-sm leading-6 text-slate-700">
+                      <p className="mt-2 break-words text-sm leading-6 text-rf-muted">
                         {citation.claim}
                       </p>
-                      <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mt-2 text-xs font-medium uppercase tracking-wide text-rf-muted">
                         Confidence {citation.confidence.toFixed(2)}
                       </p>
                       {citation.url ? (
                         <a
-                          className="mt-3 inline-flex break-words text-sm font-medium text-slate-700 underline [overflow-wrap:anywhere]"
+                          className="mt-3 inline-flex break-words text-sm font-medium text-rf-muted underline [overflow-wrap:anywhere]"
                           href={citation.url}
                           rel="noreferrer"
                           target="_blank"
@@ -275,17 +280,17 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
           ) : null}
 
           <section>
-            <h2 className="text-xl font-semibold text-slate-900">Artifacts</h2>
+            <h2 className="text-xl font-semibold text-rf-white">Artifacts</h2>
             <div className="mt-3 grid gap-4">
               {job.artifacts.map((artifact) => (
                 <article
                   key={artifact.id}
-                  className="min-w-0 rounded-lg border border-slate-200 bg-white p-5"
+                  className="min-w-0 rounded-md border border-rf-border bg-rf-panel p-5"
                 >
-                  <h3 className="break-words font-semibold text-slate-900 [overflow-wrap:anywhere]">
+                  <h3 className="break-words font-semibold text-rf-white [overflow-wrap:anywhere]">
                     {artifact.title}
                   </h3>
-                  <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-slate-50 p-4 text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">
+                  <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-rf-surface p-4 text-sm leading-6 text-rf-muted [overflow-wrap:anywhere]">
                     {artifact.content}
                   </pre>
                 </article>
@@ -294,28 +299,28 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-slate-900">Generated evidence</h2>
+            <h2 className="text-xl font-semibold text-rf-white">Generated evidence</h2>
             <div className="mt-3 grid gap-4">
               {job.evidence.map((item) => (
                 <article
                   key={item.id}
-                  className="min-w-0 rounded-lg border border-slate-200 bg-white p-5"
+                  className="min-w-0 rounded-md border border-rf-border bg-rf-panel p-5"
                 >
-                  <h3 className="break-words font-semibold text-slate-900 [overflow-wrap:anywhere]">
+                  <h3 className="break-words font-semibold text-rf-white [overflow-wrap:anywhere]">
                     {item.sourceTitle}
                   </h3>
-                  <p className="mt-2 break-words text-sm text-slate-700 [overflow-wrap:anywhere]">
+                  <p className="mt-2 break-words text-sm text-rf-muted [overflow-wrap:anywhere]">
                     {item.claim}
                   </p>
-                  <p className="mt-2 break-words text-sm text-slate-600 [overflow-wrap:anywhere]">
+                  <p className="mt-2 break-words text-sm text-rf-muted [overflow-wrap:anywhere]">
                     {item.support}
                   </p>
-                  <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <p className="mt-2 text-xs font-medium uppercase tracking-wide text-rf-muted">
                     Confidence {item.confidence.toFixed(2)}
                   </p>
                   {item.sourceUrl ? (
                     <a
-                      className="mt-3 inline-flex break-words text-sm font-medium text-slate-700 underline [overflow-wrap:anywhere]"
+                      className="mt-3 inline-flex break-words text-sm font-medium text-rf-muted underline [overflow-wrap:anywhere]"
                       href={item.sourceUrl}
                       rel="noreferrer"
                       target="_blank"
@@ -328,13 +333,13 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
             </div>
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-6">
+          <section className="rounded-md border border-rf-border bg-rf-panel p-6">
             <div className="flex flex-wrap gap-3">
               {["Expand to full agent team", "Revise idea", "Save for later", "Discard"].map(
                 (label) => (
                   <button
                     key={label}
-                    className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md border border-rf-border px-4 py-2 text-sm font-medium text-rf-muted disabled:cursor-not-allowed disabled:opacity-60"
                     disabled
                     type="button"
                   >
@@ -343,17 +348,17 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
                 )
               )}
             </div>
-            <p className="mt-3 break-words text-sm text-slate-600">
+            <p className="mt-3 break-words text-sm text-rf-muted">
               These actions are display-only in this milestone except viewing generated evidence.
             </p>
           </section>
         </div>
       )}
 
-      <Link className="mt-8 inline-flex text-sm font-medium text-slate-700 underline" href={inboxHref}>
+      <Link className="mt-8 inline-flex text-sm font-medium text-rf-violetSoft underline hover:text-rf-white" href={inboxHref}>
         Back to inbox
       </Link>
       </div>
-    </main>
+    </PageShell>
   );
 }

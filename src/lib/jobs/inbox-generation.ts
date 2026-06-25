@@ -304,6 +304,28 @@ async function persistGeneratedInbox(
   }
 }
 
+export async function listInboxDatesForUser(userId: string): Promise<string[]> {
+  const [ideaDates, jobDates] = await Promise.all([
+    prisma.generatedIdea.findMany({
+      where: { userId },
+      distinct: ["inboxDate"],
+      select: { inboxDate: true }
+    }),
+    prisma.inboxGenerationJob.findMany({
+      where: { userId },
+      distinct: ["inboxDate"],
+      select: { inboxDate: true }
+    })
+  ]);
+
+  const dates = new Set<string>([
+    ...ideaDates.map((row) => row.inboxDate),
+    ...jobDates.map((row) => row.inboxDate)
+  ]);
+
+  return Array.from(dates).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+}
+
 export async function getGeneratedInboxState(userId: string, inboxDate: string) {
   const ideas = await prisma.generatedIdea.findMany({
     where: { userId, inboxDate },

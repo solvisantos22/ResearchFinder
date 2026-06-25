@@ -1,3 +1,4 @@
+import React from "react";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -63,23 +64,24 @@ vi.mock("next/navigation", () => ({
   redirect: mocked.redirect
 }));
 
+vi.mock("@/components/PageShell", () => ({
+  PageShell: ({ children }: { children: React.ReactNode }) => children
+}));
+
 describe("app page auth", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.prisma.generatedIdea.findUnique.mockResolvedValue(null);
   });
 
-  it("redirects the signed-in current user from root to their own inbox", async () => {
+  it("redirects a user with a profile from root to their own inbox", async () => {
     const { default: HomePage } = await import("@/app/page");
 
     mocked.requireCurrentUser.mockResolvedValue({ id: "current-user" });
-    mocked.ensureProfileForUser.mockResolvedValue({ userId: "current-user" });
+    mocked.prisma.researchProfile.findUnique.mockResolvedValue({ userId: "current-user" });
 
     await expect(HomePage()).rejects.toThrow("NEXT_REDIRECT:/inbox/current-user");
-
-    expect(mocked.requireCurrentUser).toHaveBeenCalledOnce();
-    expect(mocked.ensureProfileForUser).toHaveBeenCalledWith("current-user", "ai_ml");
-    expect(mocked.redirect).toHaveBeenCalledWith("/inbox/current-user");
+    expect(mocked.ensureProfileForUser).not.toHaveBeenCalled();
   });
 
   it("checks shared visibility before rendering another user's inbox", async () => {

@@ -14,9 +14,16 @@ export async function createArxivCandidateBatchForUser(userId: string, inboxDate
   }
 
   const profile = await prisma.researchProfile.findUniqueOrThrow({ where: { userId } });
+
+  const seenCandidates = await prisma.candidatePaper.findMany({
+    where: { batch: { userId } },
+    select: { arxivId: true }
+  });
+  const seenArxivIds = new Set(seenCandidates.map((candidate) => candidate.arxivId));
+
   const papers = dedupePapersByArxivId(
     await fetchArxivPapers(profile.arxivQuery, profile.maxPapersScreened)
-  );
+  ).filter((paper) => !seenArxivIds.has(paper.arxivId));
 
   try {
     return await prisma.$transaction(async (tx) => {

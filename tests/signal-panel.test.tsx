@@ -27,17 +27,17 @@ describe("SignalPanel", () => {
     {
       status: "pass",
       badge: "PASS",
-      classes: ["border-teal-200", "bg-teal-50", "text-teal-900"]
+      classes: ["border-rf-success/40", "bg-rf-success/10", "text-rf-success"]
     },
     {
       status: "warning",
       badge: "WARNING",
-      classes: ["border-amber-200", "bg-amber-50", "text-amber-900"]
+      classes: ["border-rf-warning/40", "bg-rf-warning/10", "text-rf-warning"]
     },
     {
       status: "fail",
       badge: "FAIL",
-      classes: ["border-rose-200", "bg-rose-50", "text-rose-900"]
+      classes: ["border-rf-danger/40", "bg-rf-danger/10", "text-rf-danger"]
     }
   ] as const)("renders $status status styling and badge", ({ status, badge, classes }) => {
     render(

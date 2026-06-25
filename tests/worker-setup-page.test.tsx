@@ -41,6 +41,10 @@ vi.mock("next/navigation", () => ({
   redirect: mocked.redirect
 }));
 
+vi.mock("@/components/PageShell", () => ({
+  PageShell: ({ children }: { children: React.ReactNode }) => children
+}));
+
 import { WorkerSetupContent } from "@/components/WorkerSetupContent";
 import { registerWorker } from "@/app/workers/actions";
 import WorkersPage from "@/app/workers/page";

@@ -24,6 +24,7 @@ export type EditableProfileData = {
 export type ProfileUpdateData = {
   fieldPresetKey?: FieldPresetKey;
   keywords: string[];
+  interests?: string[];
   preferredOutputs: string[];
   constraints: string[];
   arxivQuery: string;
@@ -91,7 +92,9 @@ export async function updateOwnProfile(input: {
     data: {
       arxivQuery: input.arxivQuery,
       keywordsJson: JSON.stringify(input.keywords),
-      interestsJson: JSON.stringify(input.keywords),
+      interestsJson: JSON.stringify(
+        input.interests && input.interests.length > 0 ? input.interests : input.keywords
+      ),
       constraintsJson: JSON.stringify(input.constraints),
       preferredOutputsJson: JSON.stringify(input.preferredOutputs),
       ...(input.fieldPresetKey !== undefined ? { fieldPresetKey: input.fieldPresetKey } : {}),

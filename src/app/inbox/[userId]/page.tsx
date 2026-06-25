@@ -1,11 +1,13 @@
 import React, { type ComponentProps } from "react";
 import { notFound } from "next/navigation";
 
+import { InboxDateNav } from "@/components/InboxDateNav";
+import { PageShell } from "@/components/PageShell";
 import { PaperIdeaGroup } from "@/components/PaperIdeaGroup";
 import { canViewUserResearch } from "@/lib/auth/permissions";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
-import { getGeneratedInboxState } from "@/lib/jobs/inbox-generation";
+import { getGeneratedInboxState, listInboxDatesForUser } from "@/lib/jobs/inbox-generation";
 
 type GeneratedInboxIdea = Awaited<ReturnType<typeof getGeneratedInboxState>>["ideas"][number];
 type PaperGroup = {
@@ -145,7 +147,13 @@ function renderInboxStatus(status: string, inboxDate: string) {
   }
 }
 
-export default async function InboxPage({ params }: { params: Promise<{ userId: string }> }) {
+export default async function InboxPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ userId: string }>;
+  searchParams?: Promise<{ date?: string | string[] }>;
+}) {
   const currentUser = await requireCurrentUser();
   const { userId } = await params;
 
@@ -159,25 +167,40 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
     notFound();
   }
 
-  const inboxDate = todayIsoDate();
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const requestedDateRaw = resolvedSearchParams.date;
+  const requestedDate = Array.isArray(requestedDateRaw) ? requestedDateRaw[0] : requestedDateRaw;
+
+  const availableDates = await listInboxDatesForUser(userId);
+  const inboxDate =
+    requestedDate && availableDates.includes(requestedDate)
+      ? requestedDate
+      : availableDates[0] ?? todayIsoDate();
+
   const inboxState = await getGeneratedInboxState(userId, inboxDate);
   const paperGroups = groupIdeasByPaper(inboxState.ideas);
   const displayName = user.name?.trim() || "Researcher";
 
   return (
-    <main className="min-h-screen bg-rf-black text-rf-white">
-      <div className="mx-auto max-w-7xl px-6 py-8">
-        <header className="mb-6">
-          <p className="text-sm font-medium uppercase tracking-wide text-rf-muted">
-            AI research inbox
-          </p>
-          <h1 className="text-3xl font-semibold text-rf-white">
-            {displayName}&apos;s generated research inbox
-          </h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-rf-muted">
-            Papers grouped with AI-generated research ideas, reasoning, novelty status, and dispatch
-            readiness.
-          </p>
+    <PageShell
+      currentUserId={currentUser.id}
+      currentUserName={currentUser.name ?? "Researcher"}
+      activeSection="inbox"
+    >
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-wide text-rf-muted">
+              AI research inbox
+            </p>
+            <h1 className="text-3xl font-semibold text-rf-white">
+              {displayName}&apos;s generated research inbox
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-rf-muted">
+              Showing the inbox for {inboxDate}. Each day is its own set of papers and ideas.
+            </p>
+          </div>
+          <InboxDateNav userId={userId} currentDate={inboxDate} availableDates={availableDates} />
         </header>
 
         {inboxState.status === "ready" && paperGroups.length > 0 ? (
@@ -197,6 +220,6 @@ export default async function InboxPage({ params }: { params: Promise<{ userId: 
           renderInboxStatus(inboxState.status, inboxDate)
         )}
       </div>
-    </main>
+    </PageShell>
   );
 }

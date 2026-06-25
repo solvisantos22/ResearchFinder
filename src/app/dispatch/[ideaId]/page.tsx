@@ -2,6 +2,7 @@ import React from "react";
 import { notFound } from "next/navigation";
 
 import { DispatchForm } from "@/components/DispatchForm";
+import { PageShell } from "@/components/PageShell";
 import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
@@ -106,33 +107,35 @@ export default async function DispatchPage({
     const suggestedDepth = suggestedDepthFromSmallestSprint(generatedIdea.smallestSprint);
 
     return (
-      <main className="min-h-screen bg-paper text-ink [color-scheme:light]">
-        <div className="mx-auto max-w-5xl px-6 py-8">
+      <PageShell
+        currentUserId={currentUser.id}
+        currentUserName={currentUser.name ?? "Researcher"}
+        activeSection="inbox"
+      >
+        <div className="mx-auto max-w-5xl">
           <header className="mb-6">
-            <p className="text-sm font-medium uppercase text-slate-500">Dispatch setup</p>
-            <h1 className="text-3xl font-semibold">{generatedIdea.title}</h1>
-            <p className="mt-2 text-slate-600">{generatedIdea.summary}</p>
+            <p className="text-sm font-medium uppercase tracking-wide text-rf-muted">Dispatch setup</p>
+            <h1 className="text-3xl font-semibold text-rf-white">{generatedIdea.title}</h1>
+            <p className="mt-2 text-rf-muted">{generatedIdea.summary}</p>
           </header>
 
-          <section className="mb-6 rounded-lg border border-line bg-white p-5">
-            <h2 className="font-semibold">Generated idea details</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              {generatedIdea.expandedExplanation}
+          <section className="mb-6 rounded-md border border-rf-border bg-rf-panel p-5">
+            <h2 className="font-semibold text-rf-white">Generated idea details</h2>
+            <p className="mt-2 text-sm leading-6 text-rf-muted">{generatedIdea.expandedExplanation}</p>
+            <p className="mt-3 text-sm text-rf-muted">
+              <strong className="text-rf-white">Trajectory:</strong> {generatedIdea.trajectory}
             </p>
-            <p className="mt-3 text-sm text-slate-600">
-              <strong>Trajectory:</strong> {generatedIdea.trajectory}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              <strong>Smallest sprint:</strong> {generatedIdea.smallestSprint}
+            <p className="mt-2 text-sm text-rf-muted">
+              <strong className="text-rf-white">Smallest sprint:</strong> {generatedIdea.smallestSprint}
             </p>
           </section>
 
-          <section className="mb-6 rounded-lg border border-line bg-white p-5">
-            <h2 className="font-semibold">Source paper</h2>
-            <p className="mt-1 text-slate-700">{generatedIdea.paper.title}</p>
-            <p className="mt-2 text-sm text-slate-600">{generatedIdea.paper.abstract}</p>
+          <section className="mb-6 rounded-md border border-rf-border bg-rf-panel p-5">
+            <h2 className="font-semibold text-rf-white">Source paper</h2>
+            <p className="mt-1 text-rf-white">{generatedIdea.paper.title}</p>
+            <p className="mt-2 text-sm text-rf-muted">{generatedIdea.paper.abstract}</p>
             <a
-              className="mt-3 inline-flex text-sm font-semibold text-accent"
+              className="mt-3 inline-flex text-sm font-semibold text-rf-violetSoft hover:text-rf-white"
               href={generatedIdea.paper.url}
               target="_blank"
               rel="noreferrer"
@@ -142,19 +145,19 @@ export default async function DispatchPage({
           </section>
 
           {generatedIdea.citations.length > 0 ? (
-            <section className="mb-6 rounded-lg border border-line bg-white p-5">
-              <h2 className="font-semibold">Supporting citations</h2>
+            <section className="mb-6 rounded-md border border-rf-border bg-rf-panel p-5">
+              <h2 className="font-semibold text-rf-white">Supporting citations</h2>
               <div className="mt-3 grid gap-3">
                 {generatedIdea.citations.map((citation) => (
                   <a
                     key={citation.id}
-                    className="block rounded-md border border-line p-3 text-sm text-slate-700"
+                    className="block rounded-md border border-rf-border p-3 text-sm text-rf-muted hover:bg-rf-surface"
                     href={citation.url}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <span className="font-semibold text-ink">{citation.title}</span>
-                    <span className="mt-1 block text-slate-600">{citation.claim}</span>
+                    <span className="font-semibold text-rf-white">{citation.title}</span>
+                    <span className="mt-1 block text-rf-muted">{citation.claim}</span>
                   </a>
                 ))}
               </div>
@@ -167,7 +170,7 @@ export default async function DispatchPage({
             suggestedAutonomy="medium"
           />
         </div>
-      </main>
+      </PageShell>
     );
   }
 
@@ -192,26 +195,30 @@ export default async function DispatchPage({
   const reasoning = parseInboxReasoning(inboxItem.reasoningJson);
 
   return (
-    <main className="min-h-screen bg-paper text-ink [color-scheme:light]">
-      <div className="mx-auto max-w-5xl px-6 py-8">
-      <header className="mb-6">
-        <p className="text-sm font-medium uppercase text-slate-500">Dispatch setup</p>
-        <h1 className="text-3xl font-semibold">{idea.title}</h1>
-        <p className="mt-2 text-slate-600">{idea.summary}</p>
-      </header>
+    <PageShell
+      currentUserId={currentUser.id}
+      currentUserName={currentUser.name ?? "Researcher"}
+      activeSection="inbox"
+    >
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-6">
+          <p className="text-sm font-medium uppercase tracking-wide text-rf-muted">Dispatch setup</p>
+          <h1 className="text-3xl font-semibold text-rf-white">{idea.title}</h1>
+          <p className="mt-2 text-rf-muted">{idea.summary}</p>
+        </header>
 
-      <section className="mb-6 rounded-lg border border-line bg-white p-5">
-        <h2 className="font-semibold">Source paper</h2>
-        <p className="mt-1 text-slate-700">{idea.paper.title}</p>
-        <p className="mt-2 text-sm text-slate-600">{idea.paper.abstract}</p>
-      </section>
+        <section className="mb-6 rounded-md border border-rf-border bg-rf-panel p-5">
+          <h2 className="font-semibold text-rf-white">Source paper</h2>
+          <p className="mt-1 text-rf-white">{idea.paper.title}</p>
+          <p className="mt-2 text-sm text-rf-muted">{idea.paper.abstract}</p>
+        </section>
 
-      <DispatchForm
-        ideaId={idea.id}
-        suggestedDepth={reasoning.suggestedDepth}
-        suggestedAutonomy={reasoning.suggestedAutonomy}
-      />
+        <DispatchForm
+          ideaId={idea.id}
+          suggestedDepth={reasoning.suggestedDepth}
+          suggestedAutonomy={reasoning.suggestedAutonomy}
+        />
       </div>
-    </main>
+    </PageShell>
   );
 }
