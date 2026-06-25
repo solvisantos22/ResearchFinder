@@ -443,17 +443,87 @@ function buildInboxGenerationPrompt(input: InboxGenerationJobInput) {
   return [
     "You are generating a ResearchFinder v2 AI inbox from candidate arXiv papers.",
     "Return only valid JSON. Do not wrap the result in Markdown.",
-    "The JSON must match the GeneratedInbox schema exactly:",
+    "The JSON must match the GeneratedInbox schema exactly and use only the keys in this contract:",
+    buildGeneratedInboxJsonContract(),
+    "Contract rules:",
     "- inboxDate: the claimed inbox date.",
     "- generatedForUserId: the claimed user id.",
     "- papers: one or more arXiv paper groups from candidatePapers only.",
+    "- for each returned paper, copy sourceId, title, abstract, url, authors, categories, and publishedAt exactly from candidatePapers.",
+    "- source must be exactly \"arxiv\" for every paper.",
     "- each idea must cite its source arXiv paper using sourceType \"paper\", matching sourceId and url.",
+    "- every score must be a number from 0 to 1.",
+    "- noveltyStatus must be one of: verified, needs_novelty_check, not_novel.",
     "- produce no more than profile.maxIdeas ideas total and no more than profile.maxIdeasPerPaper per paper.",
+    "- Do not return alternate keys such as whyRelevant, feasibility, expectedOutput, or sources.",
     "Use the user's profile to choose relevant, feasible, original research directions.",
     "",
     "Claimed job input:",
     JSON.stringify(input, null, 2)
   ].join("\n");
+}
+
+function buildGeneratedInboxJsonContract() {
+  return JSON.stringify(
+    {
+      inboxDate: "<copy input.inboxDate>",
+      generatedForUserId: "<copy input.userId>",
+      papers: [
+        {
+          source: "arxiv",
+          sourceId: "<copy candidatePapers[n].sourceId>",
+          title: "<copy candidatePapers[n].title>",
+          abstract: "<copy candidatePapers[n].abstract>",
+          url: "<copy candidatePapers[n].url>",
+          authors: ["<copy candidatePapers[n].authors entries>"],
+          categories: ["<copy candidatePapers[n].categories entries>"],
+          publishedAt: "<copy candidatePapers[n].publishedAt>",
+          whyPaperMatters: "<why this source paper is worth attention for the profile>",
+          ideas: [
+            {
+              title: "<specific project idea title>",
+              summary: "<brief summary>",
+              expandedExplanation:
+                "<substantial explanation of the idea, why it builds on the paper, and what would be built or studied>",
+              trajectory:
+                "<where the idea could go after a successful viability sprint, including possible paper direction>",
+              recommended: true,
+              noveltyStatus: "needs_novelty_check",
+              scores: {
+                relevance: 0.0,
+                significance: 0.0,
+                originality: 0.0,
+                feasibility: 0.0,
+                overall: 0.0
+              },
+              scoreExplanations: {
+                relevance: "<why the relevance score was assigned>",
+                significance: "<why the significance score was assigned>",
+                originality: "<why the originality score was assigned>",
+                feasibility: "<why the feasibility score was assigned>",
+                overall: "<why the overall score was assigned>"
+              },
+              risks: ["<concrete risk or uncertainty>"],
+              smallestViabilitySprint:
+                "<smallest useful experiment or build sprint to check whether this idea is worth pursuing>",
+              citations: [
+                {
+                  sourceType: "paper",
+                  title: "<copy source paper title>",
+                  url: "<copy source paper url>",
+                  sourceId: "<copy source paper sourceId>",
+                  claim: "<claim supported by the source paper>",
+                  confidence: 0.0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    null,
+    2
+  );
 }
 
 function parseViabilityJobInputForRun(value: unknown) {

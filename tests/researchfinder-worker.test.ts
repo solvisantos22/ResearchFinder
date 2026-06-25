@@ -138,6 +138,37 @@ describe("researchfinder local worker", () => {
     expect(parseInboxGenerationOutput(JSON.stringify(completionBody.output))).toEqual(codexOutput);
   });
 
+  it("writes the exact generated inbox JSON contract into inbox generation prompts", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(createJsonResponse({ job: createInboxGenerationJob("inbox-job-1") }))
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodex = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(createInboxCodexOutput());
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runResearchFinderWorkerOnce(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      },
+      { runCodex }
+    );
+
+    expect(promptText).toContain('"source": "arxiv"');
+    expect(promptText).toContain('"whyPaperMatters": "');
+    expect(promptText).toContain('"expandedExplanation": "');
+    expect(promptText).toContain('"scoreExplanations": {');
+    expect(promptText).toContain('"smallestViabilitySprint": "');
+    expect(promptText).toContain(
+      "Do not return alternate keys such as whyRelevant, feasibility, expectedOutput, or sources."
+    );
+  });
+
   it("reports invalid Codex inbox output to the completion endpoint before throwing", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -605,6 +636,62 @@ function createInboxGenerationJob(id: string) {
         }
       ]
     }
+  };
+}
+
+function createInboxCodexOutput() {
+  return {
+    inboxDate: "2026-06-23",
+    generatedForUserId: "user-1",
+    papers: [
+      {
+        source: "arxiv",
+        sourceId: "2606.00001",
+        title: "Paper title",
+        abstract: "Paper abstract",
+        url: "https://arxiv.org/abs/2606.00001",
+        authors: ["A. Researcher"],
+        categories: ["cs.AI"],
+        publishedAt: "2026-06-23T00:00:00.000Z",
+        whyPaperMatters: "This paper opens a concrete evaluation direction.",
+        ideas: [
+          {
+            title: "Build a benchmark slice",
+            summary: "Evaluate a small benchmark slice.",
+            expandedExplanation: "Create a focused benchmark from the paper.",
+            trajectory: "Start with a pilot, then expand if the result is novel.",
+            recommended: true,
+            noveltyStatus: "needs_novelty_check",
+            scores: {
+              relevance: 0.9,
+              significance: 0.86,
+              originality: 0.78,
+              feasibility: 0.82,
+              overall: 0.84
+            },
+            scoreExplanations: {
+              relevance: "Directly aligned with the profile.",
+              significance: "Could become a useful benchmark paper.",
+              originality: "Needs related-work review.",
+              feasibility: "A small pilot is feasible.",
+              overall: "Strong enough to surface."
+            },
+            risks: ["Adjacent benchmarks may already cover this."],
+            smallestViabilitySprint: "Create 20 examples and compare two baselines.",
+            citations: [
+              {
+                sourceType: "paper",
+                title: "Paper title",
+                url: "https://arxiv.org/abs/2606.00001",
+                sourceId: "2606.00001",
+                claim: "The source paper motivates the benchmark direction.",
+                confidence: 0.92
+              }
+            ]
+          }
+        ]
+      }
+    ]
   };
 }
 
