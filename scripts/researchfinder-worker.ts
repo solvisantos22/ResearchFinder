@@ -8,8 +8,10 @@ import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
 import {
   InboxGenerationJobInputSchema,
   NoveltyScanJobInputSchema,
+  ResearchPlanJobInputSchema,
   type InboxGenerationJobInput,
-  type NoveltyScanJobInput
+  type NoveltyScanJobInput,
+  type ResearchPlanJobInput
 } from "@/lib/v2/schemas";
 import { buildNoveltyQueries } from "@/lib/novelty/query-builder";
 import { runCodex as defaultRunCodex } from "@/worker/codex-runner";
@@ -17,6 +19,7 @@ import { gatherNoveltySourceEvidence as defaultGatherNoveltySourceEvidence } fro
 import {
   parseInboxGenerationOutput,
   parseNoveltyScanOutput,
+  parseResearchPlanOutput,
   parseViabilityOutput
 } from "@/worker/output-validation";
 
@@ -210,6 +213,14 @@ export async function runResearchFinderWorkerOnce(
     return true;
   }
 
+  if (payload.job.type === "research_plan") {
+    const result = await runResearchPlanJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
   throw new FatalWorkerError(
     `No local executor is registered for ${payload.job.type} in this worker slice`
   );
@@ -328,7 +339,8 @@ function parseClaimPayload(value: unknown): { job: null | ClaimedWorkerJob } {
   if (
     job.type !== "inbox_generation" &&
     job.type !== "novelty_scan" &&
-    job.type !== "viability_check"
+    job.type !== "viability_check" &&
+    job.type !== "research_plan"
   ) {
     throw new FatalWorkerError(`Unsupported worker job type: ${String(job.type)}`);
   }
@@ -435,6 +447,72 @@ async function runViabilityJob(
   } finally {
     await rm(prompt.dir, { force: true, recursive: true });
   }
+}
+
+async function runResearchPlanJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parseResearchPlanJobInput(job.input);
+  const prompt = await writeResearchPlanPrompt(job.id, input);
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
+        codexCommand: config.codexCommand
+      });
+    } catch (error) {
+      await failWorkerJob(config, job, error);
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseResearchPlanOutput(rawOutput) };
+    } catch (error) {
+      return {
+        output: parseRawCodexOutputForCompletion(rawOutput),
+        validationError: error
+      };
+    }
+  } finally {
+    await rm(prompt.dir, { force: true, recursive: true });
+  }
+}
+
+function parseResearchPlanJobInput(value: unknown) {
+  try {
+    return ResearchPlanJobInputSchema.parse(value);
+  } catch (error) {
+    throw new FatalWorkerError(
+      `Research plan job input failed validation: ${formatErrorMessage(error)}`
+    );
+  }
+}
+
+async function writeResearchPlanPrompt(jobId: string, input: ResearchPlanJobInput) {
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-research-plan-"));
+  const promptFile = join(promptDir, `${jobId}.prompt.md`);
+  await writeFile(promptFile, buildResearchPlanPrompt(input), "utf8");
+  return { dir: promptDir, file: promptFile };
+}
+
+function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
+  return [
+    "You are turning a viability-checked research idea into a concrete, executable research plan.",
+    "Return only valid JSON matching the ResearchPlan schema exactly. Do not wrap it in Markdown.",
+    `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
+    "Required keys: researchProjectId, relationToSourcePaper, hypotheses (>=1), experimentalDesign,",
+    "protocolSteps (>=1, ordered), datasets, baselines, metrics, successCriteria (>=1),",
+    "computeEstimate, risks, citations (>=1).",
+    "Ground the plan in the source paper: relationToSourcePaper must explain how this work extends it,",
+    "and citations MUST include the source paper as sourceType \"paper\" with its exact url and sourceId.",
+    "Keep the plan to the smallest credible experiment that tests the core hypothesis.",
+    "",
+    "Claimed job input:",
+    JSON.stringify(input, null, 2)
+  ].join("\n");
 }
 
 async function runNoveltyScanJob(

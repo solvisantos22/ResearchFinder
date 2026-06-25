@@ -1,6 +1,7 @@
 import {
   GeneratedInboxSchema,
   NoveltyScanResultSchema,
+  ResearchPlanSchema,
   ViabilityResultSchema
 } from "@/lib/v2/schemas";
 
@@ -14,4 +15,8 @@ export function parseNoveltyScanOutput(raw: string) {
 
 export function parseViabilityOutput(raw: string) {
   return ViabilityResultSchema.parse(JSON.parse(raw));
+}
+
+export function parseResearchPlanOutput(raw: string) {
+  return ResearchPlanSchema.parse(JSON.parse(raw));
 }
