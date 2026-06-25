@@ -62,6 +62,8 @@ model User {
   inboxGenerationJobs InboxGenerationJob[]
   workers             WorkerRegistration[]
   noveltyScanJobs     InboxNoveltyScanJob[]
+  researchProjects    ResearchProject[]
+  researchPlanJobs    ResearchPlanJob[]
 }
 
 model ResearchProfile {
@@ -303,6 +305,7 @@ model GeneratedIdea {
   citations          IdeaCitation[]
   viabilityJobs      ViabilityJob[]
   noveltyScans       NoveltyScan[]
+  researchProjects   ResearchProject[]
 
   @@index([userId, inboxDate, overallScore])
 }
@@ -427,4 +430,52 @@ model Evidence {
   createdAt   DateTime @default(now())
 
   job ViabilityJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model ResearchProject {
+  id                   String    @id @default(cuid())
+  userId               String
+  generatedIdeaId      String
+  sourceViabilityJobId String?
+  status               String
+  currentStage         String
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  generatedIdea GeneratedIdea    @relation(fields: [generatedIdeaId], references: [id], onDelete: Cascade)
+  planJob       ResearchPlanJob?
+  plan          ResearchPlan?
+
+  @@index([userId, status, createdAt, id])
+}
+
+model ResearchPlanJob {
+  id                String    @id @default(cuid())
+  researchProjectId String    @unique
+  userId            String
+  status            String
+  claimedByWorkerId String?
+  inputJson         String
+  outputJson        String?
+  errorMessage      String?
+  createdAt         DateTime  @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  updatedAt         DateTime  @updatedAt
+
+  researchProject ResearchProject @relation(fields: [researchProjectId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt, id])
+  @@index([claimedByWorkerId, status])
+}
+
+model ResearchPlan {
+  id                String   @id @default(cuid())
+  researchProjectId String   @unique
+  planJson          String
+  createdAt         DateTime @default(now())
+
+  researchProject ResearchProject @relation(fields: [researchProjectId], references: [id], onDelete: Cascade)
 }

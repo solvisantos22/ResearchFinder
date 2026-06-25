@@ -6,12 +6,15 @@ import { claimNextInboxGenerationJob } from "@/lib/jobs/inbox-generation";
 import { claimNextNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { claimNextViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
+import { claimNextResearchPlanJob, failResearchPlanJob, buildViabilityContextFromArtifactContent } from "@/lib/jobs/research";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
 import {
   type InboxGenerationJobInput,
   InboxGenerationJobInputSchema,
   type NoveltyScanJobInput,
-  NoveltyScanJobInputSchema
+  NoveltyScanJobInputSchema,
+  ResearchPlanJobInputSchema,
+  type ResearchPlanJobInput
 } from "@/lib/v2/schemas";
 
 export async function POST(request: Request) {
@@ -71,7 +74,27 @@ export async function POST(request: Request) {
     });
 
     if (!viabilityJob) {
-      return NextResponse.json({ job: null });
+      const researchPlanJob = await claimNextResearchPlanJob({
+        userId: worker.userId,
+        workerId: worker.id
+      });
+
+      if (!researchPlanJob) {
+        return NextResponse.json({ job: null });
+      }
+
+      try {
+        return NextResponse.json({
+          job: {
+            type: "research_plan",
+            id: researchPlanJob.id,
+            input: await buildResearchPlanJobInput(researchPlanJob)
+          }
+        });
+      } catch (error) {
+        await failResearchPlanJob({ jobId: researchPlanJob.id, errorMessage: formatErrorMessage(error) });
+        return NextResponse.json({ error: "Claimed job payload could not be built" }, { status: 500 });
+      }
     }
 
     try {
@@ -208,6 +231,57 @@ function buildNoveltyScanJobInput(job: ClaimedNoveltyScanJob): NoveltyScanJobInp
         categories: parseJsonArray(idea.paper.categoriesJson, "categoriesJson"),
         publishedAt: idea.paper.publishedAt.toISOString()
       }
+    }))
+  });
+}
+
+type ClaimedResearchPlanJob = NonNullable<Awaited<ReturnType<typeof claimNextResearchPlanJob>>>;
+
+async function buildResearchPlanJobInput(job: ClaimedResearchPlanJob): Promise<ResearchPlanJobInput> {
+  const idea = job.researchProject.generatedIdea;
+  const paper = idea.paper;
+
+  let viability: ResearchPlanJobInput["viability"] = null;
+  if (job.researchProject.sourceViabilityJobId) {
+    const artifact = await prisma.artifact.findFirst({
+      where: { jobId: job.researchProject.sourceViabilityJobId, kind: "viability-report" },
+      orderBy: { createdAt: "desc" }
+    });
+    if (artifact) {
+      viability = buildViabilityContextFromArtifactContent(artifact.content);
+    }
+  }
+
+  return ResearchPlanJobInputSchema.parse({
+    jobId: job.id,
+    userId: job.userId,
+    researchProjectId: job.researchProjectId,
+    idea: {
+      id: idea.id,
+      title: idea.title,
+      summary: idea.summary,
+      expandedExplanation: idea.expandedExplanation,
+      trajectory: idea.trajectory,
+      smallestSprint: idea.smallestSprint
+    },
+    paper: {
+      id: paper.id,
+      arxivId: paper.arxivId,
+      title: paper.title,
+      abstract: paper.abstract,
+      url: paper.url,
+      authors: parseJsonArray(paper.authorsJson, "authorsJson"),
+      categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
+      publishedAt: paper.publishedAt.toISOString()
+    },
+    viability,
+    citations: idea.citations.map((citation) => ({
+      sourceType: citation.sourceType,
+      title: citation.title,
+      url: citation.url,
+      sourceId: citation.sourceId ?? undefined,
+      claim: citation.claim,
+      confidence: citation.confidence
     }))
   });
 }

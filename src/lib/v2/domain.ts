@@ -56,3 +56,9 @@ export function clampUnitScore(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.round(Math.min(1, Math.max(0, value)) * 1000) / 1000;
 }
+
+export const RESEARCH_STAGES = ["plan", "literature", "experiment", "analysis", "paper"] as const;
+export type ResearchStage = (typeof RESEARCH_STAGES)[number];
+
+export const RESEARCH_PROJECT_STATUSES = ["running", "plan_ready", "aborted", "failed"] as const;
+export type ResearchProjectStatus = (typeof RESEARCH_PROJECT_STATUSES)[number];
