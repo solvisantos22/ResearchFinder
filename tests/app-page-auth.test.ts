@@ -1,3 +1,4 @@
+import React from "react";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,6 +62,10 @@ vi.mock("@/lib/profiles/service", () => ({
 vi.mock("next/navigation", () => ({
   notFound: mocked.notFound,
   redirect: mocked.redirect
+}));
+
+vi.mock("@/components/PageShell", () => ({
+  PageShell: ({ children }: { children: React.ReactNode }) => children
 }));
 
 describe("app page auth", () => {
