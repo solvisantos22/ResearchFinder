@@ -95,9 +95,9 @@ export const fieldPresets = {
   },
   economics: {
     label: "Economics",
-    categories: ["econ.EM", "econ.GN", "q-fin.EC"],
+    categories: ["econ.EM", "econ.GN", "q-fin.GN"],
     defaultArxivQuery:
-      "(cat:econ.EM OR cat:econ.GN OR cat:q-fin.EC) AND (all:causal OR all:estimation OR all:market OR all:policy OR all:forecasting)",
+      "(cat:econ.EM OR cat:econ.GN OR cat:q-fin.GN) AND (all:causal OR all:estimation OR all:market OR all:policy OR all:forecasting)",
     interests: [
       "econometrics",
       "causal inference",

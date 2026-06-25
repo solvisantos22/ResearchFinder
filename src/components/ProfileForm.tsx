@@ -28,6 +28,9 @@ export function ProfileForm({ profile, saveAction }: ProfileFormProps) {
   const [preferredOutputs, setPreferredOutputs] = useState(lines(profile.preferredOutputs));
   const [constraints, setConstraints] = useState(lines(profile.constraints));
   const [arxivQuery, setArxivQuery] = useState(profile.arxivQuery);
+  // Interests are not edited directly; they track the chosen field preset so they
+  // stay distinct from user-edited keywords and never go stale on a preset switch.
+  const [interests, setInterests] = useState(lines(fieldPresets[profile.fieldPresetKey].interests));
 
   function applyPreset(key: FieldPresetKey) {
     setFieldPresetKey(key);
@@ -36,10 +39,12 @@ export function ProfileForm({ profile, saveAction }: ProfileFormProps) {
     setPreferredOutputs(lines(preset.preferredOutputs));
     setConstraints(lines(preset.constraints));
     setArxivQuery(preset.defaultArxivQuery);
+    setInterests(lines(preset.interests));
   }
 
   return (
     <form action={saveAction} className="grid gap-5 rounded-md border border-rf-border bg-rf-panel p-5">
+      <input type="hidden" name="interests" value={interests} />
       <label className={labelClass}>
         Field preset
         <select

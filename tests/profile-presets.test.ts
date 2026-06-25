@@ -73,7 +73,7 @@ describe("field presets", () => {
 
   it("includes biology and economics presets that map to their arXiv categories", () => {
     expect(fieldPresets.biology.categories).toEqual(["q-bio.BM", "q-bio.GN", "q-bio.NC"]);
-    expect(fieldPresets.economics.categories).toEqual(["econ.EM", "econ.GN", "q-fin.EC"]);
+    expect(fieldPresets.economics.categories).toEqual(["econ.EM", "econ.GN", "q-fin.GN"]);
 
     for (const category of fieldPresets.biology.categories) {
       expect(fieldPresets.biology.defaultArxivQuery).toContain(`cat:${category}`);

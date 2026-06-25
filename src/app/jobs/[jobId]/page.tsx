@@ -150,7 +150,7 @@ export default async function JobPage({ params }: { params: Promise<{ jobId: str
     <PageShell
       currentUserId={currentUser.id}
       currentUserName={currentUser.name ?? "Researcher"}
-      activeSection="jobs"
+      activeSection="inbox"
     >
       <div className="mx-auto max-w-6xl">
       <header className="mb-6">
