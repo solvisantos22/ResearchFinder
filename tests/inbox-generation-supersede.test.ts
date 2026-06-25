@@ -116,4 +116,36 @@ describe("createInboxGenerationJob backlog suppression", () => {
       expect(claimed?.inboxDate).toBe("2026-06-25");
     });
   });
+
+  it("excludes superseded-only dates from listInboxDatesForUser", async () => {
+    const { listInboxDatesForUser } = await import("@/lib/jobs/inbox-generation");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const user = await client.user.create({ data: { email: "dates@example.com" } });
+
+      const supBatch = await createCompletedBatch(client, user.id, "2026-06-20");
+      await createInboxJob(client, user.id, supBatch.id, "2026-06-20", "superseded");
+
+      const queuedBatch = await createCompletedBatch(client, user.id, "2026-06-25");
+      await createInboxJob(client, user.id, queuedBatch.id, "2026-06-25", "queued");
+
+      const dates = await listInboxDatesForUser(user.id);
+      expect(dates).toEqual(["2026-06-25"]);
+    });
+  });
+
+  it("reports superseded state for a superseded date", async () => {
+    const { getGeneratedInboxState } = await import("@/lib/jobs/inbox-generation");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const user = await client.user.create({ data: { email: "state@example.com" } });
+
+      const supBatch = await createCompletedBatch(client, user.id, "2026-06-20");
+      await createInboxJob(client, user.id, supBatch.id, "2026-06-20", "superseded");
+
+      const state = await getGeneratedInboxState(user.id, "2026-06-20");
+      expect(state.status).toBe("superseded");
+      expect(state.ideas).toEqual([]);
+    });
+  });
 });

@@ -349,7 +349,7 @@ export async function listInboxDatesForUser(userId: string): Promise<string[]> {
       select: { inboxDate: true }
     }),
     prisma.inboxGenerationJob.findMany({
-      where: { userId },
+      where: { userId, status: { not: "superseded" } },
       distinct: ["inboxDate"],
       select: { inboxDate: true }
     })
@@ -394,6 +394,7 @@ export async function getGeneratedInboxState(userId: string, inboxDate: string) 
 
   if (!latestJob) return { status: "pending" as const, ideas: [] };
   if (latestJob.status === "failed") return { status: "failed" as const, ideas: [] };
+  if (latestJob.status === "superseded") return { status: "superseded" as const, ideas: [] };
   return {
     status: latestJob.status as "queued" | "running" | "completed" | "timed_out",
     ideas: []
