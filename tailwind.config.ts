@@ -17,11 +17,7 @@ const config: Config = {
           success: "#34d399",
           warning: "#fbbf24",
           danger: "#fb7185"
-        },
-        ink: "#1f2933",
-        paper: "#f8fafc",
-        line: "#d8dee9",
-        accent: "#0f766e"
+        }
       }
     }
   },

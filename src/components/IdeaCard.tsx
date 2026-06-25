@@ -26,7 +26,7 @@ export function IdeaCard({ idea, canDispatch }: IdeaCardProps) {
           <h3 className="mt-1 text-lg font-semibold text-rf-white">{idea.title}</h3>
           <p className="mt-2 text-sm leading-6 text-rf-muted">{idea.summary}</p>
         </div>
-        <div className="grid h-12 w-12 place-items-center rounded-md bg-rf-violet text-sm font-black text-white">
+        <div className="grid h-12 w-12 place-items-center rounded-md bg-rf-violet text-sm font-black text-rf-white">
           {Math.round(idea.overallScore * 100)}
         </div>
       </div>
@@ -51,7 +51,7 @@ export function IdeaCard({ idea, canDispatch }: IdeaCardProps) {
       {canDispatch ? (
         <Link
           href={`/dispatch/${idea.id}`}
-          className="mt-4 inline-flex rounded-md bg-rf-violet px-4 py-2 text-sm font-semibold text-white"
+          className="mt-4 inline-flex rounded-md bg-rf-violet px-4 py-2 text-sm font-semibold text-rf-white"
         >
           Dispatch viability check
         </Link>
