@@ -512,4 +512,114 @@ describe("v2 worker schemas", () => {
     expect(clampUnitScore(0.1234)).toBe(0.123);
     expect(clampUnitScore(0.1235)).toBe(0.124);
   });
+
+  it("accepts calibrated novelty labels for generated inbox ideas", () => {
+    for (const noveltyStatus of [
+      "likely_novel",
+      "unclear",
+      "crowded",
+      "near_duplicate",
+      "not_checked"
+    ]) {
+      const result = GeneratedInboxSchema.parse(
+        createInbox({
+          papers: [
+            createPaper({
+              ideas: [
+                createIdea({
+                  noveltyStatus
+                })
+              ]
+            })
+          ]
+        })
+      );
+
+      expect(result.papers[0].ideas[0].noveltyStatus).toBe(noveltyStatus);
+    }
+  });
+
+  it("accepts novelty scan worker output with evidence and query traces", async () => {
+    const { NoveltyScanResultSchema } = await import("@/lib/v2/schemas");
+    const result = NoveltyScanResultSchema.parse({
+      jobId: "novelty-job-1",
+      generatedForUserId: "user-1",
+      inboxDate: "2026-06-25",
+      scans: [
+        {
+          generatedIdeaId: "idea-1",
+          status: "completed",
+          label: "crowded",
+          confidence: 0.78,
+          summary: "Several adjacent benchmark-generation systems exist.",
+          overlapExplanation:
+            "The idea is adjacent to agentic synthetic-data systems but remains distinct if scoped to benchmark failure discovery.",
+          queries: ["AutoBenchsmith benchmark generation", "agentic synthetic benchmark data"],
+          adaptersAttempted: ["arxiv", "openalex", "semantic_scholar", "web"],
+          adaptersFailed: [],
+          evidence: [
+            {
+              sourceType: "scholarly",
+              title: "Autodata: An agentic data scientist to create high quality synthetic data",
+              url: "https://arxiv.org/abs/2606.25996",
+              sourceId: "2606.25996",
+              claim: "The source introduces agentic synthetic data creation.",
+              overlapLevel: "adjacent",
+              confidence: 0.86
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(result.scans[0].label).toBe("crowded");
+  });
+
+  it("rejects novelty scan outputs without evidence unless label is not_checked", async () => {
+    const { NoveltyScanResultSchema } = await import("@/lib/v2/schemas");
+
+    expect(() =>
+      NoveltyScanResultSchema.parse({
+        jobId: "novelty-job-1",
+        generatedForUserId: "user-1",
+        inboxDate: "2026-06-25",
+        scans: [
+          {
+            generatedIdeaId: "idea-1",
+            status: "completed",
+            label: "likely_novel",
+            confidence: 0.7,
+            summary: "No close matches found.",
+            overlapExplanation: "No strong overlap was found.",
+            queries: ["query"],
+            adaptersAttempted: ["arxiv"],
+            adaptersFailed: [],
+            evidence: []
+          }
+        ]
+      })
+    ).toThrow(/evidence/);
+
+    const unchecked = NoveltyScanResultSchema.parse({
+      jobId: "novelty-job-1",
+      generatedForUserId: "user-1",
+      inboxDate: "2026-06-25",
+      scans: [
+        {
+          generatedIdeaId: "idea-1",
+          status: "failed",
+          label: "not_checked",
+          confidence: 0,
+          summary: "No source adapters completed.",
+          overlapExplanation: "Novelty could not be assessed.",
+          queries: [],
+          adaptersAttempted: ["arxiv"],
+          adaptersFailed: ["arxiv"],
+          evidence: []
+        }
+      ]
+    });
+
+    expect(unchecked.scans[0].label).toBe("not_checked");
+  });
 });

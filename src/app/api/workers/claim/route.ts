@@ -3,12 +3,15 @@ import { NextResponse } from "next/server";
 import { findAllowedWorkerByToken } from "@/lib/auth/worker-token";
 import { prisma } from "@/lib/db";
 import { claimNextInboxGenerationJob } from "@/lib/jobs/inbox-generation";
+import { claimNextNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { claimNextViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
 import {
   type InboxGenerationJobInput,
-  InboxGenerationJobInputSchema
+  InboxGenerationJobInputSchema,
+  type NoveltyScanJobInput,
+  NoveltyScanJobInputSchema
 } from "@/lib/v2/schemas";
 
 export async function POST(request: Request) {
@@ -33,6 +36,35 @@ export async function POST(request: Request) {
   });
 
   if (!job) {
+    const noveltyJob = await claimNextNoveltyScanJob({
+      userId: worker.userId,
+      workerId: worker.id
+    });
+
+    if (noveltyJob) {
+      try {
+        const input = buildNoveltyScanJobInput(noveltyJob);
+        return NextResponse.json({
+          job: {
+            type: "novelty_scan",
+            id: noveltyJob.id,
+            input
+          }
+        });
+      } catch (error) {
+        await prisma.inboxNoveltyScanJob.update({
+          where: { id: noveltyJob.id },
+          data: {
+            status: "failed",
+            errorMessage: formatErrorMessage(error),
+            completedAt: new Date()
+          }
+        });
+
+        return NextResponse.json({ error: "Claimed job payload could not be built" }, { status: 500 });
+      }
+    }
+
     const viabilityJob = await claimNextViabilityJob({
       userId: worker.userId,
       workerId: worker.id
@@ -136,6 +168,48 @@ function parseJsonArray(json: string, fieldName: string) {
 
 function formatErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unknown worker payload error";
+}
+
+type ClaimedNoveltyScanJob = NonNullable<Awaited<ReturnType<typeof claimNextNoveltyScanJob>>>;
+
+function buildNoveltyScanJobInput(job: ClaimedNoveltyScanJob): NoveltyScanJobInput {
+  if (!job.user.profile) {
+    throw new Error("Worker user has no research profile");
+  }
+
+  return NoveltyScanJobInputSchema.parse({
+    jobId: job.id,
+    userId: job.userId,
+    inboxDate: job.inboxDate,
+    profile: {
+      fieldPreset: job.user.profile.fieldPresetKey,
+      keywords: parseJsonArray(job.user.profile.keywordsJson, "keywordsJson"),
+      constraints: parseJsonArray(job.user.profile.constraintsJson, "constraintsJson"),
+      preferredOutputs: parseJsonArray(
+        job.user.profile.preferredOutputsJson,
+        "preferredOutputsJson"
+      ),
+      allowRelatedWorkSearch: job.user.profile.allowRelatedWorkSearch
+    },
+    ideas: job.inboxGenerationJob.generatedIdeas.map((idea) => ({
+      id: idea.id,
+      title: idea.title,
+      summary: idea.summary,
+      expandedExplanation: idea.expandedExplanation,
+      trajectory: idea.trajectory,
+      smallestSprint: idea.smallestSprint,
+      paper: {
+        id: idea.paper.id,
+        arxivId: idea.paper.arxivId,
+        title: idea.paper.title,
+        abstract: idea.paper.abstract,
+        url: idea.paper.url,
+        authors: parseJsonArray(idea.paper.authorsJson, "authorsJson"),
+        categories: parseJsonArray(idea.paper.categoriesJson, "categoriesJson"),
+        publishedAt: idea.paper.publishedAt.toISOString()
+      }
+    }))
+  });
 }
 
 type ClaimedViabilityJob = NonNullable<Awaited<ReturnType<typeof claimNextViabilityJob>>>;

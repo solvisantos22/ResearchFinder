@@ -527,6 +527,42 @@ describe("generated inbox persistence", () => {
     const updateInput = tx.inboxGenerationJob.updateMany.mock.calls[0]?.[0];
     expect(JSON.parse(updateInput?.data.outputJson ?? "{}")).toEqual(createGeneratedInbox());
   });
+
+  it(
+    "queues a novelty scan job after generated inbox persistence succeeds",
+    async () => {
+      const { completeInboxGenerationJob } = await import("@/lib/jobs/inbox-generation");
+
+      await withPostgresTestDatabase(async (client) => {
+        mocked.prisma = client;
+        const setup = await createRunningInboxGenerationJob(client, {
+          userId: `user-${randomUUID()}`,
+          inboxDate: "2026-06-23",
+          candidateIndexes: [1]
+        });
+
+        await completeInboxGenerationJob({
+          jobId: setup.job.id,
+          workerId: "worker-1",
+          output: createGeneratedInbox({
+            generatedForUserId: setup.user.id,
+            inboxDate: setup.job.inboxDate
+          })
+        });
+
+        const noveltyJob = await client.inboxNoveltyScanJob.findFirst({
+          where: {
+            userId: setup.user.id,
+            inboxGenerationJobId: setup.job.id,
+            inboxDate: setup.job.inboxDate
+          }
+        });
+
+        expect(noveltyJob?.status).toBe("queued");
+      });
+    },
+    15000
+  );
 });
 
 async function createRunningInboxGenerationJob(

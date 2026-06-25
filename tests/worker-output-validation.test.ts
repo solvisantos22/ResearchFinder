@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseInboxGenerationOutput, parseViabilityOutput } from "@/worker/output-validation";
+import {
+  parseInboxGenerationOutput,
+  parseNoveltyScanOutput,
+  parseViabilityOutput
+} from "@/worker/output-validation";
 
 function createCitation(overrides: Record<string, unknown> = {}) {
   return {
@@ -103,5 +107,41 @@ describe("worker output validation", () => {
         )
       )
     ).toThrow();
+  });
+
+  it("parses novelty scan output", () => {
+    const output = parseNoveltyScanOutput(
+      JSON.stringify({
+        jobId: "novelty-job-1",
+        generatedForUserId: "user-1",
+        inboxDate: "2026-06-25",
+        scans: [
+          {
+            generatedIdeaId: "idea-1",
+            status: "completed",
+            label: "likely_novel",
+            confidence: 0.72,
+            summary: "No close duplicates were found.",
+            overlapExplanation: "Related systems exist, but none target this evaluation gap.",
+            queries: ["query"],
+            adaptersAttempted: ["arxiv"],
+            adaptersFailed: [],
+            evidence: [
+              {
+                sourceType: "arxiv",
+                title: "Adjacent source",
+                url: "https://arxiv.org/abs/2606.00002",
+                sourceId: "2606.00002",
+                claim: "Adjacent work exists.",
+                overlapLevel: "adjacent",
+                confidence: 0.6
+              }
+            ]
+          }
+        ]
+      })
+    );
+
+    expect(output.scans[0].label).toBe("likely_novel");
   });
 });

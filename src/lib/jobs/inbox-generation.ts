@@ -2,6 +2,7 @@ import type { CandidatePaper, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
+import { createNoveltyScanJobForInboxGeneration } from "@/lib/jobs/novelty-scan";
 import { GeneratedInboxSchema, type GeneratedInbox } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
@@ -144,7 +145,7 @@ export async function completeInboxGenerationJob(input: {
 }) {
   const parsed = GeneratedInboxSchema.parse(input.output);
 
-  return prisma.$transaction(async (tx) => {
+  const completedJob = await prisma.$transaction(async (tx) => {
     const job = await tx.inboxGenerationJob.findFirstOrThrow({
       where: {
         id: input.jobId,
@@ -195,10 +196,24 @@ export async function completeInboxGenerationJob(input: {
       throw new Error("Inbox generation job is no longer running");
     }
 
+    // Queue the novelty scan atomically with completion so a failure here rolls
+    // back the whole completion and the worker retries cleanly (rather than
+    // leaving a completed inbox with no scan queued).
+    await createNoveltyScanJobForInboxGeneration(
+      {
+        userId: job.userId,
+        inboxGenerationJobId: job.id,
+        inboxDate: job.inboxDate
+      },
+      tx
+    );
+
     return tx.inboxGenerationJob.findUniqueOrThrow({
       where: { id: job.id }
     });
   });
+
+  return completedJob;
 }
 
 function assertGeneratedPaperMatchesCandidate(
@@ -332,7 +347,17 @@ export async function getGeneratedInboxState(userId: string, inboxDate: string) 
     orderBy: [{ overallScore: "desc" }],
     include: {
       paper: true,
-      citations: true
+      citations: true,
+      noveltyScans: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: {
+          evidence: {
+            orderBy: [{ confidence: "desc" }, { createdAt: "asc" }],
+            take: 3
+          }
+        }
+      }
     }
   });
 

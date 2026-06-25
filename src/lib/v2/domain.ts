@@ -1,4 +1,4 @@
-export const V2_JOB_TYPES = ["inbox_generation", "viability_check"] as const;
+export const V2_JOB_TYPES = ["inbox_generation", "novelty_scan", "viability_check"] as const;
 export type V2JobType = (typeof V2_JOB_TYPES)[number];
 
 export const V2_JOB_STATUSES = [
@@ -10,7 +10,26 @@ export const V2_JOB_STATUSES = [
 ] as const;
 export type V2JobStatus = (typeof V2_JOB_STATUSES)[number];
 
-export const NOVELTY_STATUSES = ["verified", "needs_novelty_check", "not_novel"] as const;
+export const CALIBRATED_NOVELTY_LABELS = [
+  "likely_novel",
+  "unclear",
+  "crowded",
+  "near_duplicate",
+  "not_checked"
+] as const;
+export type CalibratedNoveltyLabel = (typeof CALIBRATED_NOVELTY_LABELS)[number];
+
+export const LEGACY_NOVELTY_STATUSES = [
+  "verified",
+  "needs_novelty_check",
+  "not_novel"
+] as const;
+export type LegacyNoveltyStatus = (typeof LEGACY_NOVELTY_STATUSES)[number];
+
+export const NOVELTY_STATUSES = [
+  ...LEGACY_NOVELTY_STATUSES,
+  ...CALIBRATED_NOVELTY_LABELS
+] as const;
 export type NoveltyStatus = (typeof NOVELTY_STATUSES)[number];
 
 export const VIABILITY_VERDICTS = [

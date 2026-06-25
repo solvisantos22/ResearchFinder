@@ -5,7 +5,10 @@ const mocked = vi.hoisted(() => ({
   evidenceCreateMany: vi.fn(),
   inboxFindFirst: vi.fn(),
   inboxUpdateMany: vi.fn(),
+  noveltyFindFirst: vi.fn(),
+  noveltyUpdateMany: vi.fn(),
   routeCompleteInbox: vi.fn(),
+  routeCompleteNovelty: vi.fn(),
   routeCompleteViability: vi.fn(),
   routeFindWorkers: vi.fn(),
   routeReadBearerToken: vi.fn(),
@@ -31,6 +34,10 @@ vi.mock("@/lib/db", () => ({
     inboxGenerationJob: {
       findFirst: (...args: unknown[]) => mocked.inboxFindFirst(...args),
       updateMany: (...args: unknown[]) => mocked.inboxUpdateMany(...args)
+    },
+    inboxNoveltyScanJob: {
+      findFirst: (...args: unknown[]) => mocked.noveltyFindFirst(...args),
+      updateMany: (...args: unknown[]) => mocked.noveltyUpdateMany(...args)
     },
     viabilityJob: {
       findFirst: (...args: unknown[]) => mocked.viabilityFindFirst(...args),
@@ -491,6 +498,9 @@ describe("worker completion route", () => {
     ]);
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
 
+    vi.doMock("@/lib/jobs/novelty-scan", () => ({
+      completeNoveltyScanJob: (...args: unknown[]) => mocked.routeCompleteNovelty(...args)
+    }));
     vi.doMock("@/lib/jobs/viability", () => ({
       claimNextViabilityJob: vi.fn(),
       completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),
@@ -546,8 +556,12 @@ describe("worker completion route", () => {
     mocked.routeUpdateWorker.mockResolvedValue({});
     mocked.routeCompleteViability.mockResolvedValue({});
     mocked.inboxFindFirst.mockResolvedValue(null);
+    mocked.noveltyFindFirst.mockResolvedValue(null);
     mocked.viabilityFindFirst.mockResolvedValue({ id: "viability-job-1" });
 
+    vi.doMock("@/lib/jobs/novelty-scan", () => ({
+      completeNoveltyScanJob: (...args: unknown[]) => mocked.routeCompleteNovelty(...args)
+    }));
     vi.doMock("@/lib/jobs/viability", () => ({
       claimNextViabilityJob: vi.fn(),
       completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),
@@ -591,8 +605,12 @@ describe("worker completion route", () => {
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
     mocked.routeUpdateWorker.mockResolvedValue({});
     mocked.inboxFindFirst.mockResolvedValue(null);
+    mocked.noveltyFindFirst.mockResolvedValue(null);
     mocked.viabilityFindFirst.mockResolvedValue({ id: "viability-job-1" });
 
+    vi.doMock("@/lib/jobs/novelty-scan", () => ({
+      completeNoveltyScanJob: (...args: unknown[]) => mocked.routeCompleteNovelty(...args)
+    }));
     vi.doMock("@/lib/jobs/viability", () => ({
       claimNextViabilityJob: vi.fn(),
       completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),
@@ -638,6 +656,9 @@ describe("worker completion route", () => {
     mocked.routeCompleteInbox.mockRejectedValue(new Error("Generated inbox schema error"));
     mocked.inboxUpdateMany.mockResolvedValue({ count: 1 });
 
+    vi.doMock("@/lib/jobs/novelty-scan", () => ({
+      completeNoveltyScanJob: (...args: unknown[]) => mocked.routeCompleteNovelty(...args)
+    }));
     vi.doMock("@/lib/jobs/viability", () => ({
       claimNextViabilityJob: vi.fn(),
       completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),
@@ -687,9 +708,13 @@ describe("worker completion route", () => {
     mocked.routeVerifyWorkerToken.mockResolvedValue(true);
     mocked.routeUpdateWorker.mockResolvedValue({});
     mocked.inboxFindFirst.mockResolvedValue(null);
+    mocked.noveltyFindFirst.mockResolvedValue(null);
     mocked.viabilityFindFirst.mockResolvedValue({ id: "viability-job-1" });
     mocked.viabilityUpdateMany.mockResolvedValue({ count: 1 });
 
+    vi.doMock("@/lib/jobs/novelty-scan", () => ({
+      completeNoveltyScanJob: (...args: unknown[]) => mocked.routeCompleteNovelty(...args)
+    }));
     vi.doMock("@/lib/jobs/viability", () => ({
       claimNextViabilityJob: vi.fn(),
       completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),
@@ -744,6 +769,9 @@ describe("worker completion route", () => {
     mocked.viabilityFindFirst.mockResolvedValue(null);
     mocked.inboxUpdateMany.mockResolvedValue({ count: 1 });
 
+    vi.doMock("@/lib/jobs/novelty-scan", () => ({
+      completeNoveltyScanJob: (...args: unknown[]) => mocked.routeCompleteNovelty(...args)
+    }));
     vi.doMock("@/lib/jobs/viability", () => ({
       claimNextViabilityJob: vi.fn(),
       completeV2ViabilityJob: (...args: unknown[]) => mocked.routeCompleteViability(...args),

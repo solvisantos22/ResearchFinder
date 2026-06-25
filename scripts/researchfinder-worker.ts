@@ -5,9 +5,20 @@ import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
-import { InboxGenerationJobInputSchema, type InboxGenerationJobInput } from "@/lib/v2/schemas";
+import {
+  InboxGenerationJobInputSchema,
+  NoveltyScanJobInputSchema,
+  type InboxGenerationJobInput,
+  type NoveltyScanJobInput
+} from "@/lib/v2/schemas";
+import { buildNoveltyQueries } from "@/lib/novelty/query-builder";
 import { runCodex as defaultRunCodex } from "@/worker/codex-runner";
-import { parseInboxGenerationOutput, parseViabilityOutput } from "@/worker/output-validation";
+import { gatherNoveltySourceEvidence as defaultGatherNoveltySourceEvidence } from "@/worker/novelty-sources";
+import {
+  parseInboxGenerationOutput,
+  parseNoveltyScanOutput,
+  parseViabilityOutput
+} from "@/worker/output-validation";
 
 type WorkerConfig = {
   appUrl: string;
@@ -25,6 +36,7 @@ type ClaimedWorkerJob = {
 
 type WorkerRunOptions = {
   runCodex?: typeof defaultRunCodex;
+  gatherNoveltySourceEvidence?: typeof defaultGatherNoveltySourceEvidence;
   sleep?: Sleep;
   pollMs?: number;
   maxIterations?: number;
@@ -174,16 +186,24 @@ export async function runResearchFinderWorkerOnce(
 
   console.log(`Claimed ${payload.job.type} job ${payload.job.id}`);
 
-  if (payload.job.type === "viability_check") {
-    const result = await runViabilityJob(payload.job, config, options);
+  if (payload.job.type === "inbox_generation") {
+    const result = await runInboxGenerationJob(payload.job, config, options);
     await completeWorkerJob(config, payload.job, result.output);
     if (result.validationError) throw new ProcessedWorkerError(result.validationError);
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
     return true;
   }
 
-  if (payload.job.type === "inbox_generation") {
-    const result = await runInboxGenerationJob(payload.job, config, options);
+  if (payload.job.type === "novelty_scan") {
+    const result = await runNoveltyScanJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
+  if (payload.job.type === "viability_check") {
+    const result = await runViabilityJob(payload.job, config, options);
     await completeWorkerJob(config, payload.job, result.output);
     if (result.validationError) throw new ProcessedWorkerError(result.validationError);
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
@@ -305,7 +325,11 @@ function parseClaimPayload(value: unknown): { job: null | ClaimedWorkerJob } {
     throw new FatalWorkerError("Worker claim response job.id must be a non-empty string");
   }
 
-  if (job.type !== "inbox_generation" && job.type !== "viability_check") {
+  if (
+    job.type !== "inbox_generation" &&
+    job.type !== "novelty_scan" &&
+    job.type !== "viability_check"
+  ) {
     throw new FatalWorkerError(`Unsupported worker job type: ${String(job.type)}`);
   }
 
@@ -413,6 +437,116 @@ async function runViabilityJob(
   }
 }
 
+async function runNoveltyScanJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parseNoveltyScanJobInput(job.input);
+  const evidenceBundle = await gatherEvidenceForNoveltyInput(input, options);
+  const prompt = await writeNoveltyScanPrompt(job.id, input, evidenceBundle);
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
+        codexCommand: config.codexCommand
+      });
+    } catch (error) {
+      await failWorkerJob(config, job, error);
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseNoveltyScanOutput(rawOutput) };
+    } catch (error) {
+      return {
+        output: parseRawCodexOutputForCompletion(rawOutput),
+        validationError: error
+      };
+    }
+  } finally {
+    await rm(prompt.dir, { force: true, recursive: true });
+  }
+}
+
+function parseNoveltyScanJobInput(value: unknown) {
+  try {
+    return NoveltyScanJobInputSchema.parse(value);
+  } catch (error) {
+    throw new FatalWorkerError(
+      `Novelty scan job input failed validation: ${formatErrorMessage(error)}`
+    );
+  }
+}
+
+async function gatherEvidenceForNoveltyInput(
+  input: NoveltyScanJobInput,
+  options: WorkerRunOptions
+) {
+  const gather = options.gatherNoveltySourceEvidence ?? defaultGatherNoveltySourceEvidence;
+  const evidenceByIdeaId: Record<string, unknown> = {};
+
+  for (const idea of input.ideas) {
+    const queries = buildNoveltyQueries({
+      ideaTitle: idea.title,
+      ideaSummary: idea.summary,
+      paperTitle: idea.paper.title,
+      paperAbstract: idea.paper.abstract,
+      keywords: input.profile.keywords
+    });
+
+    evidenceByIdeaId[idea.id] = {
+      queries,
+      ...(input.profile.allowRelatedWorkSearch
+        ? await gather({ queries, maxResultsPerQuery: 3 })
+        : {
+            adaptersAttempted: [],
+            adaptersFailed: [],
+            evidence: []
+          })
+    };
+  }
+
+  return evidenceByIdeaId;
+}
+
+async function writeNoveltyScanPrompt(
+  jobId: string,
+  input: NoveltyScanJobInput,
+  evidenceBundle: Record<string, unknown>
+) {
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-novelty-"));
+  const promptFile = join(promptDir, `${jobId}.prompt.md`);
+
+  await writeFile(promptFile, buildNoveltyScanPrompt(jobId, input, evidenceBundle), "utf8");
+  return { dir: promptDir, file: promptFile };
+}
+
+function buildNoveltyScanPrompt(
+  jobId: string,
+  input: NoveltyScanJobInput,
+  evidenceBundle: Record<string, unknown>
+) {
+  return [
+    "You are running a bounded ResearchFinder daily novelty scan.",
+    "Return only valid JSON. Do not wrap the result in Markdown.",
+    "Do not force label variety. Use the evidence.",
+    "Use likely_novel only when the idea has a concrete differentiator and no close match.",
+    "Use unclear when evidence is insufficient or adjacent overlap is unresolved.",
+    "Use crowded when many adjacent sources exist.",
+    "Use near_duplicate when a close paper, repo, benchmark, or project already does the same thing.",
+    "Use not_checked only if evidence collection did not run.",
+    `The JSON jobId must be exactly ${JSON.stringify(jobId)}.`,
+    "",
+    "Claimed job input:",
+    JSON.stringify(input, null, 2),
+    "",
+    "Source evidence gathered before synthesis:",
+    JSON.stringify(evidenceBundle, null, 2)
+  ].join("\n");
+}
+
 function parseInboxGenerationJobInput(value: unknown) {
   try {
     return InboxGenerationJobInputSchema.parse(value);
@@ -453,7 +587,7 @@ function buildInboxGenerationPrompt(input: InboxGenerationJobInput) {
     "- source must be exactly \"arxiv\" for every paper.",
     "- each idea must cite its source arXiv paper using sourceType \"paper\", matching sourceId and url.",
     "- every score must be a number from 0 to 1.",
-    "- noveltyStatus must be one of: verified, needs_novelty_check, not_novel.",
+    "- noveltyStatus should be \"not_checked\"; the separate morning novelty scan will calibrate it.",
     "- produce no more than profile.maxIdeas ideas total and no more than profile.maxIdeasPerPaper per paper.",
     "- Do not return alternate keys such as whyRelevant, feasibility, expectedOutput, or sources.",
     "Use the user's profile to choose relevant, feasible, original research directions.",
@@ -488,7 +622,7 @@ function buildGeneratedInboxJsonContract() {
               trajectory:
                 "<where the idea could go after a successful viability sprint, including possible paper direction>",
               recommended: true,
-              noveltyStatus: "needs_novelty_check",
+              noveltyStatus: "not_checked",
               scores: {
                 relevance: 0.0,
                 significance: 0.0,

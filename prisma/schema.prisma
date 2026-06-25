@@ -61,6 +61,7 @@ model User {
   candidateBatches    CandidateBatch[]
   inboxGenerationJobs InboxGenerationJob[]
   workers             WorkerRegistration[]
+  noveltyScanJobs     InboxNoveltyScanJob[]
 }
 
 model ResearchProfile {
@@ -266,6 +267,7 @@ model InboxGenerationJob {
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   candidateBatch CandidateBatch  @relation(fields: [candidateBatchId], references: [id], onDelete: Cascade)
   generatedIdeas GeneratedIdea[]
+  noveltyScanJobs InboxNoveltyScanJob[]
 
   @@unique([userId, candidateBatchId, inboxDate])
   @@index([userId, inboxDate, status])
@@ -300,6 +302,7 @@ model GeneratedIdea {
   inboxGenerationJob InboxGenerationJob? @relation(fields: [inboxGenerationJobId], references: [id], onDelete: SetNull)
   citations          IdeaCitation[]
   viabilityJobs      ViabilityJob[]
+  noveltyScans       NoveltyScan[]
 
   @@index([userId, inboxDate, overallScore])
 }
@@ -316,6 +319,71 @@ model IdeaCitation {
   createdAt       DateTime @default(now())
 
   generatedIdea GeneratedIdea @relation(fields: [generatedIdeaId], references: [id], onDelete: Cascade)
+}
+
+model InboxNoveltyScanJob {
+  id                   String    @id @default(cuid())
+  userId               String
+  inboxGenerationJobId String
+  inboxDate            String
+  status               String
+  claimedByWorkerId    String?
+  errorMessage         String?
+  inputJson            String
+  outputJson           String?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  inboxGenerationJob InboxGenerationJob @relation(fields: [inboxGenerationJobId], references: [id], onDelete: Cascade)
+  scans              NoveltyScan[]
+
+  @@unique([userId, inboxGenerationJobId, inboxDate])
+  @@index([userId, inboxDate, status])
+  @@index([claimedByWorkerId, status])
+}
+
+model NoveltyScan {
+  id                    String   @id @default(cuid())
+  generatedIdeaId       String
+  inboxNoveltyScanJobId String?
+  status                String
+  label                 String
+  confidence            Float
+  summary               String
+  overlapExplanation    String
+  queriesJson           String
+  adaptersAttemptedJson String
+  adaptersFailedJson    String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  generatedIdea GeneratedIdea        @relation(fields: [generatedIdeaId], references: [id], onDelete: Cascade)
+  job           InboxNoveltyScanJob? @relation(fields: [inboxNoveltyScanJobId], references: [id], onDelete: SetNull)
+  evidence      NoveltyEvidence[]
+
+  @@index([generatedIdeaId, createdAt])
+  @@index([label])
+}
+
+model NoveltyEvidence {
+  id           String   @id @default(cuid())
+  scanId       String
+  sourceType   String
+  title        String
+  url          String
+  sourceId     String?
+  claim        String
+  overlapLevel String
+  confidence   Float
+  createdAt    DateTime @default(now())
+
+  scan NoveltyScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([sourceType])
 }
 
 model WorkerRegistration {

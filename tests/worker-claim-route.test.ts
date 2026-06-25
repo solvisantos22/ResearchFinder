@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocked = vi.hoisted(() => ({
   claimNextJob: vi.fn(),
+  claimNextNoveltyScanJob: vi.fn(),
   claimNextViabilityJob: vi.fn(),
   findWorkers: vi.fn(),
   readBearerToken: vi.fn(),
@@ -15,6 +16,9 @@ vi.mock("@/lib/db", () => ({
     inboxGenerationJob: {
       update: (...args: unknown[]) => mocked.updateJob(...args)
     },
+    inboxNoveltyScanJob: {
+      update: (...args: unknown[]) => mocked.updateJob(...args)
+    },
     workerRegistration: {
       findMany: (...args: unknown[]) => mocked.findWorkers(...args),
       update: (...args: unknown[]) => mocked.updateWorker(...args)
@@ -24,6 +28,10 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/jobs/inbox-generation", () => ({
   claimNextInboxGenerationJob: (...args: unknown[]) => mocked.claimNextJob(...args)
+}));
+
+vi.mock("@/lib/jobs/novelty-scan", () => ({
+  claimNextNoveltyScanJob: (...args: unknown[]) => mocked.claimNextNoveltyScanJob(...args)
 }));
 
 vi.mock("@/lib/jobs/viability", () => ({
@@ -40,6 +48,7 @@ const routePromise = import("@/app/api/workers/claim/route");
 afterEach(() => {
   vi.unstubAllEnvs();
   mocked.claimNextJob.mockReset();
+  mocked.claimNextNoveltyScanJob.mockReset();
   mocked.claimNextViabilityJob.mockReset();
   mocked.findWorkers.mockReset();
   mocked.readBearerToken.mockReset();
@@ -82,6 +91,68 @@ describe("worker claim route", () => {
     expect(mocked.updateWorker).not.toHaveBeenCalled();
     expect(mocked.claimNextJob).not.toHaveBeenCalled();
     expect(mocked.claimNextViabilityJob).not.toHaveBeenCalled();
+  });
+
+  it("claims novelty scan jobs before viability jobs after inbox jobs are exhausted", async () => {
+    vi.stubEnv("ALLOWED_GOOGLE_EMAILS", "worker@example.com");
+    mocked.readBearerToken.mockReturnValue("worker-token");
+    mocked.findWorkers.mockResolvedValue([
+      {
+        id: "worker-1",
+        userId: "user-1",
+        tokenHash: "stored-hash",
+        user: { email: "worker@example.com" }
+      }
+    ]);
+    mocked.verifyWorkerToken.mockResolvedValue(true);
+    mocked.updateWorker.mockResolvedValue({});
+    mocked.claimNextJob.mockResolvedValue(null);
+    mocked.claimNextNoveltyScanJob.mockResolvedValue({
+      id: "novelty-job-1",
+      userId: "user-1",
+      inboxDate: "2026-06-25",
+      status: "running",
+      claimedByWorkerId: "worker-1",
+      user: {
+        profile: {
+          fieldPresetKey: "ai_ml",
+          keywordsJson: "[\"agent evaluation\"]",
+          constraintsJson: "[]",
+          preferredOutputsJson: "[\"benchmark\"]",
+          allowRelatedWorkSearch: true
+        }
+      },
+      inboxGenerationJob: {
+        generatedIdeas: [
+          {
+            id: "idea-1",
+            title: "AutoBenchsmith",
+            summary: "Generate benchmark items.",
+            expandedExplanation: "Expanded.",
+            trajectory: "Trajectory.",
+            smallestSprint: "Build a pilot.",
+            paper: {
+              id: "paper-1",
+              arxivId: "2606.00001",
+              title: "Paper title",
+              abstract: "Paper abstract",
+              url: "https://arxiv.org/abs/2606.00001",
+              authorsJson: "[\"A. Researcher\"]",
+              categoriesJson: "[\"cs.AI\"]",
+              publishedAt: new Date("2026-06-25T00:00:00.000Z")
+            },
+            citations: []
+          }
+        ]
+      }
+    });
+
+    const { POST } = await routePromise;
+    const response = await POST(new Request("https://example.com/api/workers/claim"));
+    const body = await response.json();
+
+    expect(body.job.type).toBe("novelty_scan");
+    expect(body.job.input.ideas[0].id).toBe("idea-1");
   });
 
   it("marks a claimed job failed when its worker payload cannot be built", async () => {
