@@ -1,6 +1,8 @@
 import React from "react";
 
-export type SignalStatus = "pass" | "warning" | "fail";
+import { signalStatusStyles, type SignalStatusKey } from "@/lib/ui/status-styles";
+
+export type SignalStatus = SignalStatusKey;
 
 type SignalPanelProps = {
   title: string;
@@ -9,16 +11,10 @@ type SignalPanelProps = {
   evidence: string;
 };
 
-const statusClass: Record<SignalStatus, string> = {
-  pass: "border-teal-200 bg-teal-50 text-teal-900",
-  warning: "border-amber-200 bg-amber-50 text-amber-900",
-  fail: "border-rose-200 bg-rose-50 text-rose-900"
-};
-
 export function SignalPanel({ title, status, summary, evidence }: SignalPanelProps) {
   return (
     <section
-      className={`rounded-md border p-5 [overflow-wrap:anywhere] ${statusClass[status]}`}
+      className={`rounded-md border p-5 [overflow-wrap:anywhere] ${signalStatusStyles[status]}`}
       data-testid="signal-panel"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">

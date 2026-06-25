@@ -14,9 +14,9 @@ describe("ScorePill", () => {
 
     const pill = screen.getByTestId("score-pill");
     expect(pill).toHaveClass(
-      "border-teal-200",
-      "bg-teal-50",
-      "text-teal-900",
+      "border-rf-violetSoft/50",
+      "bg-rf-violet/15",
+      "text-rf-white",
       "min-w-[7rem]",
       "min-h-16"
     );
@@ -27,9 +27,9 @@ describe("ScorePill", () => {
 
     expect(screen.getByText("Paper")).toBeInTheDocument();
     expect(screen.getByTestId("score-pill")).toHaveClass(
-      "border-slate-200",
-      "bg-white",
-      "text-slate-900"
+      "border-rf-border",
+      "bg-rf-surface",
+      "text-rf-white"
     );
   });
 
@@ -38,9 +38,9 @@ describe("ScorePill", () => {
 
     expect(screen.getByText("Dispatch")).toBeInTheDocument();
     expect(screen.getByTestId("score-pill")).toHaveClass(
-      "border-amber-200",
-      "bg-amber-50",
-      "text-amber-900"
+      "border-rf-warning/40",
+      "bg-rf-warning/10",
+      "text-rf-warning"
     );
   });
 });
