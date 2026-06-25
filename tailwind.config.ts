@@ -13,7 +13,10 @@ const config: Config = {
           violet: "#651fff",
           violetSoft: "#7c4dff",
           white: "#f8f7ff",
-          muted: "#aaa3bc"
+          muted: "#aaa3bc",
+          success: "#34d399",
+          warning: "#fbbf24",
+          danger: "#fb7185"
         },
         ink: "#1f2933",
         paper: "#f8fafc",
