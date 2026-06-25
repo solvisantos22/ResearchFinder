@@ -2,6 +2,7 @@ import type { CandidatePaper, Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
+import { createNoveltyScanJobForInboxGeneration } from "@/lib/jobs/novelty-scan";
 import { GeneratedInboxSchema, type GeneratedInbox } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
@@ -144,7 +145,7 @@ export async function completeInboxGenerationJob(input: {
 }) {
   const parsed = GeneratedInboxSchema.parse(input.output);
 
-  return prisma.$transaction(async (tx) => {
+  const completedJob = await prisma.$transaction(async (tx) => {
     const job = await tx.inboxGenerationJob.findFirstOrThrow({
       where: {
         id: input.jobId,
@@ -199,6 +200,14 @@ export async function completeInboxGenerationJob(input: {
       where: { id: job.id }
     });
   });
+
+  await createNoveltyScanJobForInboxGeneration({
+    userId: completedJob.userId,
+    inboxGenerationJobId: completedJob.id,
+    inboxDate: completedJob.inboxDate
+  });
+
+  return completedJob;
 }
 
 function assertGeneratedPaperMatchesCandidate(
