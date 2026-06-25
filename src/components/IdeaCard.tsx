@@ -30,11 +30,19 @@ type IdeaCardProps = {
   canDispatch: boolean;
 };
 
+const LEGACY_NOVELTY_TO_CALIBRATED: Record<string, NoveltyLabelKey> = {
+  verified: "likely_novel",
+  needs_novelty_check: "unclear",
+  not_novel: "near_duplicate"
+};
+
 function noveltyStatusChipClass(status: string): string {
-  const key = status as NoveltyLabelKey;
-  return key in noveltyLabelStyles
-    ? noveltyLabelStyles[key]
-    : noveltyLabelStyles["not_checked"];
+  const key = (
+    status in noveltyLabelStyles
+      ? status
+      : LEGACY_NOVELTY_TO_CALIBRATED[status] ?? "not_checked"
+  ) as NoveltyLabelKey;
+  return noveltyLabelStyles[key];
 }
 
 export function IdeaCard({ idea, canDispatch }: IdeaCardProps) {
@@ -74,14 +82,18 @@ export function IdeaCard({ idea, canDispatch }: IdeaCardProps) {
                   key={`${evidence.sourceType}-${evidence.url}-${evidence.title}`}
                   className="rounded border border-rf-border px-3 py-2"
                 >
-                  <a
-                    href={evidence.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block font-medium text-rf-white hover:bg-rf-surface"
-                  >
-                    {evidence.title}
-                  </a>
+                  {evidence.url ? (
+                    <a
+                      href={evidence.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block font-medium text-rf-white hover:bg-rf-surface"
+                    >
+                      {evidence.title}
+                    </a>
+                  ) : (
+                    <span className="block font-medium text-rf-white">{evidence.title}</span>
+                  )}
                   <span className="text-xs text-rf-muted">
                     {evidence.sourceType} / {evidence.overlapLevel} /{" "}
                     {Math.round(evidence.confidence * 100)}%

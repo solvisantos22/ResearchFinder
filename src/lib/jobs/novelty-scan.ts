@@ -1,15 +1,23 @@
+import type { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/db";
 import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
 import { NoveltyScanResultSchema } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
 
-export async function createNoveltyScanJobForInboxGeneration(input: {
-  userId: string;
-  inboxGenerationJobId: string;
-  inboxDate: string;
-}) {
-  return prisma.inboxNoveltyScanJob.upsert({
+export async function createNoveltyScanJobForInboxGeneration(
+  input: {
+    userId: string;
+    inboxGenerationJobId: string;
+    inboxDate: string;
+  },
+  client: Prisma.TransactionClient = prisma
+) {
+  // Idempotent: one scan job per inbox generation job. If it already exists
+  // (e.g. a retried completion), leave the existing job untouched rather than
+  // resetting an in-flight or completed scan back to queued.
+  return client.inboxNoveltyScanJob.upsert({
     where: {
       userId_inboxGenerationJobId_inboxDate: {
         userId: input.userId,
@@ -17,14 +25,7 @@ export async function createNoveltyScanJobForInboxGeneration(input: {
         inboxDate: input.inboxDate
       }
     },
-    update: {
-      status: "queued",
-      claimedByWorkerId: null,
-      startedAt: null,
-      completedAt: null,
-      errorMessage: null,
-      outputJson: null
-    },
+    update: {},
     create: {
       userId: input.userId,
       inboxGenerationJobId: input.inboxGenerationJobId,
@@ -174,7 +175,7 @@ export async function completeNoveltyScanJob(input: {
       });
     }
 
-    await tx.inboxNoveltyScanJob.updateMany({
+    const completion = await tx.inboxNoveltyScanJob.updateMany({
       where: {
         id: job.id,
         claimedByWorkerId: input.workerId,
@@ -186,5 +187,9 @@ export async function completeNoveltyScanJob(input: {
         completedAt: new Date()
       }
     });
+
+    if (completion.count !== 1) {
+      throw new Error("Novelty scan job is no longer running");
+    }
   });
 }

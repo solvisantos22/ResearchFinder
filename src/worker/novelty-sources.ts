@@ -16,7 +16,8 @@ type NoveltySourceEvidence = {
 };
 
 export async function gatherNoveltySourceEvidence(input: GatherNoveltySourceEvidenceInput) {
-  const adaptersAttempted = ["arxiv", "openalex", "semantic_scholar"];
+  const adaptersAttempted =
+    input.queries.length > 0 ? ["arxiv", "openalex", "semantic_scholar"] : [];
   const adaptersFailed: string[] = [];
   const evidence: NoveltySourceEvidence[] = [];
   const maxResults = input.maxResultsPerQuery ?? 3;

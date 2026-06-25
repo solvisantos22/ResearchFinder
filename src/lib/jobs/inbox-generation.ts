@@ -196,15 +196,21 @@ export async function completeInboxGenerationJob(input: {
       throw new Error("Inbox generation job is no longer running");
     }
 
+    // Queue the novelty scan atomically with completion so a failure here rolls
+    // back the whole completion and the worker retries cleanly (rather than
+    // leaving a completed inbox with no scan queued).
+    await createNoveltyScanJobForInboxGeneration(
+      {
+        userId: job.userId,
+        inboxGenerationJobId: job.id,
+        inboxDate: job.inboxDate
+      },
+      tx
+    );
+
     return tx.inboxGenerationJob.findUniqueOrThrow({
       where: { id: job.id }
     });
-  });
-
-  await createNoveltyScanJobForInboxGeneration({
-    userId: completedJob.userId,
-    inboxGenerationJobId: completedJob.id,
-    inboxDate: completedJob.inboxDate
   });
 
   return completedJob;
