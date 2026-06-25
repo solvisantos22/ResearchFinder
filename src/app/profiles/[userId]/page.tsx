@@ -2,6 +2,7 @@ import React from "react";
 import { notFound } from "next/navigation";
 
 import { ProfileForm, ProfileReadOnly } from "@/components/ProfileForm";
+import { PageShell } from "@/components/PageShell";
 import { canEditProfile, canViewUserResearch } from "@/lib/auth/permissions";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
@@ -29,33 +30,39 @@ export default async function ProfilePage({ params }: { params: Promise<{ userId
   const profile = profileRecord ? toEditableProfile(profileRecord) : null;
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
-      <header className="mb-6">
-        <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
-          Research profile
-        </p>
-        <h1 className="text-3xl font-semibold text-slate-900">{targetUser.name}</h1>
-        <p className="mt-2 text-slate-600">
-          Tune source discovery, runtime limits, and worker research behavior.
-        </p>
-      </header>
+    <PageShell
+      currentUserId={currentUser.id}
+      currentUserName={currentUser.name ?? "Researcher"}
+      activeSection="profiles"
+    >
+      <div className="mx-auto max-w-5xl">
+        <header className="mb-6">
+          <p className="text-sm font-medium uppercase tracking-wide text-rf-muted">
+            Research profile
+          </p>
+          <h1 className="text-3xl font-semibold text-rf-white">{targetUser.name}</h1>
+          <p className="mt-2 text-rf-muted">
+            Tune source discovery, runtime limits, and worker research behavior.
+          </p>
+        </header>
 
-      {editable && profile ? (
-        <ProfileForm
-          profile={profile}
-          saveAction={async (formData) => {
-            "use server";
-            formData.set("userId", userId);
-            await saveProfile(formData);
-          }}
-        />
-      ) : profile ? (
-        <ProfileReadOnly profile={profile} />
-      ) : (
-        <div className="rounded-lg border border-line bg-white p-5 text-slate-700">
-          No research profile has been configured yet.
-        </div>
-      )}
-    </div>
+        {editable && profile ? (
+          <ProfileForm
+            profile={profile}
+            saveAction={async (formData) => {
+              "use server";
+              formData.set("userId", userId);
+              await saveProfile(formData);
+            }}
+          />
+        ) : profile ? (
+          <ProfileReadOnly profile={profile} />
+        ) : (
+          <div className="rounded-md border border-rf-border bg-rf-panel p-5 text-rf-muted">
+            No research profile has been configured yet.
+          </div>
+        )}
+      </div>
+    </PageShell>
   );
 }
