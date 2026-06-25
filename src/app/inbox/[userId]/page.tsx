@@ -196,8 +196,9 @@ export default async function InboxPage({
   const requestedDate = Array.isArray(requestedDateRaw) ? requestedDateRaw[0] : requestedDateRaw;
 
   const availableDates = await listInboxDatesForUser(userId);
+  const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
   const inboxDate =
-    requestedDate && availableDates.includes(requestedDate)
+    requestedDate && isIsoDate(requestedDate)
       ? requestedDate
       : availableDates[0] ?? todayIsoDate();
 
