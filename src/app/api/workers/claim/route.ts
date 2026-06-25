@@ -6,7 +6,7 @@ import { claimNextInboxGenerationJob } from "@/lib/jobs/inbox-generation";
 import { claimNextNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { claimNextViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
-import { claimNextResearchPlanJob, buildViabilityContextFromArtifactContent } from "@/lib/jobs/research";
+import { claimNextResearchPlanJob, failResearchPlanJob, buildViabilityContextFromArtifactContent } from "@/lib/jobs/research";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
 import {
   type InboxGenerationJobInput,
@@ -92,10 +92,7 @@ export async function POST(request: Request) {
           }
         });
       } catch (error) {
-        await prisma.researchPlanJob.update({
-          where: { id: researchPlanJob.id },
-          data: { status: "failed", errorMessage: formatErrorMessage(error), completedAt: new Date() }
-        });
+        await failResearchPlanJob({ jobId: researchPlanJob.id, errorMessage: formatErrorMessage(error) });
         return NextResponse.json({ error: "Claimed job payload could not be built" }, { status: 500 });
       }
     }

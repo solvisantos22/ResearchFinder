@@ -172,6 +172,30 @@ export async function completeResearchPlanJob(input: {
   });
 }
 
+export async function failResearchPlanJob(input: { jobId: string; errorMessage: string }) {
+  await prisma.$transaction(async (tx) => {
+    const job = await tx.researchPlanJob.findUnique({
+      where: { id: input.jobId },
+      select: { researchProjectId: true }
+    });
+
+    if (!job) return;
+
+    // Mark the job failed if it is still in a non-terminal state.
+    await tx.researchPlanJob.updateMany({
+      where: { id: input.jobId, status: { in: ["queued", "running"] } },
+      data: { status: "failed", errorMessage: input.errorMessage, completedAt: new Date() }
+    });
+
+    // Fail the owning project, but only from "running" — never overwrite a project
+    // that was aborted (abort is terminal) or already advanced to plan_ready.
+    await tx.researchProject.updateMany({
+      where: { id: job.researchProjectId, status: "running" },
+      data: { status: "failed" }
+    });
+  });
+}
+
 export async function abortResearchProject(input: {
   currentUserId: string;
   researchProjectId: string;

@@ -6,7 +6,7 @@ import { completeInboxGenerationJob } from "@/lib/jobs/inbox-generation";
 import { completeNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { completeV2ViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
-import { completeResearchPlanJob } from "@/lib/jobs/research";
+import { completeResearchPlanJob, failResearchPlanJob } from "@/lib/jobs/research";
 
 type WorkerJobType = "inbox_generation" | "novelty_scan" | "viability_check" | "research_plan";
 
@@ -137,7 +137,7 @@ async function markWorkerJobFailed(input: {
   }
 
   if (input.jobType === "research_plan") {
-    await prisma.researchPlanJob.updateMany({ where, data });
+    await failResearchPlanJob({ jobId: input.jobId, errorMessage: input.errorMessage });
     return;
   }
 

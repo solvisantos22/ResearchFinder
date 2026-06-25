@@ -180,4 +180,42 @@ describe("research plan lifecycle", () => {
       expect(await client.researchPlan.count()).toBe(0);
     });
   });
+
+  it("failResearchPlanJob marks the job and the project failed", async () => {
+    const { developIdea, claimNextResearchPlanJob, failResearchPlanJob } = await import(
+      "@/lib/jobs/research"
+    );
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { user, idea } = await seedIdea(client);
+      const project = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const claimed = await claimNextResearchPlanJob({ userId: user.id, workerId: "w1" });
+
+      await failResearchPlanJob({ jobId: claimed!.id, errorMessage: "Codex failed" });
+
+      const job = await client.researchPlanJob.findUniqueOrThrow({ where: { id: claimed!.id } });
+      expect(job.status).toBe("failed");
+      expect(job.errorMessage).toBe("Codex failed");
+      const refreshed = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
+      expect(refreshed.status).toBe("failed");
+      expect(await client.researchPlan.count()).toBe(0);
+    });
+  });
+
+  it("failResearchPlanJob does not overwrite an aborted project", async () => {
+    const { developIdea, claimNextResearchPlanJob, failResearchPlanJob, abortResearchProject } =
+      await import("@/lib/jobs/research");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { user, idea } = await seedIdea(client);
+      const project = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const claimed = await claimNextResearchPlanJob({ userId: user.id, workerId: "w1" });
+
+      await abortResearchProject({ currentUserId: user.id, researchProjectId: project.id });
+      await failResearchPlanJob({ jobId: claimed!.id, errorMessage: "Codex failed" });
+
+      const refreshed = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
+      expect(refreshed.status).toBe("aborted");
+    });
+  });
 });
