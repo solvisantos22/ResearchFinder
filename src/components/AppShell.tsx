@@ -3,7 +3,7 @@ import Link, { type LinkProps } from "next/link";
 
 import { WorkerStatusPanel, type WorkerStatus } from "@/components/WorkerStatusPanel";
 
-type AppShellSection = "inbox" | "profiles" | "jobs" | "workers";
+type AppShellSection = "inbox" | "profiles" | "jobs" | "workers" | "research";
 
 type AppShellNavItem = {
   id: AppShellSection;

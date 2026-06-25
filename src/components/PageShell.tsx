@@ -8,7 +8,7 @@ import type { WorkerStatus } from "@/components/WorkerStatusPanel";
 type PageShellProps = {
   currentUserId: string;
   currentUserName: string;
-  activeSection: "inbox" | "profiles" | "jobs" | "workers";
+  activeSection: "inbox" | "profiles" | "jobs" | "workers" | "research";
   children: React.ReactNode;
 };
 
@@ -34,6 +34,7 @@ export async function PageShell({
   const navItems = [
     { id: "inbox" as const, label: "Inbox", href: `/inbox/${currentUserId}` as Route },
     { id: "profiles" as const, label: "Profile", href: `/profiles/${currentUserId}` as Route },
+    { id: "research" as const, label: "Research", href: "/research" as Route },
     { id: "workers" as const, label: "Workers", href: "/workers" as Route }
   ];
 
