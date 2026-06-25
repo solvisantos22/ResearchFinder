@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 import { findAllowedWorkerByToken } from "@/lib/auth/worker-token";
 import { prisma } from "@/lib/db";
 import { completeInboxGenerationJob } from "@/lib/jobs/inbox-generation";
+import { completeNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { completeV2ViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
 
-type WorkerJobType = "inbox_generation" | "viability_check";
+type WorkerJobType = "inbox_generation" | "novelty_scan" | "viability_check";
 
 export async function POST(
   request: Request,
@@ -81,6 +82,8 @@ export async function POST(
         workerId: worker.id,
         output: body.output
       });
+    } else if (jobType === "novelty_scan") {
+      await completeNoveltyScanJob({ jobId, workerId: worker.id, output: body.output });
     } else {
       await completeV2ViabilityJob({
         jobId,
@@ -125,6 +128,11 @@ async function markWorkerJobFailed(input: {
     return;
   }
 
+  if (input.jobType === "novelty_scan") {
+    await prisma.inboxNoveltyScanJob.updateMany({ where, data });
+    return;
+  }
+
   await prisma.viabilityJob.updateMany({ where, data });
 }
 
@@ -134,7 +142,9 @@ async function resolveJobType(input: {
   workerId: string;
 }): Promise<WorkerJobType | null> {
   const requestedType =
-    input.requestedType === "inbox_generation" || input.requestedType === "viability_check"
+    input.requestedType === "inbox_generation" ||
+    input.requestedType === "novelty_scan" ||
+    input.requestedType === "viability_check"
       ? input.requestedType
       : null;
 
@@ -149,6 +159,19 @@ async function resolveJobType(input: {
 
   if (inboxJob) {
     return requestedType && requestedType !== "inbox_generation" ? null : "inbox_generation";
+  }
+
+  const noveltyJob = await prisma.inboxNoveltyScanJob.findFirst({
+    where: {
+      id: input.jobId,
+      claimedByWorkerId: input.workerId,
+      status: "running"
+    },
+    select: { id: true }
+  });
+
+  if (noveltyJob) {
+    return requestedType && requestedType !== "novelty_scan" ? null : "novelty_scan";
   }
 
   const viabilityJob = await prisma.viabilityJob.findFirst({
