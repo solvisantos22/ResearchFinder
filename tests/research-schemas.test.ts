@@ -1,0 +1,90 @@
+import { describe, expect, it } from "vitest";
+
+import { ResearchPlanJobInputSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
+
+const sourcePaperCitation = {
+  sourceType: "paper" as const,
+  url: "https://arxiv.org/abs/2501.00001",
+  sourceId: "2501.00001",
+  title: "Source paper",
+  claim: "The original method this work extends.",
+  confidence: 0.9
+};
+
+const validPlan = {
+  researchProjectId: "proj-1",
+  relationToSourcePaper: "Extends the source method with X.",
+  hypotheses: ["H1: X improves Y."],
+  experimentalDesign: "Ablation across three settings.",
+  protocolSteps: ["Step 1: build baseline.", "Step 2: run ablation."],
+  datasets: ["CIFAR-10"],
+  baselines: ["ResNet-18"],
+  metrics: ["accuracy"],
+  successCriteria: ["Beats baseline by >1%."],
+  computeEstimate: "1 GPU-day",
+  risks: ["Dataset shift."],
+  citations: [sourcePaperCitation]
+};
+
+describe("ResearchPlanSchema", () => {
+  it("accepts a complete, grounded plan", () => {
+    expect(ResearchPlanSchema.parse(validPlan)).toMatchObject({ researchProjectId: "proj-1" });
+  });
+
+  it("rejects a missing relationToSourcePaper", () => {
+    const { relationToSourcePaper: _omit, ...rest } = validPlan;
+    expect(ResearchPlanSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("rejects empty hypotheses, protocolSteps, successCriteria, or citations", () => {
+    expect(ResearchPlanSchema.safeParse({ ...validPlan, hypotheses: [] }).success).toBe(false);
+    expect(ResearchPlanSchema.safeParse({ ...validPlan, protocolSteps: [] }).success).toBe(false);
+    expect(ResearchPlanSchema.safeParse({ ...validPlan, successCriteria: [] }).success).toBe(false);
+    expect(ResearchPlanSchema.safeParse({ ...validPlan, citations: [] }).success).toBe(false);
+  });
+
+  it("rejects unknown keys", () => {
+    expect(ResearchPlanSchema.safeParse({ ...validPlan, extra: 1 }).success).toBe(false);
+  });
+});
+
+const validJobInput = {
+  jobId: "job-1",
+  userId: "user-1",
+  researchProjectId: "proj-1",
+  idea: {
+    id: "idea-1",
+    title: "Idea title",
+    summary: "Idea summary",
+    expandedExplanation: "Expanded explanation",
+    trajectory: "Trajectory",
+    smallestSprint: "Smallest sprint"
+  },
+  paper: {
+    id: "paper-1",
+    arxivId: "2501.00001",
+    title: "Source paper",
+    abstract: "Abstract",
+    url: "https://arxiv.org/abs/2501.00001",
+    authors: ["Ada Lovelace"],
+    categories: ["cs.LG"],
+    publishedAt: "2026-06-25T00:00:00.000Z"
+  },
+  viability: null,
+  citations: [sourcePaperCitation]
+};
+
+describe("ResearchPlanJobInputSchema", () => {
+  it("accepts a valid job input with null viability", () => {
+    expect(ResearchPlanJobInputSchema.parse(validJobInput)).toMatchObject({ jobId: "job-1" });
+  });
+
+  it("rejects a paper.publishedAt that is not an ISO datetime", () => {
+    const bad = { ...validJobInput, paper: { ...validJobInput.paper, publishedAt: "not-a-timestamp" } };
+    expect(ResearchPlanJobInputSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("rejects unknown keys", () => {
+    expect(ResearchPlanJobInputSchema.safeParse({ ...validJobInput, extra: 1 }).success).toBe(false);
+  });
+});

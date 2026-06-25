@@ -276,6 +276,57 @@ export const ViabilityResultSchema = strictObject({
   citations: z.array(CitationSchema).min(1)
 });
 
+export const ResearchPlanSchema = strictObject({
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: NonEmptyTrimmedStringSchema,
+  hypotheses: z.array(NonEmptyTrimmedStringSchema).min(1),
+  experimentalDesign: NonEmptyTrimmedStringSchema,
+  protocolSteps: z.array(NonEmptyTrimmedStringSchema).min(1),
+  datasets: z.array(NonEmptyTrimmedStringSchema),
+  baselines: z.array(NonEmptyTrimmedStringSchema),
+  metrics: z.array(NonEmptyTrimmedStringSchema),
+  successCriteria: z.array(NonEmptyTrimmedStringSchema).min(1),
+  computeEstimate: NonEmptyTrimmedStringSchema,
+  risks: z.array(NonEmptyTrimmedStringSchema),
+  citations: z.array(CitationSchema).min(1)
+});
+
+export const ResearchPlanJobInputSchema = strictObject({
+  jobId: NonEmptyTrimmedStringSchema,
+  userId: NonEmptyTrimmedStringSchema,
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  idea: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    expandedExplanation: NonEmptyTrimmedStringSchema,
+    trajectory: NonEmptyTrimmedStringSchema,
+    smallestSprint: NonEmptyTrimmedStringSchema
+  }),
+  paper: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    arxivId: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    abstract: NonEmptyTrimmedStringSchema,
+    url: RequiredUrlSchema,
+    authors: z.array(NonEmptyTrimmedStringSchema),
+    categories: z.array(NonEmptyTrimmedStringSchema),
+    publishedAt: z.string().datetime()
+  }),
+  viability: strictObject({
+    verdict: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    feasibility: NonEmptyTrimmedStringSchema,
+    noveltyRisk: NonEmptyTrimmedStringSchema,
+    minimumExperiment: NonEmptyTrimmedStringSchema,
+    blockers: z.array(NonEmptyTrimmedStringSchema)
+  }).nullable(),
+  citations: z.array(CitationSchema)
+});
+
+export type ResearchPlan = z.infer<typeof ResearchPlanSchema>;
+export type ResearchPlanJobInput = z.infer<typeof ResearchPlanJobInputSchema>;
+
 export type Citation = z.infer<typeof CitationSchema>;
 export type GeneratedInbox = z.infer<typeof GeneratedInboxSchema>;
 export type GeneratedPaperGroup = z.infer<typeof GeneratedPaperGroupSchema>;
