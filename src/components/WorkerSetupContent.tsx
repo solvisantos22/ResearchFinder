@@ -2,6 +2,9 @@
 
 import React, { useActionState } from "react";
 
+import { WorkerStatusLive } from "@/components/WorkerStatusLive";
+import type { WorkerStatus } from "@/components/WorkerStatusPanel";
+
 type WorkerStatusRow = {
   id: string;
   label: string;
@@ -23,6 +26,8 @@ type WorkerSetupContentProps = {
   workers: WorkerStatusRow[];
   registrationAction: WorkerRegistrationAction;
   registrationResult?: WorkerRegistrationActionState;
+  initialWorkerStatus?: WorkerStatus;
+  statusAction?: () => Promise<WorkerStatus>;
 };
 
 function formatDate(value: Date | null) {
@@ -41,7 +46,9 @@ export function WorkerSetupContent({
   appUrl,
   workers,
   registrationAction,
-  registrationResult = null
+  registrationResult = null,
+  initialWorkerStatus = "unknown",
+  statusAction
 }: WorkerSetupContentProps) {
   const [state, formAction, isPending] = useActionState(registrationAction, registrationResult);
 
@@ -89,6 +96,9 @@ export function WorkerSetupContent({
 
       <section className="rounded-md border border-rf-border bg-rf-panel p-5">
         <h2 className="text-xl font-semibold text-rf-white">Current worker status</h2>
+        <div className="mt-4">
+          <WorkerStatusLive initialStatus={initialWorkerStatus} statusAction={statusAction} />
+        </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="border-b border-rf-border text-rf-muted">

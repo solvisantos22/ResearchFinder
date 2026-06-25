@@ -3,14 +3,15 @@ import { headers } from "next/headers";
 
 import { PageShell } from "@/components/PageShell";
 import { WorkerSetupContent } from "@/components/WorkerSetupContent";
-import { registerWorker } from "@/app/workers/actions";
+import { getCurrentWorkerStatus, registerWorker } from "@/app/workers/actions";
+import { resolveWorkerStatusForUser } from "@/lib/workers/status";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db";
 import { resolveWorkerSetupAppUrl } from "@/lib/jobs/worker-setup-url";
 
 export default async function WorkersPage() {
   const currentUser = await requireCurrentUser();
-  const [headerList, workers] = await Promise.all([
+  const [headerList, workers, workerStatus] = await Promise.all([
     headers(),
     prisma.workerRegistration.findMany({
       where: { userId: currentUser.id },
@@ -23,7 +24,8 @@ export default async function WorkersPage() {
         createdAt: true,
         revokedAt: true
       }
-    })
+    }),
+    resolveWorkerStatusForUser(currentUser.id)
   ]);
 
   return (
@@ -37,6 +39,8 @@ export default async function WorkersPage() {
         workers={workers}
         registrationAction={registerWorker}
         registrationResult={null}
+        initialWorkerStatus={workerStatus}
+        statusAction={getCurrentWorkerStatus}
       />
     </PageShell>
   );
