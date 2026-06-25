@@ -341,7 +341,17 @@ export async function getGeneratedInboxState(userId: string, inboxDate: string) 
     orderBy: [{ overallScore: "desc" }],
     include: {
       paper: true,
-      citations: true
+      citations: true,
+      noveltyScans: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: {
+          evidence: {
+            orderBy: [{ confidence: "desc" }, { createdAt: "asc" }],
+            take: 3
+          }
+        }
+      }
     }
   });
 

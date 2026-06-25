@@ -29,6 +29,21 @@ const ideas = [
       originality: "Original",
       feasibility: "Feasible",
       overall: "Overall"
+    },
+    noveltyScan: {
+      label: "crowded",
+      confidence: 0.82,
+      summary: "Several adjacent benchmark systems exist.",
+      overlapExplanation: "The idea needs a sharper differentiator.",
+      evidence: [
+        {
+          title: "Adjacent benchmark paper",
+          url: "https://arxiv.org/abs/2606.00002",
+          sourceType: "arxiv",
+          overlapLevel: "adjacent",
+          confidence: 0.8
+        }
+      ]
     }
   },
   {
@@ -45,7 +60,8 @@ const ideas = [
       originality: "Original two",
       feasibility: "Feasible two",
       overall: "Overall two"
-    }
+    },
+    noveltyScan: null
   }
 ];
 
@@ -69,6 +85,13 @@ describe("PaperIdeaGroup", () => {
       "https://arxiv.org/abs/2606.00001"
     );
     expect(screen.getByText(/Needs novelty check/i)).toBeInTheDocument();
+    expect(screen.getByText("crowded")).toBeInTheDocument();
+    expect(screen.getByText("82% confidence")).toBeInTheDocument();
+    expect(screen.getByText("Several adjacent benchmark systems exist.")).toBeInTheDocument();
+    expect(screen.getByText("Adjacent benchmark paper")).toHaveAttribute(
+      "href",
+      "https://arxiv.org/abs/2606.00002"
+    );
   });
 
   it("hides dispatch for the owner until generated dispatch is explicitly enabled", () => {

@@ -64,6 +64,8 @@ function groupIdeasByPaper(ideas: GeneratedInboxIdea[]): PaperGroup[] {
         ideas: []
       };
 
+    const latestNoveltyScan = idea.noveltyScans[0] ?? null;
+
     group.ideas.push({
       id: idea.id,
       title: idea.title,
@@ -72,7 +74,22 @@ function groupIdeasByPaper(ideas: GeneratedInboxIdea[]): PaperGroup[] {
       trajectory: idea.trajectory,
       noveltyStatus: idea.noveltyStatus,
       overallScore: idea.overallScore,
-      scoreExplanations: parseScoreExplanations(idea.scoreExplanationsJson)
+      scoreExplanations: parseScoreExplanations(idea.scoreExplanationsJson),
+      noveltyScan: latestNoveltyScan
+        ? {
+            label: latestNoveltyScan.label,
+            confidence: latestNoveltyScan.confidence,
+            summary: latestNoveltyScan.summary,
+            overlapExplanation: latestNoveltyScan.overlapExplanation,
+            evidence: latestNoveltyScan.evidence.map((evidence) => ({
+              title: evidence.title,
+              url: evidence.url,
+              sourceType: evidence.sourceType,
+              overlapLevel: evidence.overlapLevel,
+              confidence: evidence.confidence
+            }))
+          }
+        : null
     });
 
     if (!existingGroup) {

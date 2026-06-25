@@ -1,6 +1,8 @@
 import React from "react";
 import Link from "next/link";
 
+import { noveltyLabelStyles, type NoveltyLabelKey } from "@/lib/ui/status-styles";
+
 type IdeaCardProps = {
   idea: {
     id: string;
@@ -11,16 +13,38 @@ type IdeaCardProps = {
     noveltyStatus: string;
     overallScore: number;
     scoreExplanations: Record<string, string>;
+    noveltyScan?: null | {
+      label: string;
+      confidence: number;
+      summary: string;
+      overlapExplanation: string;
+      evidence: Array<{
+        title: string;
+        url: string;
+        sourceType: string;
+        overlapLevel: string;
+        confidence: number;
+      }>;
+    };
   };
   canDispatch: boolean;
 };
+
+function noveltyStatusChipClass(status: string): string {
+  const key = status as NoveltyLabelKey;
+  return key in noveltyLabelStyles
+    ? noveltyLabelStyles[key]
+    : noveltyLabelStyles["not_checked"];
+}
 
 export function IdeaCard({ idea, canDispatch }: IdeaCardProps) {
   return (
     <section className="rounded-md border border-rf-border bg-rf-surface p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-rf-violet">
+          <p
+            className={`inline-block rounded border px-2 py-0.5 text-xs font-bold uppercase tracking-[0.16em] ${noveltyStatusChipClass(idea.noveltyStatus)}`}
+          >
             {idea.noveltyStatus.replaceAll("_", " ")}
           </p>
           <h3 className="mt-1 text-lg font-semibold text-rf-white">{idea.title}</h3>
@@ -30,6 +54,44 @@ export function IdeaCard({ idea, canDispatch }: IdeaCardProps) {
           {Math.round(idea.overallScore * 100)}
         </div>
       </div>
+
+      {idea.noveltyScan ? (
+        <div className="mt-3 rounded-md border border-rf-border bg-rf-panel p-3 text-sm text-rf-muted">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`rounded border px-2 py-0.5 text-xs font-semibold ${noveltyStatusChipClass(idea.noveltyScan.label)}`}
+            >
+              {idea.noveltyScan.label.replaceAll("_", " ")}
+            </span>
+            <span>{Math.round(idea.noveltyScan.confidence * 100)}% confidence</span>
+          </div>
+          <p className="mt-2">{idea.noveltyScan.summary}</p>
+          <p className="mt-2">{idea.noveltyScan.overlapExplanation}</p>
+          {idea.noveltyScan.evidence.length > 0 ? (
+            <div className="mt-3 grid gap-2">
+              {idea.noveltyScan.evidence.map((evidence) => (
+                <div
+                  key={`${evidence.sourceType}-${evidence.url}-${evidence.title}`}
+                  className="rounded border border-rf-border px-3 py-2"
+                >
+                  <a
+                    href={evidence.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block font-medium text-rf-white hover:bg-rf-surface"
+                  >
+                    {evidence.title}
+                  </a>
+                  <span className="text-xs text-rf-muted">
+                    {evidence.sourceType} / {evidence.overlapLevel} /{" "}
+                    {Math.round(evidence.confidence * 100)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <details className="mt-4">
         <summary className="cursor-pointer text-sm font-semibold text-rf-white">
