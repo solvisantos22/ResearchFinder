@@ -1,7 +1,7 @@
 import type { WorkerStatus } from "@/components/WorkerStatusPanel";
 import { prisma } from "@/lib/db";
 
-const ONLINE_WINDOW_MS = 10 * 60 * 1000;
+const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 
 export async function resolveWorkerStatusForUser(userId: string): Promise<WorkerStatus> {
   const worker = await prisma.workerRegistration.findFirst({

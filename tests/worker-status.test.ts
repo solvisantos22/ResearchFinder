@@ -61,4 +61,40 @@ describe("resolveWorkerStatusForUser", () => {
       expect(await resolveWorkerStatusForUser(user.id)).toBe("needs_auth");
     });
   });
+
+  it("reports online when seen 90 seconds ago", async () => {
+    const { resolveWorkerStatusForUser } = await import("@/lib/workers/status");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const user = await client.user.create({ data: { email: "recent@example.com" } });
+      await client.workerRegistration.create({
+        data: {
+          userId: user.id,
+          label: "Local worker",
+          tokenHash: "hash",
+          status: "active",
+          lastSeenAt: new Date(Date.now() - 90 * 1000)
+        }
+      });
+      expect(await resolveWorkerStatusForUser(user.id)).toBe("online");
+    });
+  });
+
+  it("reports offline when seen 5 minutes ago", async () => {
+    const { resolveWorkerStatusForUser } = await import("@/lib/workers/status");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const user = await client.user.create({ data: { email: "lapsed@example.com" } });
+      await client.workerRegistration.create({
+        data: {
+          userId: user.id,
+          label: "Local worker",
+          tokenHash: "hash",
+          status: "active",
+          lastSeenAt: new Date(Date.now() - 5 * 60 * 1000)
+        }
+      });
+      expect(await resolveWorkerStatusForUser(user.id)).toBe("offline");
+    });
+  });
 });
