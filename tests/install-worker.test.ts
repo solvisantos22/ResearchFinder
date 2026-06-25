@@ -58,3 +58,23 @@ describe("worker installer", () => {
     expect(installerScript).toContain("& $nodeLiteral $tsxLiteral \"scripts/researchfinder-worker.ts\"");
   });
 });
+
+describe("worker installer resilience", () => {
+  it("starts at logon in addition to the daily trigger", () => {
+    expect(installerScript).toContain("New-ScheduledTaskTrigger -Daily -At 6:00am");
+    expect(installerScript).toContain("New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME");
+  });
+
+  it("restarts on failure and never wakes the machine", () => {
+    expect(installerScript).toContain("-RestartCount");
+    expect(installerScript).toContain("-RestartInterval");
+    expect(installerScript).toContain("-MultipleInstances IgnoreNew");
+    expect(installerScript).not.toContain("-WakeToRun");
+  });
+
+  it("creates a double-click ResearchFinder Worker shortcut", () => {
+    expect(installerScript).toContain("WScript.Shell");
+    expect(installerScript).toContain("ResearchFinder Worker.lnk");
+    expect(installerScript).toContain(".Save()");
+  });
+});
