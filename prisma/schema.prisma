@@ -395,6 +395,7 @@ model WorkerRegistration {
   label      String
   tokenHash  String
   status     String
+  lane       String    @default("both")
   lastSeenAt DateTime?
   createdAt  DateTime  @default(now())
   revokedAt  DateTime?
