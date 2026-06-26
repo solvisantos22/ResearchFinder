@@ -48,6 +48,51 @@ describe("runResearchFinderLauncher", () => {
     expect(killWorker).not.toHaveBeenCalled();
   });
 
+  it("does not tear down a running worker when state later returns a malformed body", async () => {
+    const handle = { lane: "inbox" as const, child: {} as never, isAlive: () => true };
+    const spawnWorker = vi.fn(() => handle);
+    const killWorker = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let tick = 0;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/launcher/state")) {
+        tick += 1;
+        return tick === 1
+          ? { ok: true, json: async () => ({ inbox: true, research: false }) }
+          : { ok: true, json: async () => ({}) }; // malformed: no boolean fields
+      }
+      if (url.includes("/token")) return { ok: true, json: async () => ({ token: "t" }) };
+      throw new Error(`unexpected ${url}`);
+    });
+    await runResearchFinderLauncher(
+      { appUrl: "https://x", launcherToken: "L" },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, spawnWorker, killWorker, sleep: async () => {}, maxIterations: 2 }
+    );
+    expect(spawnWorker).toHaveBeenCalledTimes(1);
+    expect(killWorker).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("malformed"));
+    errorSpy.mockRestore();
+  });
+
+  it("spawns the other lane when one lane's token provision fails", async () => {
+    const spawnWorker = vi.fn((lane: "inbox" | "research") => ({ lane, child: {} as never, isAlive: () => true }));
+    const killWorker = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/launcher/state")) return { ok: true, json: async () => ({ inbox: true, research: true }) };
+      if (url.includes("/workers/inbox/token")) return { ok: false, status: 500, json: async () => ({}) };
+      if (url.includes("/workers/research/token")) return { ok: true, json: async () => ({ token: "r" }) };
+      throw new Error(`unexpected ${url}`);
+    });
+    await runResearchFinderLauncher(
+      { appUrl: "https://x", launcherToken: "L" },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, spawnWorker, killWorker, sleep: async () => {}, maxIterations: 1 }
+    );
+    expect(spawnWorker).toHaveBeenCalledTimes(1);
+    expect(spawnWorker).toHaveBeenCalledWith("research", "r");
+    errorSpy.mockRestore();
+  });
+
   it("logs errors on transient poll failures without tearing down running workers", async () => {
     let callCount = 0;
     const faultyFetch = vi.fn(async (url: string) => {

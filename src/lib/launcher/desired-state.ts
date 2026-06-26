@@ -28,20 +28,30 @@ export async function provisionLaneWorkerToken(userId: string, lane: LauncherLan
   const token = createWorkerToken();
   const tokenHash = await hashWorkerToken(token);
 
-  const existing = await prisma.workerRegistration.findFirst({
+  const existing = await prisma.workerRegistration.findMany({
     where: { userId, lane, launcherManaged: true },
+    orderBy: { createdAt: "asc" },
     select: { id: true }
   });
 
-  if (existing) {
-    await prisma.workerRegistration.update({
-      where: { id: existing.id },
-      data: { tokenHash, status: "active", revokedAt: null }
-    });
-  } else {
+  if (existing.length === 0) {
     await prisma.workerRegistration.create({
       data: { userId, lane, launcherManaged: true, label: LAUNCHER_WORKER_LABEL[lane], tokenHash, status: "active" }
     });
+  } else {
+    const [canonical, ...extras] = existing;
+    await prisma.workerRegistration.update({
+      where: { id: canonical.id },
+      data: { tokenHash, status: "active", revokedAt: null }
+    });
+    // Defensive: a transient second launcher could have created duplicate launcher-managed rows.
+    // Revoke the extras so no orphaned token survives rotation (auth excludes revokedAt != null).
+    if (extras.length > 0) {
+      await prisma.workerRegistration.updateMany({
+        where: { id: { in: extras.map((e) => e.id) } },
+        data: { status: "revoked", revokedAt: new Date() }
+      });
+    }
   }
   return { token };
 }

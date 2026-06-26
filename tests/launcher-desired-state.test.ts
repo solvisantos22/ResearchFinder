@@ -48,4 +48,26 @@ describe("launcher desired state", () => {
       expect(await verifyWorkerToken(first.token, workers[0].tokenHash)).toBe(false);
     });
   });
+
+  it("revokes duplicate launcher-managed workers so only one canonical token verifies", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const u = await db.user.create({ data: { email: "dup@example.com" } });
+      // Simulate a transient double-launcher having created two launcher-managed rows.
+      await db.workerRegistration.create({
+        data: { userId: u.id, lane: "inbox", launcherManaged: true, label: "a", tokenHash: "h1", status: "active" }
+      });
+      await db.workerRegistration.create({
+        data: { userId: u.id, lane: "inbox", launcherManaged: true, label: "b", tokenHash: "h2", status: "active" }
+      });
+
+      const { token } = await provisionLaneWorkerToken(u.id, "inbox");
+
+      const active = await db.workerRegistration.findMany({
+        where: { userId: u.id, lane: "inbox", launcherManaged: true, status: "active", revokedAt: null }
+      });
+      expect(active).toHaveLength(1);
+      expect(await verifyWorkerToken(token, active[0].tokenHash)).toBe(true);
+    });
+  });
 });

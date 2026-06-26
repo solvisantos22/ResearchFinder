@@ -27,7 +27,7 @@ export async function runResearchFinderLauncher(config: LauncherConfig, options:
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const spawnWorker = options.spawnWorker ?? defaultSpawnWorker(config);
-  const killWorker = options.killWorker ?? ((h: WorkerHandle) => h.child.kill());
+  const killWorker = options.killWorker ?? defaultKillWorker;
   const running = new Map<LauncherLane, WorkerHandle>();
   let iterations = 0;
 
@@ -40,7 +40,13 @@ export async function runResearchFinderLauncher(config: LauncherConfig, options:
         headers: { authorization: `Bearer ${config.launcherToken}` }
       });
       if (!stateRes.ok) throw new Error(`launcher state failed: ${stateRes.status}`);
-      const desired = (await stateRes.json()) as { inbox: boolean; research: boolean };
+      const body = (await stateRes.json()) as { inbox?: unknown; research?: unknown };
+      if (typeof body.inbox !== "boolean" || typeof body.research !== "boolean") {
+        // A malformed 200 (empty body, proxy error page) must NOT be read as "both lanes off"
+        // and tear down running workers. Treat it like a transient failure and skip the tick.
+        throw new Error("launcher state returned a malformed body");
+      }
+      const desired = { inbox: body.inbox, research: body.research };
 
       const plan = computeReconcilePlan(desired, [...running.keys()]);
       for (const lane of plan.toKill) {
@@ -48,13 +54,18 @@ export async function runResearchFinderLauncher(config: LauncherConfig, options:
         if (h) { killWorker(h); running.delete(lane); }
       }
       for (const lane of plan.toSpawn) {
-        const tokenRes = await doFetch(`${norm(config.appUrl)}/api/launcher/workers/${lane}/token`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${config.launcherToken}` }
-        });
-        if (!tokenRes.ok) throw new Error(`token provision failed for ${lane}: ${tokenRes.status}`);
-        const { token } = (await tokenRes.json()) as { token: string };
-        running.set(lane, spawnWorker(lane, token));
+        // Isolate each lane: one lane's transient provision/spawn failure must not skip the other.
+        try {
+          const tokenRes = await doFetch(`${norm(config.appUrl)}/api/launcher/workers/${lane}/token`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${config.launcherToken}` }
+          });
+          if (!tokenRes.ok) throw new Error(`token provision failed for ${lane}: ${tokenRes.status}`);
+          const { token } = (await tokenRes.json()) as { token: string };
+          running.set(lane, spawnWorker(lane, token));
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : String(error));
+        }
       }
     } catch (error) {
       // Transient: log and keep running workers as-is (do not tear down on poll failure).
@@ -80,8 +91,27 @@ function defaultSpawnWorker(config: LauncherConfig) {
     });
     let alive = true;
     child.on("exit", () => { alive = false; });
+    // A failed spawn (e.g. ENOENT) fires "error", not "exit". Without this handler Node would
+    // raise an uncaughtException and crash the whole launcher; instead mark the handle dead so
+    // the next tick prunes it and respawns the lane.
+    child.on("error", (error) => {
+      alive = false;
+      console.error(error instanceof Error ? error.message : String(error));
+    });
     return { lane, child, isAlive: () => alive };
   };
+}
+
+function defaultKillWorker(handle: WorkerHandle) {
+  const pid = handle.child.pid;
+  // child.kill() signals only the tsx worker process; on Windows the codex grandchild would be
+  // orphaned (Node does not kill the process tree). taskkill /T terminates the whole tree.
+  if (process.platform === "win32" && pid !== undefined) {
+    const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    killer.on("error", () => {});
+  } else {
+    handle.child.kill();
+  }
 }
 
 export function loadLauncherConfig(): LauncherConfig {
