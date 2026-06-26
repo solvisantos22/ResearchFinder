@@ -3,8 +3,7 @@
 import type { WorkerRegistrationActionState } from "@/components/WorkerSetupContent";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { registerWorkerForUser } from "@/lib/jobs/worker-registration";
-import type { WorkerStatus } from "@/components/WorkerStatusPanel";
-import { resolveWorkerStatusForUser } from "@/lib/workers/status";
+import { getWorkersOverviewForUser, type WorkerOverviewRow } from "@/lib/workers/overview";
 
 export async function registerWorker(
   previousState: WorkerRegistrationActionState
@@ -20,7 +19,7 @@ export async function registerWorker(
   return { token: registration.token };
 }
 
-export async function getCurrentWorkerStatus(): Promise<WorkerStatus> {
+export async function getWorkersOverview(): Promise<WorkerOverviewRow[]> {
   const currentUser = await requireCurrentUser();
-  return resolveWorkerStatusForUser(currentUser.id);
+  return getWorkersOverviewForUser(currentUser.id);
 }

@@ -2,17 +2,8 @@
 
 import React, { useActionState } from "react";
 
-import { WorkerStatusLive } from "@/components/WorkerStatusLive";
-import type { WorkerStatus } from "@/components/WorkerStatusPanel";
-
-type WorkerStatusRow = {
-  id: string;
-  label: string;
-  status: string;
-  lastSeenAt: Date | null;
-  createdAt: Date;
-  revokedAt: Date | null;
-};
+import { WorkersOverviewLive } from "@/components/WorkersOverviewLive";
+import type { WorkerOverviewRow } from "@/lib/workers/overview";
 
 export type WorkerRegistrationActionState = { token: string } | null;
 
@@ -23,16 +14,11 @@ export type WorkerRegistrationAction = (
 
 type WorkerSetupContentProps = {
   appUrl: string;
-  workers: WorkerStatusRow[];
   registrationAction: WorkerRegistrationAction;
   registrationResult?: WorkerRegistrationActionState;
-  initialWorkerStatus?: WorkerStatus;
-  statusAction?: () => Promise<WorkerStatus>;
+  initialWorkers: WorkerOverviewRow[];
+  overviewAction?: () => Promise<WorkerOverviewRow[]>;
 };
-
-function formatDate(value: Date | null) {
-  return value ? value.toISOString() : "Never";
-}
 
 function quotePowerShellLiteral(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
@@ -44,11 +30,10 @@ function setupCommand(appUrl: string, token: string) {
 
 export function WorkerSetupContent({
   appUrl,
-  workers,
   registrationAction,
   registrationResult = null,
-  initialWorkerStatus = "unknown",
-  statusAction
+  initialWorkers,
+  overviewAction
 }: WorkerSetupContentProps) {
   const [state, formAction, isPending] = useActionState(registrationAction, registrationResult);
 
@@ -95,39 +80,9 @@ export function WorkerSetupContent({
       </section>
 
       <section className="rounded-md border border-rf-border bg-rf-panel p-5">
-        <h2 className="text-xl font-semibold text-rf-white">Current worker status</h2>
+        <h2 className="text-xl font-semibold text-rf-white">Your workers</h2>
         <div className="mt-4">
-          <WorkerStatusLive initialStatus={initialWorkerStatus} statusAction={statusAction} />
-        </div>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead className="border-b border-rf-border text-rf-muted">
-              <tr>
-                <th className="py-2 pr-4 font-medium">Worker</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 pr-4 font-medium">Last seen timestamp</th>
-                <th className="py-2 pr-4 font-medium">Created</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-rf-border text-rf-muted">
-              {workers.length === 0 ? (
-                <tr>
-                  <td className="py-4 pr-4" colSpan={4}>
-                    No workers registered yet.
-                  </td>
-                </tr>
-              ) : (
-                workers.map((worker) => (
-                  <tr key={worker.id}>
-                    <td className="py-3 pr-4 font-medium text-rf-white">{worker.label}</td>
-                    <td className="py-3 pr-4">{worker.revokedAt ? "revoked" : worker.status}</td>
-                    <td className="py-3 pr-4">{formatDate(worker.lastSeenAt)}</td>
-                    <td className="py-3 pr-4">{formatDate(worker.createdAt)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          <WorkersOverviewLive initialWorkers={initialWorkers} overviewAction={overviewAction} />
         </div>
       </section>
     </div>
