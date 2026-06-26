@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ResearchPlanJobInputSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
+import { LiteratureReviewSchema, ResearchPlanJobInputSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
 
 const sourcePaperCitation = {
   sourceType: "paper" as const,
@@ -86,5 +86,44 @@ describe("ResearchPlanJobInputSchema", () => {
 
   it("rejects unknown keys", () => {
     expect(ResearchPlanJobInputSchema.safeParse({ ...validJobInput, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("LiteratureReviewSchema", () => {
+  const valid = {
+    researchProjectId: "proj-1",
+    relationToSourcePaper: "Extends the source paper's method to a new domain.",
+    relatedWorks: [
+      { title: "Related A", summary: "Does X.", relationToProposed: "We differ by Y." }
+    ],
+    themes: ["benchmarking"],
+    gaps: ["no open benchmark for Z"],
+    positioning: "We close the Z gap the surveyed work leaves open.",
+    citations: [
+      {
+        sourceType: "paper",
+        title: "Source paper",
+        url: "https://arxiv.org/abs/2501.00001",
+        sourceId: "2501.00001",
+        claim: "Foundational method.",
+        confidence: 0.9
+      }
+    ]
+  };
+
+  it("accepts a well-formed literature review", () => {
+    expect(LiteratureReviewSchema.parse(valid)).toMatchObject({ researchProjectId: "proj-1" });
+  });
+
+  it("rejects a missing relationToSourcePaper", () => {
+    const { relationToSourcePaper: _omit, ...rest } = valid;
+    expect(LiteratureReviewSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("requires at least one related work, theme, gap, and citation", () => {
+    expect(LiteratureReviewSchema.safeParse({ ...valid, relatedWorks: [] }).success).toBe(false);
+    expect(LiteratureReviewSchema.safeParse({ ...valid, themes: [] }).success).toBe(false);
+    expect(LiteratureReviewSchema.safeParse({ ...valid, gaps: [] }).success).toBe(false);
+    expect(LiteratureReviewSchema.safeParse({ ...valid, citations: [] }).success).toBe(false);
   });
 });
