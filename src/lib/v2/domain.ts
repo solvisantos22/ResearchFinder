@@ -60,7 +60,14 @@ export function clampUnitScore(value: number): number {
 export const RESEARCH_STAGES = ["plan", "literature", "experiment", "analysis", "paper"] as const;
 export type ResearchStage = (typeof RESEARCH_STAGES)[number];
 
-export const RESEARCH_PROJECT_STATUSES = ["running", "plan_ready", "aborted", "failed"] as const;
+export const RESEARCH_PROJECT_STATUSES = [
+  "running",
+  "plan_ready",
+  "literature_ready",
+  "experiment_ready",
+  "aborted",
+  "failed"
+] as const;
 export type ResearchProjectStatus = (typeof RESEARCH_PROJECT_STATUSES)[number];
 
 export const WORKER_LANES = ["inbox", "research", "both"] as const;

@@ -154,7 +154,7 @@ describe("completeResearchStageJob advance", () => {
     });
   });
 
-  it("literature completion sets literature_ready (no further executor)", async () => {
+  it("literature completion enqueues an experiment job and sets the project running", async () => {
     await withPostgresTestDatabase(async (db) => {
       mocked.prisma = db;
       const { user, idea, paper } = await seedIdea(db);
@@ -171,7 +171,9 @@ describe("completeResearchStageJob advance", () => {
         output: literatureOutput(lit!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
       });
       const project = await db.researchProject.findUniqueOrThrow({ where: { id: lit!.researchProjectId } });
-      expect(project.status).toBe("literature_ready");
+      expect(project).toMatchObject({ currentStage: "experiment", status: "running" });
+      const experimentJob = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "experiment" } });
+      expect(experimentJob?.status).toBe("queued");
     });
   });
 

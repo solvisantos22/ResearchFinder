@@ -313,7 +313,7 @@ describe("research stage completion routes", () => {
     });
   });
 
-  it("completing a running literature stage job marks project as literature_ready", async () => {
+  it("completing a running literature stage job advances the project to experiment", async () => {
     const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
     const { POST: completePOST } = await import(
       "@/app/api/workers/jobs/[jobId]/complete/route"
@@ -374,11 +374,17 @@ describe("research stage completion routes", () => {
       );
       expect(completeResponse.status).toBe(200);
 
-      // Project should be in literature_ready status
+      // Project should advance to the experiment stage and stay running
       const updatedProject = await client.researchProject.findUniqueOrThrow({
         where: { id: project.id }
       });
-      expect(updatedProject.status).toBe("literature_ready");
+      expect(updatedProject).toMatchObject({ currentStage: "experiment", status: "running" });
+
+      // A queued experiment job should exist
+      const experimentJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "experiment", status: "queued" }
+      });
+      expect(experimentJob).not.toBeNull();
 
       // A literature artifact should exist
       const litArtifact = await client.researchStageArtifact.findFirst({

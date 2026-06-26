@@ -1,7 +1,7 @@
 import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
-import { EXECUTABLE_STAGES, STAGE_REGISTRY, nextExecutableStage, type ResearchStage } from "@/lib/research/stages";
+import { EXECUTABLE_STAGES, STAGE_REGISTRY, nextExecutableStage, type ExecutableStage, type ResearchStage } from "@/lib/research/stages";
 import { type Citation, ViabilityResultSchema } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
@@ -65,7 +65,7 @@ export async function claimNextResearchStageJob(input: { userId: string; workerI
     const job = await prisma.researchStageJob.findFirst({
       where: {
         userId: input.userId,
-        stageType: { in: EXECUTABLE_STAGES },
+        stageType: { in: [...EXECUTABLE_STAGES] },
         researchProject: { status: { not: "aborted" } },
         OR: [
           { status: "queued" },
@@ -131,7 +131,7 @@ export async function completeResearchStageJob(input: {
     }
 
     const stage = job.stageType as ResearchStage;
-    const definition = STAGE_REGISTRY[stage as "plan" | "literature"];
+    const definition = STAGE_REGISTRY[stage as ExecutableStage];
     if (!definition) {
       throw new Error(`No registry entry for research stage "${job.stageType}"`);
     }
