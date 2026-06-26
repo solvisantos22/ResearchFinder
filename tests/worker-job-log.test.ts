@@ -49,11 +49,12 @@ async function seedResearchPlanRow(client: PrismaClient, userId: string) {
   const project = await client.researchProject.create({
     data: { userId, generatedIdeaId: idea.id, status: "running", currentStage: "plan" }
   });
-  return client.researchPlanJob.create({
+  return client.researchStageJob.create({
     data: {
       researchProjectId: project.id, userId, status: "running",
       claimedByWorkerId: "w1", startedAt: new Date(),
-      inputJson: JSON.stringify({ researchProjectId: project.id })
+      inputJson: JSON.stringify({ researchProjectId: project.id }),
+      stageType: "plan"
     }
   });
 }
@@ -105,7 +106,7 @@ describe("recordWorkerJobLog", () => {
         data: { userId: user.id, label: "w", tokenHash: "h", status: "active", lane: "research", lastSeenAt: new Date() }
       });
       const job = await seedResearchPlanRow(client, user.id);
-      await client.researchPlanJob.update({ where: { id: job.id }, data: { claimedByWorkerId: worker.id } });
+      await client.researchStageJob.update({ where: { id: job.id }, data: { claimedByWorkerId: worker.id } });
       mockedWorker.worker = { id: worker.id, userId: user.id, lane: "research" };
 
       const response = await POST(
@@ -118,7 +119,7 @@ describe("recordWorkerJobLog", () => {
       );
       expect(response.status).toBe(200);
 
-      const failed = await client.researchPlanJob.findUniqueOrThrow({ where: { id: job.id } });
+      const failed = await client.researchStageJob.findUniqueOrThrow({ where: { id: job.id } });
       expect(failed.status).toBe("failed");
       const logs = await client.workerJobLog.findMany({ where: { workerId: worker.id } });
       expect(logs.some((l) => l.level === "failed" && l.message.includes("codex crashed"))).toBe(true);

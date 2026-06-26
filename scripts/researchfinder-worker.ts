@@ -7,9 +7,11 @@ import { pathToFileURL } from "node:url";
 import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
 import {
   InboxGenerationJobInputSchema,
+  LiteratureJobInputSchema,
   NoveltyScanJobInputSchema,
   ResearchPlanJobInputSchema,
   type InboxGenerationJobInput,
+  type LiteratureJobInput,
   type NoveltyScanJobInput,
   type ResearchPlanJobInput
 } from "@/lib/v2/schemas";
@@ -19,7 +21,7 @@ import { gatherNoveltySourceEvidence as defaultGatherNoveltySourceEvidence } fro
 import {
   parseInboxGenerationOutput,
   parseNoveltyScanOutput,
-  parseResearchPlanOutput,
+  parseResearchStageOutput,
   parseViabilityOutput
 } from "@/worker/output-validation";
 
@@ -221,6 +223,14 @@ export async function runResearchFinderWorkerOnce(
     return true;
   }
 
+  if (payload.job.type === "research_literature") {
+    const result = await runLiteratureJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
   throw new FatalWorkerError(
     `No local executor is registered for ${payload.job.type} in this worker slice`
   );
@@ -340,7 +350,8 @@ function parseClaimPayload(value: unknown): { job: null | ClaimedWorkerJob } {
     job.type !== "inbox_generation" &&
     job.type !== "novelty_scan" &&
     job.type !== "viability_check" &&
-    job.type !== "research_plan"
+    job.type !== "research_plan" &&
+    job.type !== "research_literature"
   ) {
     throw new FatalWorkerError(`Unsupported worker job type: ${String(job.type)}`);
   }
@@ -469,7 +480,7 @@ async function runResearchPlanJob(
     }
 
     try {
-      return { output: parseResearchPlanOutput(rawOutput) };
+      return { output: parseResearchStageOutput("plan", rawOutput) };
     } catch (error) {
       return {
         output: parseRawCodexOutputForCompletion(rawOutput),
@@ -512,6 +523,85 @@ function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
     "",
     "Claimed job input:",
     JSON.stringify(input, null, 2)
+  ].join("\n");
+}
+
+async function runLiteratureJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parseLiteratureJobInput(job.input);
+  const gather = options.gatherNoveltySourceEvidence ?? defaultGatherNoveltySourceEvidence;
+
+  const queries = buildNoveltyQueries({
+    ideaTitle: input.idea.title,
+    ideaSummary: input.idea.summary,
+    paperTitle: input.paper.title,
+    paperAbstract: input.paper.abstract,
+    keywords: input.plan.hypotheses
+  });
+  const evidence = await gather({ queries, maxResultsPerQuery: 5 });
+
+  const prompt = await writeLiteraturePrompt(job.id, input, { queries, ...evidence });
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodex ?? defaultRunCodex)(prompt.file, {
+        codexCommand: config.codexCommand
+      });
+    } catch (error) {
+      await failWorkerJob(config, job, error);
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseResearchStageOutput("literature", rawOutput) };
+    } catch (error) {
+      return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
+    }
+  } finally {
+    await rm(prompt.dir, { force: true, recursive: true });
+  }
+}
+
+function parseLiteratureJobInput(value: unknown) {
+  try {
+    return LiteratureJobInputSchema.parse(value);
+  } catch (error) {
+    throw new FatalWorkerError(`Literature job input failed validation: ${formatErrorMessage(error)}`);
+  }
+}
+
+async function writeLiteraturePrompt(
+  jobId: string,
+  input: LiteratureJobInput,
+  evidenceBundle: Record<string, unknown>
+) {
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-literature-"));
+  const promptFile = join(promptDir, `${jobId}.prompt.md`);
+  await writeFile(promptFile, buildLiteraturePrompt(input, evidenceBundle), "utf8");
+  return { dir: promptDir, file: promptFile };
+}
+
+function buildLiteraturePrompt(input: LiteratureJobInput, evidenceBundle: Record<string, unknown>) {
+  return [
+    "You are writing a focused literature review for a viability-checked research project.",
+    "Return only valid JSON matching the LiteratureReview schema exactly. Do not wrap it in Markdown.",
+    `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
+    "Required keys: researchProjectId, relationToSourcePaper, relatedWorks (>=1, each with",
+    "title/summary/relationToProposed), themes (>=1), gaps (>=1), positioning, citations (>=1).",
+    "Synthesize the gathered evidence; cite real retrieved works as sourceType \"related_work\".",
+    "Ground in the source paper: relationToSourcePaper must explain how this work extends it,",
+    "and citations MUST include the source paper as sourceType \"paper\" with its exact url and sourceId.",
+    "If evidence is empty, still synthesize from the plan and the source paper.",
+    "",
+    "Claimed job input (idea, source paper, and the approved plan):",
+    JSON.stringify(input, null, 2),
+    "",
+    "Retrieved related-work evidence:",
+    JSON.stringify(evidenceBundle, null, 2)
   ].join("\n");
 }
 

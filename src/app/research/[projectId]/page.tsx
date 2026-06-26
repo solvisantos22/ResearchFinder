@@ -5,7 +5,8 @@ import { PageShell } from "@/components/PageShell";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { abortResearchProjectAction } from "@/app/research/actions";
 import { getResearchProjectDetail } from "@/lib/jobs/research";
-import { ResearchPlanSchema } from "@/lib/v2/schemas";
+import { LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
+import { RESEARCH_STAGES } from "@/lib/research/stages";
 
 function StatusBadge({ status }: { status: string }) {
   return (
@@ -26,10 +27,24 @@ export default async function ResearchProjectPage({
 
   if (!project) notFound();
 
-  const parsedPlan = project.plan
-    ? ResearchPlanSchema.safeParse(JSON.parse(project.plan.planJson))
+  const artifactByStage = new Map(project.stageArtifacts.map((a) => [a.stageType, a]));
+  const jobByStage = new Map(project.stageJobs.map((j) => [j.stageType, j]));
+
+  const planArtifact = artifactByStage.get("plan");
+  const plan = planArtifact
+    ? (() => {
+        const r = ResearchPlanSchema.safeParse(JSON.parse(planArtifact.artifactJson));
+        return r.success ? r.data : null;
+      })()
     : null;
-  const plan = parsedPlan && parsedPlan.success ? parsedPlan.data : null;
+
+  const litArtifact = artifactByStage.get("literature");
+  const literature = litArtifact
+    ? (() => {
+        const r = LiteratureReviewSchema.safeParse(JSON.parse(litArtifact.artifactJson));
+        return r.success ? r.data : null;
+      })()
+    : null;
 
   return (
     <PageShell
@@ -69,6 +84,17 @@ export default async function ResearchProjectPage({
             </form>
           ) : null}
         </header>
+
+        <section className="mb-4 flex flex-wrap gap-2">
+          {RESEARCH_STAGES.map((stage) => {
+            const status = jobByStage.get(stage)?.status ?? (artifactByStage.has(stage) ? "completed" : "not started");
+            return (
+              <span key={stage} className="rounded border border-rf-border bg-rf-surface px-2 py-0.5 text-xs text-rf-muted">
+                {stage}: <span className="text-rf-white">{status.replaceAll("_", " ")}</span>
+              </span>
+            );
+          })}
+        </section>
 
         {plan ? (
           <section className="grid gap-4 rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
@@ -113,15 +139,57 @@ export default async function ResearchProjectPage({
               </ul>
             </div>
           </section>
-        ) : (
+        ) : null}
+
+        {literature ? (
+          <section className="mt-4 grid gap-4 rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
+            <div>
+              <h2 className="text-lg font-semibold text-rf-white">Literature review</h2>
+              <p className="mt-1">{literature.relationToSourcePaper}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-rf-white">Positioning</h3>
+              <p className="mt-1">{literature.positioning}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-rf-white">Related work</h3>
+              <ul className="mt-1 grid gap-2">
+                {literature.relatedWorks.map((work, index) => (
+                  <li key={`${work.title}-${index}`}>
+                    <span className="text-rf-white">{work.title}</span> — {work.summary}{" "}
+                    <span className="text-rf-muted">({work.relationToProposed})</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <PlanList title="Themes" items={literature.themes} />
+            <PlanList title="Gaps" items={literature.gaps} />
+            <div>
+              <h3 className="font-semibold text-rf-white">Citations</h3>
+              <ul className="mt-1 grid gap-1">
+                {literature.citations.map((citation, index) => (
+                  <li key={`${citation.title}-${index}`}>
+                    {citation.url ? (
+                      <a className="text-rf-violetSoft" href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a>
+                    ) : (
+                      <span className="text-rf-white">{citation.title}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        ) : null}
+
+        {!plan && !literature ? (
           <section className="rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
             {project.status === "failed"
-              ? `Plan generation failed${project.planJob?.errorMessage ? `: ${project.planJob.errorMessage}` : "."}`
+              ? `Stage failed${jobByStage.get(project.currentStage)?.errorMessage ? `: ${jobByStage.get(project.currentStage)?.errorMessage}` : "."}`
               : project.status === "aborted"
                 ? "This project was aborted."
-                : "The plan is being generated. Refresh shortly."}
+                : "Work is in progress. Refresh shortly."}
           </section>
-        )}
+        ) : null}
       </div>
     </PageShell>
   );

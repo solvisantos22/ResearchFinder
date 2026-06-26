@@ -324,8 +324,59 @@ export const ResearchPlanJobInputSchema = strictObject({
   citations: z.array(CitationSchema)
 });
 
+export const LiteratureReviewSchema = strictObject({
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: NonEmptyTrimmedStringSchema,
+  relatedWorks: z
+    .array(
+      strictObject({
+        title: NonEmptyTrimmedStringSchema,
+        summary: NonEmptyTrimmedStringSchema,
+        relationToProposed: NonEmptyTrimmedStringSchema
+      })
+    )
+    .min(1),
+  themes: z.array(NonEmptyTrimmedStringSchema).min(1),
+  gaps: z.array(NonEmptyTrimmedStringSchema).min(1),
+  positioning: NonEmptyTrimmedStringSchema,
+  citations: z.array(CitationSchema).min(1)
+});
+
+export const LiteratureJobInputSchema = strictObject({
+  jobId: NonEmptyTrimmedStringSchema,
+  userId: NonEmptyTrimmedStringSchema,
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  idea: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    expandedExplanation: NonEmptyTrimmedStringSchema,
+    trajectory: NonEmptyTrimmedStringSchema,
+    smallestSprint: NonEmptyTrimmedStringSchema
+  }),
+  paper: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    arxivId: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    abstract: NonEmptyTrimmedStringSchema,
+    url: RequiredUrlSchema,
+    authors: z.array(NonEmptyTrimmedStringSchema),
+    categories: z.array(NonEmptyTrimmedStringSchema),
+    publishedAt: z.string().datetime()
+  }),
+  plan: strictObject({
+    relationToSourcePaper: NonEmptyTrimmedStringSchema,
+    hypotheses: z.array(NonEmptyTrimmedStringSchema).min(1),
+    experimentalDesign: NonEmptyTrimmedStringSchema,
+    metrics: z.array(NonEmptyTrimmedStringSchema)
+  }),
+  citations: z.array(CitationSchema)
+});
+
 export type ResearchPlan = z.infer<typeof ResearchPlanSchema>;
 export type ResearchPlanJobInput = z.infer<typeof ResearchPlanJobInputSchema>;
+export type LiteratureReview = z.infer<typeof LiteratureReviewSchema>;
+export type LiteratureJobInput = z.infer<typeof LiteratureJobInputSchema>;
 
 export type Citation = z.infer<typeof CitationSchema>;
 export type GeneratedInbox = z.infer<typeof GeneratedInboxSchema>;

@@ -15,6 +15,47 @@ vi.mock("@/lib/jobs/research", () => ({
 }));
 vi.mock("@/components/PageShell", () => ({ PageShell: ({ children }: { children: React.ReactNode }) => children }));
 vi.mock("next/navigation", () => ({ notFound: () => { throw new Error("notFound"); } }));
+vi.mock("@/app/research/actions", () => ({ abortResearchProjectAction: vi.fn() }));
+
+const PLAN_ARTIFACT_JSON = JSON.stringify({
+  researchProjectId: "proj-1",
+  relationToSourcePaper: "Extends the source paper.",
+  hypotheses: ["H1"],
+  experimentalDesign: "D",
+  protocolSteps: ["S1"],
+  datasets: [],
+  baselines: [],
+  metrics: ["m"],
+  successCriteria: ["win"],
+  computeEstimate: "1 GPU-day",
+  risks: [],
+  citations: [{ sourceType: "paper", url: "https://arxiv.org/abs/2501.00001", title: "Source paper", claim: "c", confidence: 0.9 }]
+});
+
+const LIT_ARTIFACT_JSON = JSON.stringify({
+  researchProjectId: "proj-1",
+  relationToSourcePaper: "Builds directly on the source paper's approach.",
+  relatedWorks: [{ title: "Related Work A", summary: "A study on X.", relationToProposed: "Closely related baseline" }],
+  themes: ["Theme 1"],
+  gaps: ["Gap 1"],
+  positioning: "Our work fills gap 1 by extending related work A.",
+  citations: [{ sourceType: "paper", url: "https://arxiv.org/abs/2501.00001", title: "Source paper", claim: "c", confidence: 0.9 }]
+});
+
+const BASE_PROJECT = {
+  id: "proj-1",
+  status: "literature_ready",
+  currentStage: "literature",
+  generatedIdea: { title: "Idea title", paper: { title: "Source paper", url: "https://arxiv.org/abs/2501.00001" } },
+  stageJobs: [
+    { stageType: "plan", status: "completed", errorMessage: null },
+    { stageType: "literature", status: "completed", errorMessage: null }
+  ],
+  stageArtifacts: [
+    { stageType: "plan", artifactJson: PLAN_ARTIFACT_JSON },
+    { stageType: "literature", artifactJson: LIT_ARTIFACT_JSON }
+  ]
+};
 
 beforeEach(() => {
   mocked.requireCurrentUser.mockResolvedValue({ id: "user-1", name: "Researcher" });
@@ -22,31 +63,69 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe("research project detail page", () => {
-  it("renders the plan and source-paper grounding when plan_ready", async () => {
-    mocked.getResearchProjectDetail.mockResolvedValue({
-      id: "proj-1",
-      status: "plan_ready",
-      currentStage: "plan",
-      generatedIdea: { title: "Idea title", paper: { title: "Source paper", url: "https://arxiv.org/abs/2501.00001" } },
-      planJob: { status: "completed" },
-      plan: {
-        planJson: JSON.stringify({
-          researchProjectId: "proj-1",
-          relationToSourcePaper: "Extends the source paper.",
-          hypotheses: ["H1"], experimentalDesign: "D", protocolSteps: ["S1"],
-          datasets: [], baselines: [], metrics: ["m"], successCriteria: ["win"],
-          computeEstimate: "1 GPU-day", risks: [],
-          citations: [{ sourceType: "paper", url: "https://arxiv.org/abs/2501.00001", title: "Source paper", claim: "c", confidence: 0.9 }]
-        })
-      }
-    });
+  it("renders the plan artifact section", async () => {
+    mocked.getResearchProjectDetail.mockResolvedValue(BASE_PROJECT);
     const ResearchProjectPage = (await import("@/app/research/[projectId]/page")).default;
     render(await ResearchProjectPage({ params: Promise.resolve({ projectId: "proj-1" }) }));
 
     expect(screen.getByText("Idea title")).toBeInTheDocument();
+    expect(screen.getByText("How this extends the source paper")).toBeInTheDocument();
     expect(screen.getByText("Extends the source paper.")).toBeInTheDocument();
-    // "Source paper" appears twice (source-paper link + its citation), so use getAllByText.
+    expect(screen.getByText("H1")).toBeInTheDocument();
+    // "Source paper" appears in header link + plan citations
     expect(screen.getAllByText("Source paper").length).toBeGreaterThan(0);
+  });
+
+  it("renders the literature artifact section", async () => {
+    mocked.getResearchProjectDetail.mockResolvedValue(BASE_PROJECT);
+    const ResearchProjectPage = (await import("@/app/research/[projectId]/page")).default;
+    render(await ResearchProjectPage({ params: Promise.resolve({ projectId: "proj-1" }) }));
+
+    expect(screen.getByText("Literature review")).toBeInTheDocument();
+    expect(screen.getByText("Our work fills gap 1 by extending related work A.")).toBeInTheDocument();
+    expect(screen.getByText("Related Work A")).toBeInTheDocument();
+  });
+
+  it("renders an in-progress note for a running project with queued literature job and no artifact", async () => {
+    mocked.getResearchProjectDetail.mockResolvedValue({
+      id: "proj-1",
+      status: "running",
+      currentStage: "literature",
+      generatedIdea: { title: "Idea title", paper: { title: "Source paper", url: "https://arxiv.org/abs/2501.00001" } },
+      stageJobs: [
+        { stageType: "plan", status: "completed", errorMessage: null },
+        { stageType: "literature", status: "queued", errorMessage: null }
+      ],
+      stageArtifacts: [
+        { stageType: "plan", artifactJson: PLAN_ARTIFACT_JSON }
+      ]
+    });
+    const ResearchProjectPage = (await import("@/app/research/[projectId]/page")).default;
+    render(await ResearchProjectPage({ params: Promise.resolve({ projectId: "proj-1" }) }));
+
+    // Plan is present so no fallback, but literature section should not render
+    expect(screen.queryByText("Literature review")).not.toBeInTheDocument();
+    // Plan section still renders
+    expect(screen.getByText("Extends the source paper.")).toBeInTheDocument();
+    // Abort button visible for running project
+    expect(screen.getByRole("button", { name: "Abort" })).toBeInTheDocument();
+  });
+
+  it("renders fallback when no artifacts exist", async () => {
+    mocked.getResearchProjectDetail.mockResolvedValue({
+      id: "proj-1",
+      status: "running",
+      currentStage: "plan",
+      generatedIdea: { title: "Idea title", paper: { title: "Source paper", url: "https://arxiv.org/abs/2501.00001" } },
+      stageJobs: [
+        { stageType: "plan", status: "queued", errorMessage: null }
+      ],
+      stageArtifacts: []
+    });
+    const ResearchProjectPage = (await import("@/app/research/[projectId]/page")).default;
+    render(await ResearchProjectPage({ params: Promise.resolve({ projectId: "proj-1" }) }));
+
+    expect(screen.getByText("Work is in progress. Refresh shortly.")).toBeInTheDocument();
   });
 
   it("calls notFound for a missing/forbidden project", async () => {

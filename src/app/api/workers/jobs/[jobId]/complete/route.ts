@@ -6,10 +6,15 @@ import { completeInboxGenerationJob } from "@/lib/jobs/inbox-generation";
 import { completeNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { completeV2ViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
-import { completeResearchPlanJob, failResearchPlanJob } from "@/lib/jobs/research";
+import { completeResearchStageJob, failResearchStageJob } from "@/lib/jobs/research";
 import { recordWorkerJobLog } from "@/lib/workers/job-log";
 
-type WorkerJobType = "inbox_generation" | "novelty_scan" | "viability_check" | "research_plan";
+type WorkerJobType =
+  | "inbox_generation"
+  | "novelty_scan"
+  | "viability_check"
+  | "research_plan"
+  | "research_literature";
 
 export async function POST(
   request: Request,
@@ -93,7 +98,7 @@ export async function POST(
         output: body.output
       });
     } else {
-      await completeResearchPlanJob({ jobId, workerId: worker.id, output: body.output });
+      await completeResearchStageJob({ jobId, workerId: worker.id, output: body.output });
     }
   } catch (error) {
     const errorMessage = formatErrorMessage(error);
@@ -133,8 +138,8 @@ async function markWorkerJobFailed(input: {
     await prisma.inboxGenerationJob.updateMany({ where, data });
   } else if (input.jobType === "novelty_scan") {
     await prisma.inboxNoveltyScanJob.updateMany({ where, data });
-  } else if (input.jobType === "research_plan") {
-    await failResearchPlanJob({ jobId: input.jobId, errorMessage: input.errorMessage });
+  } else if (input.jobType === "research_plan" || input.jobType === "research_literature") {
+    await failResearchStageJob({ jobId: input.jobId, errorMessage: input.errorMessage });
   } else {
     await prisma.viabilityJob.updateMany({ where, data });
   }
@@ -157,7 +162,8 @@ async function resolveJobType(input: {
     input.requestedType === "inbox_generation" ||
     input.requestedType === "novelty_scan" ||
     input.requestedType === "viability_check" ||
-    input.requestedType === "research_plan"
+    input.requestedType === "research_plan" ||
+    input.requestedType === "research_literature"
       ? input.requestedType
       : null;
 
@@ -200,13 +206,14 @@ async function resolveJobType(input: {
     return requestedType && requestedType !== "viability_check" ? null : "viability_check";
   }
 
-  const researchPlanJob = await prisma.researchPlanJob.findFirst({
+  const stageJob = await prisma.researchStageJob.findFirst({
     where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
-    select: { id: true }
+    select: { stageType: true }
   });
 
-  if (!researchPlanJob) return null;
-  return requestedType && requestedType !== "research_plan" ? null : "research_plan";
+  if (!stageJob) return null;
+  const stageJobType = `research_${stageJob.stageType}` as WorkerJobType;
+  return requestedType && requestedType !== stageJobType ? null : stageJobType;
 }
 
 function formatErrorMessage(error: unknown) {

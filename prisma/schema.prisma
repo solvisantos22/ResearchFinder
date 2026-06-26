@@ -63,7 +63,7 @@ model User {
   workers             WorkerRegistration[]
   noveltyScanJobs     InboxNoveltyScanJob[]
   researchProjects    ResearchProject[]
-  researchPlanJobs    ResearchPlanJob[]
+  researchStageJobs   ResearchStageJob[]
   launcherRegistrations  LauncherRegistration[]
   workerLaneDesiredState WorkerLaneDesiredState?
 }
@@ -448,16 +448,17 @@ model ResearchProject {
 
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   generatedIdea GeneratedIdea    @relation(fields: [generatedIdeaId], references: [id], onDelete: Cascade)
-  planJob       ResearchPlanJob?
-  plan          ResearchPlan?
+  stageJobs      ResearchStageJob[]
+  stageArtifacts ResearchStageArtifact[]
 
   @@index([userId, status, createdAt, id])
 }
 
-model ResearchPlanJob {
+model ResearchStageJob {
   id                String    @id @default(cuid())
-  researchProjectId String    @unique
+  researchProjectId String
   userId            String
+  stageType         String
   status            String
   claimedByWorkerId String?
   inputJson         String
@@ -471,17 +472,21 @@ model ResearchPlanJob {
   researchProject ResearchProject @relation(fields: [researchProjectId], references: [id], onDelete: Cascade)
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([researchProjectId, stageType])
   @@index([userId, status, createdAt, id])
   @@index([claimedByWorkerId, status])
 }
 
-model ResearchPlan {
+model ResearchStageArtifact {
   id                String   @id @default(cuid())
-  researchProjectId String   @unique
-  planJson          String
+  researchProjectId String
+  stageType         String
+  artifactJson      String
   createdAt         DateTime @default(now())
 
   researchProject ResearchProject @relation(fields: [researchProjectId], references: [id], onDelete: Cascade)
+
+  @@unique([researchProjectId, stageType])
 }
 
 model LauncherRegistration {
