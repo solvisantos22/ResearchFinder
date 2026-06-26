@@ -62,7 +62,7 @@ export async function buildWorkerJobTargetLabel(jobType: WorkerJobType, jobId: s
     return job?.generatedIdea?.title ?? job?.idea?.title ?? jobId;
   }
 
-  const job = await prisma.researchPlanJob.findUnique({
+  const job = await prisma.researchStageJob.findUnique({
     where: { id: jobId },
     select: { researchProject: { select: { generatedIdea: { select: { title: true } } } } }
   });
@@ -83,9 +83,9 @@ async function getRunningJobsForWorker(workerId: string): Promise<WorkerCurrentJ
       where: { claimedByWorkerId: workerId, status: "running" },
       select: { id: true, startedAt: true }
     }),
-    prisma.researchPlanJob.findMany({
+    prisma.researchStageJob.findMany({
       where: { claimedByWorkerId: workerId, status: "running" },
-      select: { id: true, startedAt: true }
+      select: { id: true, startedAt: true, stageType: true }
     })
   ]);
 
@@ -93,7 +93,7 @@ async function getRunningJobsForWorker(workerId: string): Promise<WorkerCurrentJ
     ...inbox.map((j) => ({ jobType: "inbox_generation" as const, id: j.id, startedAt: j.startedAt })),
     ...novelty.map((j) => ({ jobType: "novelty_scan" as const, id: j.id, startedAt: j.startedAt })),
     ...viability.map((j) => ({ jobType: "viability_check" as const, id: j.id, startedAt: j.startedAt })),
-    ...research.map((j) => ({ jobType: "research_plan" as const, id: j.id, startedAt: j.startedAt }))
+    ...research.map((j) => ({ jobType: `research_${j.stageType}` as WorkerJobType, id: j.id, startedAt: j.startedAt }))
   ];
 
   return Promise.all(

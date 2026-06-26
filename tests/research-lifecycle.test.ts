@@ -182,7 +182,7 @@ describe("completeResearchStageJob advance", () => {
       await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
       const plan = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
       const bad = planOutput(plan!.researchProjectId, { arxivId: paper.arxivId, url: paper.url });
-      bad.citations = bad.citations.map((c) => ({ ...c, sourceType: "generated_analysis", url: "" }));
+      bad.citations = bad.citations.map((c) => ({ ...c, sourceType: "generated_analysis" as const, url: "" })) as unknown as typeof bad.citations;
       await expect(
         completeResearchStageJob({ jobId: plan!.id, workerId: "w", output: bad })
       ).rejects.toThrow();

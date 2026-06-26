@@ -50,10 +50,11 @@ async function seedResearchPlanJob(client: PrismaClient, userId: string) {
   const project = await client.researchProject.create({
     data: { userId, generatedIdeaId: idea.id, status: "running", currentStage: "plan" }
   });
-  await client.researchPlanJob.create({
+  await client.researchStageJob.create({
     data: {
       researchProjectId: project.id, userId, status: "queued",
-      inputJson: JSON.stringify({ researchProjectId: project.id })
+      inputJson: JSON.stringify({ researchProjectId: project.id }),
+      stageType: "plan"
     }
   });
 }
