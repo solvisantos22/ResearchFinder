@@ -65,6 +65,7 @@ describe("worker claim route", () => {
       {
         id: "worker-1",
         userId: "user-1",
+        lane: "both",
         tokenHash: "stored-hash",
         user: { email: "removed@example.com" }
       }
@@ -84,6 +85,7 @@ describe("worker claim route", () => {
       select: {
         id: true,
         userId: true,
+        lane: true,
         tokenHash: true,
         user: { select: { email: true } }
       }
@@ -100,6 +102,7 @@ describe("worker claim route", () => {
       {
         id: "worker-1",
         userId: "user-1",
+        lane: "both",
         tokenHash: "stored-hash",
         user: { email: "worker@example.com" }
       }
@@ -162,6 +165,7 @@ describe("worker claim route", () => {
       {
         id: "worker-1",
         userId: "user-1",
+        lane: "both",
         tokenHash: "stored-hash",
         user: { email: "allowed@example.com" }
       }
