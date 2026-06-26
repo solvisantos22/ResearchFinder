@@ -181,4 +181,44 @@ describe("candidate cron route", () => {
     expect(mocked.createBatch).toHaveBeenCalledTimes(2);
     expect(mocked.createJob).not.toHaveBeenCalled();
   });
+
+  it("creates jobs for a GET request (Vercel cron) with a valid bearer", async () => {
+    vi.stubEnv("CRON_SECRET", "secret");
+    vi.stubEnv("ALLOWED_GOOGLE_EMAILS", "user-1@example.com");
+    mocked.findUsers.mockResolvedValue([{ id: "user-1", email: "user-1@example.com" }]);
+    mocked.createBatch.mockResolvedValue({ id: "batch-1", candidates: [{ id: "c1" }] });
+    mocked.createJob.mockResolvedValue({ id: "job-1" });
+
+    const { GET } = await routePromise;
+    const response = await GET(
+      new Request("https://example.com/api/cron/candidates", {
+        method: "GET",
+        headers: { authorization: "Bearer secret" }
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ createdJobs: 1, failedUsers: [] });
+    expect(mocked.createJob).toHaveBeenCalledWith({
+      userId: "user-1",
+      candidateBatchId: "batch-1",
+      inboxDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+    });
+  });
+
+  it("rejects a GET request with a missing or wrong bearer", async () => {
+    vi.stubEnv("CRON_SECRET", "secret");
+    mocked.findUsers.mockResolvedValue([]);
+
+    const { GET } = await routePromise;
+    const response = await GET(
+      new Request("https://example.com/api/cron/candidates", {
+        method: "GET",
+        headers: { authorization: "Bearer wrong" }
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(mocked.findUsers).not.toHaveBeenCalled();
+  });
 });

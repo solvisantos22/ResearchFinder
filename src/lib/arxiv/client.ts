@@ -73,10 +73,21 @@ export function parseArxivAtom(xml: string): ArxivPaperInput[] {
   });
 }
 
+export type ArxivRetryOptions = {
+  attempts?: number;
+  timeoutMs?: number;
+  backoffMs?: number;
+};
+
 export type FetchArxivPapersOptions = {
   sortBy?: "relevance" | "lastUpdatedDate" | "submittedDate";
   sortOrder?: "ascending" | "descending";
+  retry?: ArxivRetryOptions;
 };
+
+const DEFAULT_ARXIV_RETRY_ATTEMPTS = 3;
+const DEFAULT_ARXIV_FETCH_TIMEOUT_MS = 15_000;
+const DEFAULT_ARXIV_RETRY_BACKOFF_MS = 1_000;
 
 export async function fetchArxivPapers(
   query: string,
@@ -90,18 +101,68 @@ export async function fetchArxivPapers(
     sortBy: options.sortBy ?? "submittedDate",
     sortOrder: options.sortOrder ?? "descending"
   });
+  const url = `https://export.arxiv.org/api/query?${params.toString()}`;
 
-  const response = await fetch(`https://export.arxiv.org/api/query?${params.toString()}`, {
-    headers: {
-      "User-Agent": "research-finder/0.1"
+  const attempts = options.retry?.attempts ?? DEFAULT_ARXIV_RETRY_ATTEMPTS;
+  const timeoutMs = options.retry?.timeoutMs ?? DEFAULT_ARXIV_FETCH_TIMEOUT_MS;
+  const backoffMs = options.retry?.backoffMs ?? DEFAULT_ARXIV_RETRY_BACKOFF_MS;
+
+  const xml = await fetchArxivXmlWithRetry(url, { attempts, timeoutMs, backoffMs });
+  return parseArxivAtom(xml);
+}
+
+async function fetchArxivXmlWithRetry(
+  url: string,
+  { attempts, timeoutMs, backoffMs }: Required<ArxivRetryOptions>
+): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetchArxivXml(url, timeoutMs);
+    } catch (error) {
+      if (attempt >= attempts || !isRetryableArxivError(error)) {
+        throw error;
+      }
+      await sleep(backoffMs * 2 ** (attempt - 1));
     }
-  });
-
-  if (!response.ok) {
-    throw new Error(`arXiv fetch failed: ${response.status} ${response.statusText}`);
   }
+}
 
-  return parseArxivAtom(await response.text());
+async function fetchArxivXml(url: string, timeoutMs: number): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "research-finder/0.1"
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`arXiv fetch failed: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isRetryableArxivError(error: unknown): boolean {
+  // An HTTP error status won't be fixed by retrying, so surface it immediately.
+  // Everything else here (a rejected fetch — "TypeError: fetch failed" — or an
+  // abort from the timeout) is a transient network failure worth retrying.
+  if (error instanceof Error && error.message.startsWith("arXiv fetch failed:")) {
+    return false;
+  }
+  return true;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function cleanWhitespace(value: string): string {

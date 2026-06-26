@@ -141,7 +141,8 @@ describe("fetchArxivPapers", () => {
       {
         headers: {
           "User-Agent": "research-finder/0.1"
-        }
+        },
+        signal: expect.any(AbortSignal)
       }
     );
     expect(papers).toHaveLength(1);
@@ -151,7 +152,7 @@ describe("fetchArxivPapers", () => {
     });
   });
 
-  it("throws on a non-OK response", async () => {
+  it("throws on a non-OK response without retrying", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: false,
       status: 503,
@@ -160,8 +161,54 @@ describe("fetchArxivPapers", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
 
-    await expect(fetchArxivPapers("cat:cs.AI", 10)).rejects.toThrowError(
+    await expect(fetchArxivPapers("cat:cs.AI", 10, { retry: { backoffMs: 0 } })).rejects.toThrowError(
       "arXiv fetch failed: 503 Service Unavailable"
     );
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a transient network failure and then succeeds", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({ ok: true, text: async () => arxivAtomFixture });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const papers = await fetchArxivPapers("cat:cs.AI", 10, { retry: { backoffMs: 0 } });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(papers).toHaveLength(1);
+  });
+
+  it("throws after exhausting retries on a persistent network failure", async () => {
+    const fetchSpy = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      fetchArxivPapers("cat:cs.AI", 10, { retry: { attempts: 3, backoffMs: 0 } })
+    ).rejects.toThrowError("fetch failed");
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("aborts a hung request after the timeout and retries", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockImplementationOnce(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          })
+      )
+      .mockResolvedValueOnce({ ok: true, text: async () => arxivAtomFixture });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const papers = await fetchArxivPapers("cat:cs.AI", 10, {
+      retry: { timeoutMs: 5, backoffMs: 0 }
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(papers).toHaveLength(1);
   });
 });
