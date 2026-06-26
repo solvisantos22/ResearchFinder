@@ -700,6 +700,116 @@ describe("researchfinder local worker", () => {
     expect(completionBody.output.researchProjectId).toBe("proj-1");
   });
 
+  it("completes claimed research_experiment jobs with an agentic run and validated output", async () => {
+    const codexOutput = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper's method.",
+      implementationSummary: "Built a small training loop.",
+      environment: "python 3.11, torch 2.2",
+      hypothesisOutcomes: [
+        { hypothesis: "H1", outcome: "supported", evidence: "Accuracy rose 4%." }
+      ],
+      metrics: [{ name: "accuracy", value: "0.84", baseline: "0.80" }],
+      findings: ["The method beats the baseline on the small split."],
+      limitations: ["Only one seed."],
+      artifacts: [{ path: "train.py", description: "training script", bytes: 1200 }],
+      logsExcerpt: "epoch 1 ... done",
+      reproductionSteps: ["uv run python train.py"],
+      verdict: "success",
+      summary: "Hypothesis supported on the minimal experiment.",
+      citations: [
+        {
+          sourceType: "paper",
+          url: "https://arxiv.org/abs/2401.00001",
+          sourceId: "2401.00001",
+          title: "Source Paper",
+          claim: "We extend this method.",
+          confidence: 0.9
+        }
+      ]
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_experiment",
+            id: "exp-1",
+            input: {
+              jobId: "exp-1",
+              userId: "user-1",
+              researchProjectId: "proj-1",
+              idea: {
+                id: "idea-1",
+                title: "Idea",
+                summary: "Summary",
+                expandedExplanation: "Explanation",
+                trajectory: "Trajectory",
+                smallestSprint: "Sprint"
+              },
+              paper: {
+                id: "paper-1",
+                arxivId: "2401.00001",
+                title: "Source Paper",
+                abstract: "Abstract.",
+                url: "https://arxiv.org/abs/2401.00001",
+                authors: ["A. Author"],
+                categories: ["cs.LG"],
+                publishedAt: "2024-01-01T00:00:00.000Z"
+              },
+              plan: {
+                relationToSourcePaper: "Extends it.",
+                hypotheses: ["H1"],
+                experimentalDesign: "A/B on a small split.",
+                protocolSteps: ["Prepare data", "Train", "Evaluate"],
+                datasets: ["toy-set"],
+                baselines: ["vanilla"],
+                metrics: ["accuracy"],
+                successCriteria: ["Beat baseline by >2%."]
+              },
+              literature: {
+                positioning: "Novel vs. prior work.",
+                gaps: ["No small-scale ablation exists."]
+              },
+              viability: null,
+              citations: []
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(codexOutput);
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token",
+        codexCommand: "codex-test"
+      },
+      { runCodexAgentic, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(runCodexAgentic).toHaveBeenCalledTimes(1);
+    expect(promptText).toContain(
+      "You are running a real, minimal research experiment in your current working directory."
+    );
+    expect(promptText).toContain("INPUT.json");
+    const completionRequest = fetchMock.mock.calls[1];
+    expect(completionRequest?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/exp-1/complete"
+    );
+    const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
+    expect(completionBody.type).toBe("research_experiment");
+    expect(completionBody.output).toEqual(codexOutput);
+  });
+
   it("completes claimed novelty scan jobs with source evidence and validated Codex output", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

@@ -1,15 +1,17 @@
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
 import {
+  ExperimentJobInputSchema,
   InboxGenerationJobInputSchema,
   LiteratureJobInputSchema,
   NoveltyScanJobInputSchema,
   ResearchPlanJobInputSchema,
+  type ExperimentJobInput,
   type InboxGenerationJobInput,
   type LiteratureJobInput,
   type NoveltyScanJobInput,
@@ -17,6 +19,7 @@ import {
 } from "@/lib/v2/schemas";
 import { buildNoveltyQueries } from "@/lib/novelty/query-builder";
 import { runCodex as defaultRunCodex } from "@/worker/codex-runner";
+import { runCodexAgentic as defaultRunCodexAgentic } from "@/worker/codex-runner";
 import { gatherNoveltySourceEvidence as defaultGatherNoveltySourceEvidence } from "@/worker/novelty-sources";
 import {
   parseInboxGenerationOutput,
@@ -41,10 +44,12 @@ type ClaimedWorkerJob = {
 
 type WorkerRunOptions = {
   runCodex?: typeof defaultRunCodex;
+  runCodexAgentic?: typeof defaultRunCodexAgentic;
   gatherNoveltySourceEvidence?: typeof defaultGatherNoveltySourceEvidence;
   sleep?: Sleep;
   pollMs?: number;
   maxIterations?: number;
+  heartbeatMs?: number;
   shouldStop?: () => boolean;
 };
 
@@ -231,6 +236,14 @@ export async function runResearchFinderWorkerOnce(
     return true;
   }
 
+  if (payload.job.type === "research_experiment") {
+    const result = await runExperimentJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
   throw new FatalWorkerError(
     `No local executor is registered for ${payload.job.type} in this worker slice`
   );
@@ -239,7 +252,7 @@ export async function runResearchFinderWorkerOnce(
 type WorkerHttpErrorClassification = "fatal" | "processed" | "transient";
 
 function throwWorkerHttpError(
-  stage: "claim" | "completion",
+  stage: "claim" | "completion" | "heartbeat",
   status: number,
   message = `Worker ${stage} failed with ${status}`
 ): never {
@@ -257,14 +270,14 @@ function throwWorkerHttpError(
 }
 
 function classifyWorkerHttpError(
-  stage: "claim" | "completion",
+  stage: "claim" | "completion" | "heartbeat",
   status: number
 ): WorkerHttpErrorClassification {
   if (status === 401 || status === 403) {
     return "fatal";
   }
 
-  if (stage === "claim") {
+  if (stage === "claim" || stage === "heartbeat") {
     if (status === 408 || status === 429) {
       return "transient";
     }
@@ -288,7 +301,7 @@ function classifyWorkerHttpError(
 }
 
 async function buildWorkerHttpErrorMessage(
-  stage: "claim" | "completion",
+  stage: "claim" | "completion" | "heartbeat",
   response: Response
 ) {
   const baseMessage = `Worker ${stage} failed with ${response.status}`;
@@ -351,7 +364,8 @@ function parseClaimPayload(value: unknown): { job: null | ClaimedWorkerJob } {
     job.type !== "novelty_scan" &&
     job.type !== "viability_check" &&
     job.type !== "research_plan" &&
-    job.type !== "research_literature"
+    job.type !== "research_literature" &&
+    job.type !== "research_experiment"
   ) {
     throw new FatalWorkerError(`Unsupported worker job type: ${String(job.type)}`);
   }
@@ -572,6 +586,113 @@ function parseLiteratureJobInput(value: unknown) {
   } catch (error) {
     throw new FatalWorkerError(`Literature job input failed validation: ${formatErrorMessage(error)}`);
   }
+}
+
+const DEFAULT_HEARTBEAT_MS = 60_000;
+
+function parseExperimentJobInput(value: unknown) {
+  try {
+    return ExperimentJobInputSchema.parse(value);
+  } catch (error) {
+    throw new FatalWorkerError(`Experiment job input failed validation: ${formatErrorMessage(error)}`);
+  }
+}
+
+function experimentWorkspaceDir(researchProjectId: string) {
+  const root =
+    process.env.RESEARCHFINDER_EXPERIMENT_WORKSPACE_ROOT ??
+    join(process.cwd(), ".research-workspaces");
+  return join(root, researchProjectId, "experiment");
+}
+
+function buildExperimentPrompt(input: ExperimentJobInput) {
+  return [
+    "You are running a real, minimal research experiment in your current working directory.",
+    "The full task input (idea, source paper, approved plan, literature positioning/gaps) is in INPUT.json in this directory — read it first.",
+    "Implement and ACTUALLY RUN the smallest credible experiment that tests the plan's hypotheses:",
+    "write code, install any dependencies you need, run it, and collect real metrics versus the baselines.",
+    "When finished, output ONLY valid JSON matching the ExperimentResult schema as your final message. Do not wrap it in Markdown.",
+    `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
+    "Required keys: researchProjectId, relationToSourcePaper, implementationSummary, environment,",
+    "hypothesisOutcomes (>=1, each {hypothesis, outcome: supported|refuted|inconclusive, evidence}),",
+    "metrics (each {name, value, unit?, baseline?}), findings (>=1), limitations,",
+    "artifacts (each {path, description?, bytes}), logsExcerpt, reproductionSteps (>=1),",
+    "verdict (success|partial|failed), summary, citations (>=1).",
+    "Ground in the source paper: relationToSourcePaper must explain how this work extends it,",
+    'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.',
+    'If something fails, report it honestly with verdict "partial" or "failed" and explain in limitations.'
+  ].join("\n");
+}
+
+async function runExperimentJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parseExperimentJobInput(job.input);
+  const workspaceDir = experimentWorkspaceDir(input.researchProjectId);
+  await mkdir(workspaceDir, { recursive: true });
+  await writeFile(join(workspaceDir, "INPUT.json"), JSON.stringify(input, null, 2), "utf8");
+
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-experiment-"));
+  const promptFile = join(promptDir, `${job.id}.prompt.md`);
+  await writeFile(promptFile, buildExperimentPrompt(input), "utf8");
+
+  const controller = new AbortController();
+  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const heartbeat = setInterval(() => {
+    void sendWorkerHeartbeat(config, job.id)
+      .then((result) => {
+        if (result?.aborted) controller.abort();
+      })
+      .catch((error) => {
+        console.warn(`Heartbeat failed (continuing): ${formatErrorMessage(error)}`);
+      });
+  }, heartbeatMs);
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodexAgentic ?? defaultRunCodexAgentic)(promptFile, {
+        workspaceDir,
+        codexCommand: config.codexCommand,
+        signal: controller.signal
+      });
+    } catch (error) {
+      const message = controller.signal.aborted
+        ? "Experiment aborted by user"
+        : formatErrorMessage(error);
+      await failWorkerJob(config, job, new Error(message));
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseResearchStageOutput("experiment", rawOutput) };
+    } catch (error) {
+      return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
+    }
+  } finally {
+    clearInterval(heartbeat);
+    await rm(promptDir, { force: true, recursive: true });
+  }
+}
+
+async function sendWorkerHeartbeat(
+  config: WorkerConfig,
+  jobId: string
+): Promise<{ aborted: boolean } | null> {
+  const response = await fetch(
+    `${normalizeAppUrl(config.appUrl)}/api/workers/jobs/${encodeURIComponent(jobId)}/heartbeat`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.workerToken}` }
+    }
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throwWorkerHttpError("heartbeat", response.status, await buildWorkerHttpErrorMessage("heartbeat", response));
+  }
+  return (await response.json()) as { aborted: boolean };
 }
 
 async function writeLiteraturePrompt(
