@@ -133,4 +133,57 @@ describe("research project detail page", () => {
     const ResearchProjectPage = (await import("@/app/research/[projectId]/page")).default;
     await expect(ResearchProjectPage({ params: Promise.resolve({ projectId: "nope" }) })).rejects.toThrow("notFound");
   });
+
+  it("renders the experiment artifact section", async () => {
+    const EXP_ARTIFACT_JSON = JSON.stringify({
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper's method.",
+      implementationSummary: "Built a small training loop.",
+      environment: "python 3.11, torch 2.2",
+      hypothesisOutcomes: [
+        { hypothesis: "H1", outcome: "supported", evidence: "Accuracy rose 4%." }
+      ],
+      metrics: [{ name: "accuracy", value: "0.84", baseline: "0.80" }],
+      findings: ["The method beats the baseline on the small split."],
+      limitations: ["Only one seed."],
+      artifacts: [{ path: "train.py", description: "training script", bytes: 1200 }],
+      logsExcerpt: "epoch 1 ... done",
+      reproductionSteps: ["uv run python train.py"],
+      verdict: "success",
+      summary: "Hypothesis supported on the minimal experiment.",
+      citations: [
+        {
+          sourceType: "paper",
+          url: "https://arxiv.org/abs/2401.00001",
+          sourceId: "2401.00001",
+          title: "Source Paper",
+          claim: "We extend this method.",
+          confidence: 0.9
+        }
+      ]
+    });
+
+    mocked.getResearchProjectDetail.mockResolvedValue({
+      ...BASE_PROJECT,
+      status: "experiment_ready",
+      currentStage: "experiment",
+      stageJobs: [
+        ...BASE_PROJECT.stageJobs,
+        { stageType: "experiment", status: "completed", errorMessage: null }
+      ],
+      stageArtifacts: [
+        ...BASE_PROJECT.stageArtifacts,
+        { stageType: "experiment", artifactJson: EXP_ARTIFACT_JSON }
+      ]
+    });
+
+    const ResearchProjectPage = (await import("@/app/research/[projectId]/page")).default;
+    render(await ResearchProjectPage({ params: Promise.resolve({ projectId: "proj-1" }) }));
+
+    expect(screen.getByText("Experiment")).toBeInTheDocument();
+    expect(screen.getByText(/Hypothesis outcomes/i)).toBeInTheDocument();
+    expect(screen.getAllByText("H1").length).toBeGreaterThan(0);
+    expect(screen.getByText("Hypothesis supported on the minimal experiment.")).toBeInTheDocument();
+    expect(screen.getByText("Extends the source paper's method.")).toBeInTheDocument();
+  });
 });
