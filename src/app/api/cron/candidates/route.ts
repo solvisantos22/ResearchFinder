@@ -6,11 +6,23 @@ import { prisma } from "@/lib/db";
 import { createInboxGenerationJob } from "@/lib/jobs/inbox-generation";
 import { createArxivCandidateBatchForUser } from "@/lib/sources/arxiv-candidates";
 
+export const dynamic = "force-dynamic";
+
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Vercel cron triggers this path with a GET (and attaches `Authorization: Bearer
+// $CRON_SECRET`); the manual curl uses POST. Both run the same fetch.
+export async function GET(request: Request) {
+  return runCandidateFetch(request);
+}
+
 export async function POST(request: Request) {
+  return runCandidateFetch(request);
+}
+
+async function runCandidateFetch(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret || !isAuthorizedCronRequest(request.headers.get("authorization"), cronSecret)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
