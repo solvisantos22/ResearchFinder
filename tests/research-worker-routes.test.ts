@@ -230,3 +230,161 @@ describe("research_literature worker routes", () => {
     });
   });
 });
+
+describe("research stage completion routes", () => {
+  it("completing a running plan stage job advances project to literature stage", async () => {
+    const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
+    const { POST: completePOST } = await import(
+      "@/app/api/workers/jobs/[jobId]/complete/route"
+    );
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker, paper, project } = await seedProjectWithClaimableJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      // Claim the job to get it running
+      const claimResponse = await claimPOST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST",
+          headers: { authorization: "Bearer t" }
+        })
+      );
+      expect(claimResponse.status).toBe(200);
+      const claimPayload = (await claimResponse.json()) as { job: { id: string } };
+      const jobId = claimPayload.job.id;
+
+      // Build a valid ResearchPlanSchema output citing the source paper
+      const planOutput = {
+        researchProjectId: project.id,
+        relationToSourcePaper: "Builds directly on source paper findings",
+        hypotheses: ["Primary hypothesis A"],
+        experimentalDesign: "Controlled experiment with baseline comparison",
+        protocolSteps: ["Step 1: Prepare dataset", "Step 2: Run baseline"],
+        datasets: [],
+        baselines: ["GPT-4"],
+        metrics: ["Accuracy"],
+        successCriteria: ["Beats baseline by 5%"],
+        computeEstimate: "1 GPU day",
+        risks: [],
+        citations: [
+          {
+            sourceType: "paper",
+            title: "Source Paper",
+            url: paper.url,
+            sourceId: paper.arxivId,
+            claim: "Foundational work on the topic",
+            confidence: 0.9
+          }
+        ]
+      };
+
+      const completeResponse = await completePOST(
+        new Request(`http://localhost/api/workers/jobs/${jobId}/complete`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer t",
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ type: "research_plan", output: planOutput })
+        }),
+        { params: Promise.resolve({ jobId }) }
+      );
+      expect(completeResponse.status).toBe(200);
+
+      // Project should advance to literature stage
+      const updatedProject = await client.researchProject.findUniqueOrThrow({
+        where: { id: project.id }
+      });
+      expect(updatedProject.currentStage).toBe("literature");
+      expect(updatedProject.status).toBe("running");
+
+      // A queued literature job should exist
+      const litJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "literature", status: "queued" }
+      });
+      expect(litJob).not.toBeNull();
+
+      // A plan artifact should exist
+      const planArtifact = await client.researchStageArtifact.findFirst({
+        where: { researchProjectId: project.id, stageType: "plan" }
+      });
+      expect(planArtifact).not.toBeNull();
+    });
+  });
+
+  it("completing a running literature stage job marks project as literature_ready", async () => {
+    const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
+    const { POST: completePOST } = await import(
+      "@/app/api/workers/jobs/[jobId]/complete/route"
+    );
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker, paper, project } = await seedProjectWithLiteratureJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      // Claim the literature job
+      const claimResponse = await claimPOST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST",
+          headers: { authorization: "Bearer t" }
+        })
+      );
+      expect(claimResponse.status).toBe(200);
+      const claimPayload = (await claimResponse.json()) as { job: { id: string } };
+      const jobId = claimPayload.job.id;
+
+      // Build a valid LiteratureReviewSchema output citing the source paper
+      const litOutput = {
+        researchProjectId: project.id,
+        relationToSourcePaper: "Extends the source paper with a literature survey",
+        relatedWorks: [
+          {
+            title: "Related Work A",
+            summary: "Explores a similar approach",
+            relationToProposed: "Complementary method"
+          }
+        ],
+        themes: ["Machine learning", "Efficiency"],
+        gaps: ["Lack of large-scale evaluation"],
+        positioning: "This work fills the gap by providing large-scale experiments",
+        citations: [
+          {
+            sourceType: "paper",
+            title: "Source Paper",
+            url: paper.url,
+            sourceId: paper.arxivId,
+            claim: "Foundational source paper",
+            confidence: 0.95
+          }
+        ]
+      };
+
+      const completeResponse = await completePOST(
+        new Request(`http://localhost/api/workers/jobs/${jobId}/complete`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer t",
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({ type: "research_literature", output: litOutput })
+        }),
+        { params: Promise.resolve({ jobId }) }
+      );
+      expect(completeResponse.status).toBe(200);
+
+      // Project should be in literature_ready status
+      const updatedProject = await client.researchProject.findUniqueOrThrow({
+        where: { id: project.id }
+      });
+      expect(updatedProject.status).toBe("literature_ready");
+
+      // A literature artifact should exist
+      const litArtifact = await client.researchStageArtifact.findFirst({
+        where: { researchProjectId: project.id, stageType: "literature" }
+      });
+      expect(litArtifact).not.toBeNull();
+    });
+  });
+});
