@@ -7,6 +7,7 @@ import { claimNextNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { claimNextViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
 import { claimNextResearchPlanJob, failResearchPlanJob, buildViabilityContextFromArtifactContent } from "@/lib/jobs/research";
+import { laneClaimsJobType } from "@/lib/workers/lanes";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
 import {
   type InboxGenerationJobInput,
@@ -33,12 +34,59 @@ export async function POST(request: Request) {
     data: { lastSeenAt: new Date() }
   });
 
-  const job = await claimNextInboxGenerationJob({
-    userId: worker.userId,
-    workerId: worker.id
-  });
+  const lane = worker.lane;
 
-  if (!job) {
+  if (laneClaimsJobType(lane, "inbox_generation")) {
+    const job = await claimNextInboxGenerationJob({
+      userId: worker.userId,
+      workerId: worker.id
+    });
+
+    if (job) {
+      try {
+        if (!job.user.profile) {
+          throw new Error("Worker user has no research profile");
+        }
+
+        const input: InboxGenerationJobInput = InboxGenerationJobInputSchema.parse({
+          jobId: job.id,
+          userId: job.userId,
+          inboxDate: job.inboxDate,
+          profile: {
+            fieldPreset: job.user.profile.fieldPresetKey,
+            keywords: parseJsonArray(job.user.profile.keywordsJson, "keywordsJson"),
+            constraints: parseJsonArray(job.user.profile.constraintsJson, "constraintsJson"),
+            preferredOutputs: parseJsonArray(
+              job.user.profile.preferredOutputsJson,
+              "preferredOutputsJson"
+            ),
+            arxivQuery: job.user.profile.arxivQuery,
+            maxIdeas: MAX_DAILY_IDEAS,
+            maxIdeasPerPaper: MAX_IDEAS_PER_PAPER
+          },
+          candidatePapers: job.candidateBatch.candidates.map((candidate) => ({
+            sourceId: candidate.arxivId,
+            title: candidate.title,
+            abstract: candidate.abstract,
+            url: candidate.url,
+            authors: parseJsonArray(candidate.authorsJson, "authorsJson"),
+            categories: parseJsonArray(candidate.categoriesJson, "categoriesJson"),
+            publishedAt: candidate.publishedAt.toISOString()
+          }))
+        });
+
+        return NextResponse.json({ job: { type: "inbox_generation", id: job.id, input } });
+      } catch (error) {
+        await prisma.inboxGenerationJob.update({
+          where: { id: job.id },
+          data: { status: "failed", errorMessage: formatErrorMessage(error), completedAt: new Date() }
+        });
+        return NextResponse.json({ error: "Claimed job payload could not be built" }, { status: 500 });
+      }
+    }
+  }
+
+  if (laneClaimsJobType(lane, "novelty_scan")) {
     const noveltyJob = await claimNextNoveltyScanJob({
       userId: worker.userId,
       workerId: worker.id
@@ -46,43 +94,47 @@ export async function POST(request: Request) {
 
     if (noveltyJob) {
       try {
-        const input = buildNoveltyScanJobInput(noveltyJob);
         return NextResponse.json({
-          job: {
-            type: "novelty_scan",
-            id: noveltyJob.id,
-            input
-          }
+          job: { type: "novelty_scan", id: noveltyJob.id, input: buildNoveltyScanJobInput(noveltyJob) }
         });
       } catch (error) {
         await prisma.inboxNoveltyScanJob.update({
           where: { id: noveltyJob.id },
-          data: {
-            status: "failed",
-            errorMessage: formatErrorMessage(error),
-            completedAt: new Date()
-          }
+          data: { status: "failed", errorMessage: formatErrorMessage(error), completedAt: new Date() }
         });
-
         return NextResponse.json({ error: "Claimed job payload could not be built" }, { status: 500 });
       }
     }
+  }
 
+  if (laneClaimsJobType(lane, "viability_check")) {
     const viabilityJob = await claimNextViabilityJob({
       userId: worker.userId,
       workerId: worker.id
     });
 
-    if (!viabilityJob) {
-      const researchPlanJob = await claimNextResearchPlanJob({
-        userId: worker.userId,
-        workerId: worker.id
-      });
-
-      if (!researchPlanJob) {
-        return NextResponse.json({ job: null });
+    if (viabilityJob) {
+      try {
+        return NextResponse.json({
+          job: { type: "viability_check", id: viabilityJob.id, input: buildViabilityJobInput(viabilityJob) }
+        });
+      } catch (error) {
+        await prisma.viabilityJob.update({
+          where: { id: viabilityJob.id },
+          data: { status: "failed", errorMessage: formatErrorMessage(error), completedAt: new Date() }
+        });
+        return NextResponse.json({ error: "Claimed job payload could not be built" }, { status: 500 });
       }
+    }
+  }
 
+  if (laneClaimsJobType(lane, "research_plan")) {
+    const researchPlanJob = await claimNextResearchPlanJob({
+      userId: worker.userId,
+      workerId: worker.id
+    });
+
+    if (researchPlanJob) {
       try {
         return NextResponse.json({
           job: {
@@ -96,88 +148,9 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Claimed job payload could not be built" }, { status: 500 });
       }
     }
-
-    try {
-      return NextResponse.json({
-        job: {
-          type: "viability_check",
-          id: viabilityJob.id,
-          input: buildViabilityJobInput(viabilityJob)
-        }
-      });
-    } catch (error) {
-      await prisma.viabilityJob.update({
-        where: { id: viabilityJob.id },
-        data: {
-          status: "failed",
-          errorMessage: formatErrorMessage(error),
-          completedAt: new Date()
-        }
-      });
-
-      return NextResponse.json(
-        { error: "Claimed job payload could not be built" },
-        { status: 500 }
-      );
-    }
   }
 
-  let input: InboxGenerationJobInput;
-
-  try {
-    if (!job.user.profile) {
-      throw new Error("Worker user has no research profile");
-    }
-
-    input = InboxGenerationJobInputSchema.parse({
-      jobId: job.id,
-      userId: job.userId,
-      inboxDate: job.inboxDate,
-      profile: {
-        fieldPreset: job.user.profile.fieldPresetKey,
-        keywords: parseJsonArray(job.user.profile.keywordsJson, "keywordsJson"),
-        constraints: parseJsonArray(job.user.profile.constraintsJson, "constraintsJson"),
-        preferredOutputs: parseJsonArray(
-          job.user.profile.preferredOutputsJson,
-          "preferredOutputsJson"
-        ),
-        arxivQuery: job.user.profile.arxivQuery,
-        maxIdeas: MAX_DAILY_IDEAS,
-        maxIdeasPerPaper: MAX_IDEAS_PER_PAPER
-      },
-      candidatePapers: job.candidateBatch.candidates.map((candidate) => ({
-        sourceId: candidate.arxivId,
-        title: candidate.title,
-        abstract: candidate.abstract,
-        url: candidate.url,
-        authors: parseJsonArray(candidate.authorsJson, "authorsJson"),
-        categories: parseJsonArray(candidate.categoriesJson, "categoriesJson"),
-        publishedAt: candidate.publishedAt.toISOString()
-      }))
-    });
-  } catch (error) {
-    await prisma.inboxGenerationJob.update({
-      where: { id: job.id },
-      data: {
-        status: "failed",
-        errorMessage: formatErrorMessage(error),
-        completedAt: new Date()
-      }
-    });
-
-    return NextResponse.json(
-      { error: "Claimed job payload could not be built" },
-      { status: 500 }
-    );
-  }
-
-  return NextResponse.json({
-    job: {
-      type: "inbox_generation",
-      id: job.id,
-      input
-    }
-  });
+  return NextResponse.json({ job: null });
 }
 
 function parseJsonArray(json: string, fieldName: string) {

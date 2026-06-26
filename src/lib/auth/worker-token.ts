@@ -11,6 +11,7 @@ export async function findAllowedWorkerByToken(token: string) {
     select: {
       id: true,
       userId: true,
+      lane: true,
       tokenHash: true,
       user: { select: { email: true } }
     }
@@ -19,7 +20,7 @@ export async function findAllowedWorkerByToken(token: string) {
   for (const worker of workers) {
     if (await verifyWorkerToken(token, worker.tokenHash)) {
       return isAllowedGoogleEmail(worker.user.email)
-        ? { id: worker.id, userId: worker.userId }
+        ? { id: worker.id, userId: worker.userId, lane: worker.lane }
         : null;
     }
   }

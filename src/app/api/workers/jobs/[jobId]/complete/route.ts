@@ -7,6 +7,7 @@ import { completeNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { completeV2ViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
 import { completeResearchPlanJob, failResearchPlanJob } from "@/lib/jobs/research";
+import { recordWorkerJobLog } from "@/lib/workers/job-log";
 
 type WorkerJobType = "inbox_generation" | "novelty_scan" | "viability_check" | "research_plan";
 
@@ -106,6 +107,8 @@ export async function POST(
     return NextResponse.json({ error: errorMessage }, { status: 400 });
   }
 
+  await recordWorkerJobLog({ workerId: worker.id, jobType, jobId, level: "completed" });
+
   return NextResponse.json({ ok: true });
 }
 
@@ -128,20 +131,21 @@ async function markWorkerJobFailed(input: {
 
   if (input.jobType === "inbox_generation") {
     await prisma.inboxGenerationJob.updateMany({ where, data });
-    return;
-  }
-
-  if (input.jobType === "novelty_scan") {
+  } else if (input.jobType === "novelty_scan") {
     await prisma.inboxNoveltyScanJob.updateMany({ where, data });
-    return;
-  }
-
-  if (input.jobType === "research_plan") {
+  } else if (input.jobType === "research_plan") {
     await failResearchPlanJob({ jobId: input.jobId, errorMessage: input.errorMessage });
-    return;
+  } else {
+    await prisma.viabilityJob.updateMany({ where, data });
   }
 
-  await prisma.viabilityJob.updateMany({ where, data });
+  await recordWorkerJobLog({
+    workerId: input.workerId,
+    jobType: input.jobType,
+    jobId: input.jobId,
+    level: "failed",
+    errorMessage: input.errorMessage
+  });
 }
 
 async function resolveJobType(input: {

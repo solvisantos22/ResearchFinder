@@ -7,7 +7,8 @@ export async function POST() {
   const currentUser = await requireCurrentUser();
   const registration = await registerWorkerForUser({
     userId: currentUser.id,
-    label: `Worker ${new Date().toISOString()}`
+    label: `Worker ${new Date().toISOString()}`,
+    lane: "both"
   });
 
   return NextResponse.json({

@@ -2,19 +2,10 @@
 
 import React, { useActionState } from "react";
 
-import { WorkerStatusLive } from "@/components/WorkerStatusLive";
-import type { WorkerStatus } from "@/components/WorkerStatusPanel";
+import { WorkersOverviewLive } from "@/components/WorkersOverviewLive";
+import type { WorkerOverviewRow } from "@/lib/workers/overview";
 
-type WorkerStatusRow = {
-  id: string;
-  label: string;
-  status: string;
-  lastSeenAt: Date | null;
-  createdAt: Date;
-  revokedAt: Date | null;
-};
-
-export type WorkerRegistrationActionState = { token: string } | null;
+export type WorkerRegistrationActionState = { token: string; label: string; lane: string } | null;
 
 export type WorkerRegistrationAction = (
   previousState: WorkerRegistrationActionState,
@@ -23,32 +14,26 @@ export type WorkerRegistrationAction = (
 
 type WorkerSetupContentProps = {
   appUrl: string;
-  workers: WorkerStatusRow[];
   registrationAction: WorkerRegistrationAction;
   registrationResult?: WorkerRegistrationActionState;
-  initialWorkerStatus?: WorkerStatus;
-  statusAction?: () => Promise<WorkerStatus>;
+  initialWorkers: WorkerOverviewRow[];
+  overviewAction?: () => Promise<WorkerOverviewRow[]>;
 };
-
-function formatDate(value: Date | null) {
-  return value ? value.toISOString() : "Never";
-}
 
 function quotePowerShellLiteral(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function setupCommand(appUrl: string, token: string) {
-  return `powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl ${quotePowerShellLiteral(appUrl)} -WorkerToken ${quotePowerShellLiteral(token)}`;
+function setupCommand(appUrl: string, token: string, taskName: string) {
+  return `powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl ${quotePowerShellLiteral(appUrl)} -WorkerToken ${quotePowerShellLiteral(token)} -TaskName ${quotePowerShellLiteral(taskName)}`;
 }
 
 export function WorkerSetupContent({
   appUrl,
-  workers,
   registrationAction,
   registrationResult = null,
-  initialWorkerStatus = "unknown",
-  statusAction
+  initialWorkers,
+  overviewAction
 }: WorkerSetupContentProps) {
   const [state, formAction, isPending] = useActionState(registrationAction, registrationResult);
 
@@ -73,6 +58,15 @@ export function WorkerSetupContent({
             </p>
           </div>
           <form action={formAction}>
+            <select
+              name="lane"
+              defaultValue="both"
+              className="rounded-md border border-rf-border bg-rf-surface px-3 py-2 text-sm text-rf-white"
+            >
+              <option value="inbox">Inbox lane (daily inbox + novelty)</option>
+              <option value="research">Research lane (viability + research plans)</option>
+              <option value="both">Both (default)</option>
+            </select>
             <button
               type="submit"
               disabled={isPending}
@@ -85,7 +79,7 @@ export function WorkerSetupContent({
 
         {state?.token ? (
           <pre className="mt-4 overflow-x-auto rounded-md bg-rf-surface p-4 text-sm text-rf-white">
-            <code>{setupCommand(appUrl, state.token)}</code>
+            <code>{setupCommand(appUrl, state.token, state.label)}</code>
           </pre>
         ) : (
           <div className="mt-4 rounded-md border border-rf-border bg-rf-surface p-4 text-sm text-rf-muted">
@@ -95,39 +89,9 @@ export function WorkerSetupContent({
       </section>
 
       <section className="rounded-md border border-rf-border bg-rf-panel p-5">
-        <h2 className="text-xl font-semibold text-rf-white">Current worker status</h2>
+        <h2 className="text-xl font-semibold text-rf-white">Your workers</h2>
         <div className="mt-4">
-          <WorkerStatusLive initialStatus={initialWorkerStatus} statusAction={statusAction} />
-        </div>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead className="border-b border-rf-border text-rf-muted">
-              <tr>
-                <th className="py-2 pr-4 font-medium">Worker</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 pr-4 font-medium">Last seen timestamp</th>
-                <th className="py-2 pr-4 font-medium">Created</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-rf-border text-rf-muted">
-              {workers.length === 0 ? (
-                <tr>
-                  <td className="py-4 pr-4" colSpan={4}>
-                    No workers registered yet.
-                  </td>
-                </tr>
-              ) : (
-                workers.map((worker) => (
-                  <tr key={worker.id}>
-                    <td className="py-3 pr-4 font-medium text-rf-white">{worker.label}</td>
-                    <td className="py-3 pr-4">{worker.revokedAt ? "revoked" : worker.status}</td>
-                    <td className="py-3 pr-4">{formatDate(worker.lastSeenAt)}</td>
-                    <td className="py-3 pr-4">{formatDate(worker.createdAt)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          <WorkersOverviewLive initialWorkers={initialWorkers} overviewAction={overviewAction} />
         </div>
       </section>
     </div>

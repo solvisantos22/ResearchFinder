@@ -62,3 +62,6 @@ export type ResearchStage = (typeof RESEARCH_STAGES)[number];
 
 export const RESEARCH_PROJECT_STATUSES = ["running", "plan_ready", "aborted", "failed"] as const;
 export type ResearchProjectStatus = (typeof RESEARCH_PROJECT_STATUSES)[number];
+
+export const WORKER_LANES = ["inbox", "research", "both"] as const;
+export type WorkerLane = (typeof WORKER_LANES)[number];

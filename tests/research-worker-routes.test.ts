@@ -5,7 +5,7 @@ import { withPostgresTestDatabase } from "./helpers/postgres";
 
 const mocked = vi.hoisted(() => ({
   prisma: null as PrismaClient | null,
-  worker: null as { id: string; userId: string } | null
+  worker: null as { id: string; userId: string; lane: string } | null
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -88,7 +88,7 @@ describe("research_plan worker routes", () => {
     await withPostgresTestDatabase(async (client) => {
       mocked.prisma = client;
       const { worker } = await seedProjectWithClaimableJob(client);
-      mocked.worker = { id: worker.id, userId: worker.userId };
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
 
       const response = await POST(
         new Request("http://localhost/api/workers/claim", {

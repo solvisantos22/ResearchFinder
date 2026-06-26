@@ -74,7 +74,12 @@ describe("worker installer resilience", () => {
 
   it("creates a double-click ResearchFinder Worker shortcut", () => {
     expect(installerScript).toContain("WScript.Shell");
-    expect(installerScript).toContain("ResearchFinder Worker.lnk");
+    expect(installerScript).toContain('("{0}.lnk" -f $TaskName)');
     expect(installerScript).toContain(".Save()");
+  });
+
+  it("uses the task name parameter for the scheduled task and defaults to ResearchFinder Worker", () => {
+    expect(installerScript).toContain('-TaskName $TaskName');
+    expect(installerScript).toContain('[string]$TaskName = "ResearchFinder Worker"');
   });
 });
