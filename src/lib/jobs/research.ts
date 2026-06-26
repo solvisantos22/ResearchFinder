@@ -69,7 +69,8 @@ export async function claimNextResearchStageJob(input: { userId: string; workerI
         researchProject: { status: { not: "aborted" } },
         OR: [
           { status: "queued" },
-          { status: "running", startedAt: { lte: staleStartedBefore } }
+          { status: "running", heartbeatAt: { lte: staleStartedBefore } },
+          { status: "running", heartbeatAt: null, startedAt: { lte: staleStartedBefore } }
         ]
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }]
@@ -83,7 +84,8 @@ export async function claimNextResearchStageJob(input: { userId: string; workerI
         userId: input.userId,
         OR: [
           { status: "queued" },
-          { status: "running", startedAt: { lte: staleStartedBefore } }
+          { status: "running", heartbeatAt: { lte: staleStartedBefore } },
+          { status: "running", heartbeatAt: null, startedAt: { lte: staleStartedBefore } }
         ]
       },
       data: {

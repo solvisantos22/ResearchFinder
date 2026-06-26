@@ -134,6 +134,74 @@ describe("claimNextResearchStageJob", () => {
   });
 });
 
+describe("claimNextResearchStageJob heartbeat staleness", () => {
+  async function seedRunningExperimentJob(
+    client: PrismaClient,
+    times: { startedAt: Date; heartbeatAt: Date | null }
+  ) {
+    const { user, idea } = await seedIdea(client);
+    const project = await client.researchProject.create({
+      data: {
+        userId: user.id,
+        generatedIdeaId: idea.id,
+        status: "running",
+        currentStage: "experiment"
+      }
+    });
+    const job = await client.researchStageJob.create({
+      data: {
+        researchProjectId: project.id,
+        userId: user.id,
+        stageType: "experiment",
+        status: "running",
+        claimedByWorkerId: "worker-A",
+        inputJson: JSON.stringify({ researchProjectId: project.id }),
+        startedAt: times.startedAt,
+        heartbeatAt: times.heartbeatAt
+      }
+    });
+    return { user, project, job };
+  }
+
+  const fortyMinutesAgo = () => new Date(Date.now() - 40 * 60 * 1000);
+
+  it("does not reclaim a running job with a fresh heartbeat even if startedAt is old", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user } = await seedRunningExperimentJob(db, {
+        startedAt: fortyMinutesAgo(),
+        heartbeatAt: new Date()
+      });
+      const claimed = await claimNextResearchStageJob({ userId: user.id, workerId: "worker-B" });
+      expect(claimed).toBeNull();
+    });
+  });
+
+  it("reclaims a running job whose heartbeat is stale", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user } = await seedRunningExperimentJob(db, {
+        startedAt: fortyMinutesAgo(),
+        heartbeatAt: fortyMinutesAgo()
+      });
+      const claimed = await claimNextResearchStageJob({ userId: user.id, workerId: "worker-B" });
+      expect(claimed?.claimedByWorkerId).toBe("worker-B");
+    });
+  });
+
+  it("falls back to startedAt when heartbeatAt is null", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user } = await seedRunningExperimentJob(db, {
+        startedAt: fortyMinutesAgo(),
+        heartbeatAt: null
+      });
+      const claimed = await claimNextResearchStageJob({ userId: user.id, workerId: "worker-B" });
+      expect(claimed?.claimedByWorkerId).toBe("worker-B");
+    });
+  });
+});
+
 describe("completeResearchStageJob advance", () => {
   it("plan completion enqueues a literature job and sets the project running", async () => {
     await withPostgresTestDatabase(async (db) => {
