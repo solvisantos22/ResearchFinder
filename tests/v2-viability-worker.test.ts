@@ -530,6 +530,7 @@ describe("worker completion route", () => {
       select: {
         id: true,
         userId: true,
+        lane: true,
         tokenHash: true,
         user: { select: { email: true } }
       }
