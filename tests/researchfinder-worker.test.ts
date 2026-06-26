@@ -606,6 +606,100 @@ describe("researchfinder local worker", () => {
     expect(sleep).toHaveBeenCalledWith(1234);
   });
 
+  it("completes claimed research_literature jobs with scholarly retrieval and validated Codex output", async () => {
+    const codexOutput = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper's findings with a focused literature review.",
+      relatedWorks: [
+        {
+          title: "Related benchmark work",
+          summary: "A related benchmark in the same area.",
+          relationToProposed: "Adjacent methodology."
+        }
+      ],
+      themes: ["benchmark evaluation"],
+      gaps: ["No direct comparison to the source paper approach"],
+      positioning: "This work fills the gap by synthesizing related literature.",
+      citations: [
+        {
+          sourceType: "paper",
+          title: "P",
+          url: "https://arxiv.org/abs/2501.00001",
+          sourceId: "2501.00001",
+          claim: "Source paper motivates the literature review.",
+          confidence: 0.9
+        }
+      ]
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_literature",
+            id: "lit-1",
+            input: {
+              jobId: "lit-1",
+              userId: "u1",
+              researchProjectId: "proj-1",
+              idea: {
+                id: "i1",
+                title: "T",
+                summary: "S",
+                expandedExplanation: "E",
+                trajectory: "Tr",
+                smallestSprint: "Sm"
+              },
+              paper: {
+                id: "p1",
+                arxivId: "2501.00001",
+                title: "P",
+                abstract: "A",
+                url: "https://arxiv.org/abs/2501.00001",
+                authors: [],
+                categories: [],
+                publishedAt: new Date().toISOString()
+              },
+              plan: {
+                relationToSourcePaper: "x",
+                hypotheses: ["h1"],
+                experimentalDesign: "d",
+                metrics: ["m"]
+              },
+              citations: []
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    const runCodex = vi.fn().mockResolvedValue(JSON.stringify(codexOutput));
+    const gatherNoveltySourceEvidence = vi.fn().mockResolvedValue({
+      adaptersAttempted: [],
+      adaptersFailed: [],
+      evidence: []
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token"
+      },
+      { runCodex, gatherNoveltySourceEvidence }
+    );
+
+    expect(processed).toBe(true);
+    expect(gatherNoveltySourceEvidence).toHaveBeenCalled();
+    const completionRequest = fetchMock.mock.calls[1];
+    expect(completionRequest?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/lit-1/complete"
+    );
+    const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
+    expect(completionBody.type).toBe("research_literature");
+    expect(completionBody.output.researchProjectId).toBe("proj-1");
+  });
+
   it("completes claimed novelty scan jobs with source evidence and validated Codex output", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
