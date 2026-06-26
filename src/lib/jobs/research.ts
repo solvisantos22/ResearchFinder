@@ -218,6 +218,25 @@ export async function failResearchStageJob(input: { jobId: string; errorMessage:
   });
 }
 
+export async function recordResearchStageHeartbeat(input: {
+  jobId: string;
+  workerId: string;
+}): Promise<{ aborted: boolean } | null> {
+  const job = await prisma.researchStageJob.findFirst({
+    where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
+    select: { researchProject: { select: { status: true } } }
+  });
+
+  if (!job) return null;
+
+  await prisma.researchStageJob.updateMany({
+    where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
+    data: { heartbeatAt: new Date() }
+  });
+
+  return { aborted: job.researchProject.status === "aborted" };
+}
+
 export async function abortResearchProject(input: {
   currentUserId: string;
   researchProjectId: string;
