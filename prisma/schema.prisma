@@ -466,6 +466,7 @@ model ResearchStageJob {
   errorMessage      String?
   createdAt         DateTime  @default(now())
   startedAt         DateTime?
+  heartbeatAt       DateTime?
   completedAt       DateTime?
   updatedAt         DateTime  @updatedAt
 
