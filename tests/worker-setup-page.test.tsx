@@ -9,6 +9,8 @@ const mocked = vi.hoisted(() => ({
   createWorkerToken: vi.fn(),
   findWorker: vi.fn(),
   findWorkers: vi.fn(),
+  findLauncher: vi.fn(),
+  findDesiredState: vi.fn(),
   hashWorkerToken: vi.fn(),
   headers: vi.fn(),
   redirect: vi.fn(),
@@ -25,6 +27,12 @@ vi.mock("@/lib/db", () => ({
       create: (...args: unknown[]) => mocked.createWorker(...args),
       findMany: (...args: unknown[]) => mocked.findWorkers(...args),
       findFirst: (...args: unknown[]) => mocked.findWorker(...args)
+    },
+    launcherRegistration: {
+      findFirst: (...args: unknown[]) => mocked.findLauncher(...args)
+    },
+    workerLaneDesiredState: {
+      findUnique: (...args: unknown[]) => mocked.findDesiredState(...args)
     }
   }
 }));
@@ -70,6 +78,8 @@ describe("WorkerSetupContent", () => {
     mocked.createWorkerToken.mockReturnValue("plain-worker-token");
     mocked.findWorker.mockResolvedValue(null);
     mocked.findWorkers.mockResolvedValue([]);
+    mocked.findLauncher.mockResolvedValue(null);
+    mocked.findDesiredState.mockResolvedValue(null);
     mocked.hashWorkerToken.mockResolvedValue("hashed-worker-token");
   });
 
