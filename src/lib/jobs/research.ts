@@ -273,14 +273,14 @@ function assertCitesSourcePaper(
       validSourceIds.has(citation.sourceId);
 
     if (!matches) {
-      throw new Error("Research plan source paper citation does not match the project source paper");
+      throw new Error("Research stage source paper citation does not match the project source paper");
     }
 
     citesSourcePaper = true;
   }
 
   if (!citesSourcePaper) {
-    throw new Error("Research plan must cite the project source paper");
+    throw new Error("Research stage must cite the project source paper");
   }
 }
 
