@@ -64,6 +64,8 @@ model User {
   noveltyScanJobs     InboxNoveltyScanJob[]
   researchProjects    ResearchProject[]
   researchPlanJobs    ResearchPlanJob[]
+  launcherRegistrations  LauncherRegistration[]
+  workerLaneDesiredState WorkerLaneDesiredState?
 }
 
 model ResearchProfile {
@@ -390,15 +392,16 @@ model NoveltyEvidence {
 }
 
 model WorkerRegistration {
-  id         String    @id @default(cuid())
-  userId     String
-  label      String
-  tokenHash  String
-  status     String
-  lane       String    @default("both")
-  lastSeenAt DateTime?
-  createdAt  DateTime  @default(now())
-  revokedAt  DateTime?
+  id              String    @id @default(cuid())
+  userId          String
+  label           String
+  tokenHash       String
+  status          String
+  lane            String    @default("both")
+  launcherManaged Boolean   @default(false)
+  lastSeenAt      DateTime?
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
 
   user User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   logs WorkerJobLog[]
@@ -479,4 +482,26 @@ model ResearchPlan {
   createdAt         DateTime @default(now())
 
   researchProject ResearchProject @relation(fields: [researchProjectId], references: [id], onDelete: Cascade)
+}
+
+model LauncherRegistration {
+  id         String    @id @default(cuid())
+  userId     String
+  label      String
+  tokenHash  String
+  status     String    @default("active")
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model WorkerLaneDesiredState {
+  userId          String   @id
+  inboxEnabled    Boolean  @default(false)
+  researchEnabled Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id])
 }

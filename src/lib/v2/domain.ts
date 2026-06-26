@@ -65,3 +65,8 @@ export type ResearchProjectStatus = (typeof RESEARCH_PROJECT_STATUSES)[number];
 
 export const WORKER_LANES = ["inbox", "research", "both"] as const;
 export type WorkerLane = (typeof WORKER_LANES)[number];
+
+// The lanes the local launcher manages (one worker each). A subset of WORKER_LANES;
+// "both" is intentionally excluded — running inbox + research covers it.
+export const LAUNCHER_LANES = ["inbox", "research"] as const;
+export type LauncherLane = (typeof LAUNCHER_LANES)[number];
