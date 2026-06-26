@@ -373,10 +373,97 @@ export const LiteratureJobInputSchema = strictObject({
   citations: z.array(CitationSchema)
 });
 
+export const ExperimentResultSchema = strictObject({
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: NonEmptyTrimmedStringSchema,
+  implementationSummary: NonEmptyTrimmedStringSchema,
+  environment: NonEmptyTrimmedStringSchema,
+  hypothesisOutcomes: z
+    .array(
+      strictObject({
+        hypothesis: NonEmptyTrimmedStringSchema,
+        outcome: z.enum(["supported", "refuted", "inconclusive"]),
+        evidence: NonEmptyTrimmedStringSchema
+      })
+    )
+    .min(1),
+  metrics: z.array(
+    strictObject({
+      name: NonEmptyTrimmedStringSchema,
+      value: NonEmptyTrimmedStringSchema,
+      unit: NonEmptyTrimmedStringSchema.optional(),
+      baseline: NonEmptyTrimmedStringSchema.optional()
+    })
+  ),
+  findings: z.array(NonEmptyTrimmedStringSchema).min(1),
+  limitations: z.array(NonEmptyTrimmedStringSchema),
+  artifacts: z.array(
+    strictObject({
+      path: NonEmptyTrimmedStringSchema,
+      description: NonEmptyTrimmedStringSchema.optional(),
+      bytes: z.number().int().nonnegative()
+    })
+  ),
+  logsExcerpt: NonEmptyTrimmedStringSchema,
+  reproductionSteps: z.array(NonEmptyTrimmedStringSchema).min(1),
+  verdict: z.enum(["success", "partial", "failed"]),
+  summary: NonEmptyTrimmedStringSchema,
+  citations: z.array(CitationSchema).min(1)
+});
+
+export const ExperimentJobInputSchema = strictObject({
+  jobId: NonEmptyTrimmedStringSchema,
+  userId: NonEmptyTrimmedStringSchema,
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  idea: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    expandedExplanation: NonEmptyTrimmedStringSchema,
+    trajectory: NonEmptyTrimmedStringSchema,
+    smallestSprint: NonEmptyTrimmedStringSchema
+  }),
+  paper: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    arxivId: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    abstract: NonEmptyTrimmedStringSchema,
+    url: RequiredUrlSchema,
+    authors: z.array(NonEmptyTrimmedStringSchema),
+    categories: z.array(NonEmptyTrimmedStringSchema),
+    publishedAt: z.string().datetime()
+  }),
+  plan: strictObject({
+    relationToSourcePaper: NonEmptyTrimmedStringSchema,
+    hypotheses: z.array(NonEmptyTrimmedStringSchema).min(1),
+    experimentalDesign: NonEmptyTrimmedStringSchema,
+    protocolSteps: z.array(NonEmptyTrimmedStringSchema).min(1),
+    datasets: z.array(NonEmptyTrimmedStringSchema),
+    baselines: z.array(NonEmptyTrimmedStringSchema),
+    metrics: z.array(NonEmptyTrimmedStringSchema),
+    successCriteria: z.array(NonEmptyTrimmedStringSchema).min(1)
+  }),
+  literature: strictObject({
+    positioning: NonEmptyTrimmedStringSchema,
+    gaps: z.array(NonEmptyTrimmedStringSchema).min(1)
+  }),
+  viability: strictObject({
+    verdict: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    feasibility: NonEmptyTrimmedStringSchema,
+    noveltyRisk: NonEmptyTrimmedStringSchema,
+    minimumExperiment: NonEmptyTrimmedStringSchema,
+    blockers: z.array(NonEmptyTrimmedStringSchema)
+  }).nullable(),
+  citations: z.array(CitationSchema)
+});
+
 export type ResearchPlan = z.infer<typeof ResearchPlanSchema>;
 export type ResearchPlanJobInput = z.infer<typeof ResearchPlanJobInputSchema>;
 export type LiteratureReview = z.infer<typeof LiteratureReviewSchema>;
 export type LiteratureJobInput = z.infer<typeof LiteratureJobInputSchema>;
+export type ExperimentResult = z.infer<typeof ExperimentResultSchema>;
+export type ExperimentJobInput = z.infer<typeof ExperimentJobInputSchema>;
 
 export type Citation = z.infer<typeof CitationSchema>;
 export type GeneratedInbox = z.infer<typeof GeneratedInboxSchema>;
