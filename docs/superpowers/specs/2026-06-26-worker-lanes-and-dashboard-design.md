@@ -112,7 +112,7 @@ Workers                                    [ + Add worker ]
 ### F. Error handling & edge cases
 
 - **Legacy workers**: default `lane = "both"` ⇒ no behavior change.
-- **Per-table query failure** in the overview: degrade gracefully — show the worker with its status but an empty `currentJobs` rather than failing the whole page.
+- **Overview query failures** are not special-cased: if the DB is unreachable the page surfaces a normal server-component error like any other page. We deliberately do **not** swallow per-table errors — on a live connection these queries only fail on a real bug, which should surface rather than be hidden behind an empty `currentJobs`.
 - **A job type no online worker covers** (e.g. only inbox-lane workers exist, but research jobs are queued): the jobs simply stay `queued` (already visible in their own UIs, e.g. `/research`). Optional, low-priority: a small "N jobs queued with no eligible worker" hint on the dashboard — noted but not required for SP1.
 - **`WorkerJobLog` write failures** must never break job completion: log-writing is best-effort (a failed log insert is swallowed/logged, not propagated), since the authoritative job-completion transaction has already committed.
 
