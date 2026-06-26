@@ -82,7 +82,7 @@ describe("WorkerSetupContent", () => {
       <WorkerSetupContent
         appUrl="https://research.example.com"
         registrationAction={vi.fn()}
-        registrationResult={{ token: "plain-worker-token" }}
+        registrationResult={{ token: "plain-worker-token", label: "ResearchFinder Worker", lane: "both" }}
         initialWorkers={[]}
       />
     );
@@ -92,7 +92,7 @@ describe("WorkerSetupContent", () => {
     expect(screen.getByText("Your workers")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl 'https://research.example.com' -WorkerToken 'plain-worker-token'"
+        "powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl 'https://research.example.com' -WorkerToken 'plain-worker-token' -TaskName 'ResearchFinder Worker'"
       )
     ).toBeInTheDocument();
   });
@@ -102,14 +102,14 @@ describe("WorkerSetupContent", () => {
       <WorkerSetupContent
         appUrl="https://research.example.com/a'b"
         registrationAction={vi.fn()}
-        registrationResult={{ token: "token'with'quotes" }}
+        registrationResult={{ token: "token'with'quotes", label: "ResearchFinder Worker", lane: "both" }}
         initialWorkers={[]}
       />
     );
 
     expect(
       screen.getByText(
-        "powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl 'https://research.example.com/a''b' -WorkerToken 'token''with''quotes'"
+        "powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl 'https://research.example.com/a''b' -WorkerToken 'token''with''quotes' -TaskName 'ResearchFinder Worker'"
       )
     ).toBeInTheDocument();
   });
@@ -184,14 +184,19 @@ describe("WorkerSetupContent", () => {
     };
     mocked.cookies.mockResolvedValue(cookieStore);
 
-    await expect(registerWorker(null)).resolves.toEqual({ token: "plain-worker-token" });
+    await expect(registerWorker(null, new FormData())).resolves.toEqual({
+      token: "plain-worker-token",
+      label: "ResearchFinder Worker",
+      lane: "both"
+    });
 
     expect(mocked.createWorker).toHaveBeenCalledWith({
       data: {
         userId: "user-1",
-        label: "Local Codex worker",
+        label: "ResearchFinder Worker",
         tokenHash: "hashed-worker-token",
-        status: "active"
+        status: "active",
+        lane: "both"
       },
       select: { id: true }
     });

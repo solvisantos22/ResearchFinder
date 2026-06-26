@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/db";
 import { createWorkerToken, hashWorkerToken } from "@/lib/jobs/worker-auth";
+import type { WorkerLane } from "@/lib/v2/domain";
 
-export async function registerWorkerForUser(input: { userId: string; label: string }) {
+export async function registerWorkerForUser(input: { userId: string; label: string; lane: WorkerLane }) {
   const token = createWorkerToken();
   const tokenHash = await hashWorkerToken(token);
 
@@ -10,7 +11,8 @@ export async function registerWorkerForUser(input: { userId: string; label: stri
       userId: input.userId,
       label: input.label,
       tokenHash,
-      status: "active"
+      status: "active",
+      lane: input.lane
     },
     select: { id: true }
   });

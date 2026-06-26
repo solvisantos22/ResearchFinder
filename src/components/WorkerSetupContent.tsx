@@ -5,7 +5,7 @@ import React, { useActionState } from "react";
 import { WorkersOverviewLive } from "@/components/WorkersOverviewLive";
 import type { WorkerOverviewRow } from "@/lib/workers/overview";
 
-export type WorkerRegistrationActionState = { token: string } | null;
+export type WorkerRegistrationActionState = { token: string; label: string; lane: string } | null;
 
 export type WorkerRegistrationAction = (
   previousState: WorkerRegistrationActionState,
@@ -24,8 +24,8 @@ function quotePowerShellLiteral(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function setupCommand(appUrl: string, token: string) {
-  return `powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl ${quotePowerShellLiteral(appUrl)} -WorkerToken ${quotePowerShellLiteral(token)}`;
+function setupCommand(appUrl: string, token: string, taskName: string) {
+  return `powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl ${quotePowerShellLiteral(appUrl)} -WorkerToken ${quotePowerShellLiteral(token)} -TaskName ${quotePowerShellLiteral(taskName)}`;
 }
 
 export function WorkerSetupContent({
@@ -58,6 +58,15 @@ export function WorkerSetupContent({
             </p>
           </div>
           <form action={formAction}>
+            <select
+              name="lane"
+              defaultValue="both"
+              className="rounded-md border border-rf-border bg-rf-surface px-3 py-2 text-sm text-rf-white"
+            >
+              <option value="inbox">Inbox lane (daily inbox + novelty)</option>
+              <option value="research">Research lane (viability + research plans)</option>
+              <option value="both">Both (default)</option>
+            </select>
             <button
               type="submit"
               disabled={isPending}
@@ -70,7 +79,7 @@ export function WorkerSetupContent({
 
         {state?.token ? (
           <pre className="mt-4 overflow-x-auto rounded-md bg-rf-surface p-4 text-sm text-rf-white">
-            <code>{setupCommand(appUrl, state.token)}</code>
+            <code>{setupCommand(appUrl, state.token, state.label)}</code>
           </pre>
         ) : (
           <div className="mt-4 rounded-md border border-rf-border bg-rf-surface p-4 text-sm text-rf-muted">

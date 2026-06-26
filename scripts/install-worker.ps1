@@ -1,8 +1,15 @@
 param(
   [Parameter(Mandatory=$true)][string]$AppUrl,
   [Parameter(Mandatory=$true)][string]$WorkerToken,
-  [string]$InstallDir = "$env:LOCALAPPDATA\ResearchFinderWorker"
+  [string]$TaskName = "ResearchFinder Worker",
+  [string]$InstallDir = ""
 )
+
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+  $safeName = ($TaskName -replace '[^A-Za-z0-9 _-]', '').Trim()
+  if ([string]::IsNullOrWhiteSpace($safeName)) { $safeName = "ResearchFinder Worker" }
+  $InstallDir = Join-Path "$env:LOCALAPPDATA\ResearchFinderWorker" $safeName
+}
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
@@ -75,7 +82,7 @@ $settings = New-ScheduledTaskSettingsSet `
   -ExecutionTimeLimit ([TimeSpan]::Zero)
 
 Register-ScheduledTask `
-  -TaskName "ResearchFinder Worker" `
+  -TaskName $TaskName `
   -Action $action `
   -Trigger $dailyTrigger, $logonTrigger `
   -Settings $settings `
@@ -88,7 +95,7 @@ $shortcutDirs = @(
   [Environment]::GetFolderPath("Programs")
 )
 foreach ($dir in $shortcutDirs) {
-  $shortcutPath = Join-Path $dir "ResearchFinder Worker.lnk"
+  $shortcutPath = Join-Path $dir ("{0}.lnk" -f $TaskName)
   $shortcut = $WshShell.CreateShortcut($shortcutPath)
   $shortcut.TargetPath = $powershell
   $shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$runnerPath`""
