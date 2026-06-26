@@ -1,3 +1,4 @@
+import { clampGeneratedInboxIdeas } from "@/lib/v2/clamp-inbox";
 import {
   GeneratedInboxSchema,
   NoveltyScanResultSchema,
@@ -6,7 +7,7 @@ import {
 } from "@/lib/v2/schemas";
 
 export function parseInboxGenerationOutput(raw: string) {
-  return GeneratedInboxSchema.parse(JSON.parse(raw));
+  return GeneratedInboxSchema.parse(clampGeneratedInboxIdeas(JSON.parse(raw)));
 }
 
 export function parseNoveltyScanOutput(raw: string) {
