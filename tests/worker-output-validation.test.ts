@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_DAILY_IDEAS } from "@/lib/v2/domain";
 import {
   parseInboxGenerationOutput,
   parseNoveltyScanOutput,
@@ -66,6 +67,41 @@ function createInboxOutput(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createPaperGroup(index: number, ideaCount: number, overall: number) {
+  const sourceId = `2606.1${String(index).padStart(4, "0")}`;
+  const url = `https://arxiv.org/abs/${sourceId}`;
+  return {
+    source: "arxiv",
+    sourceId,
+    title: `Paper ${index}`,
+    abstract: `Abstract for paper ${index}.`,
+    url,
+    authors: ["A. Researcher"],
+    categories: ["cs.AI"],
+    publishedAt: "2026-06-23T00:00:00.000Z",
+    whyPaperMatters: "This paper opens a concrete research direction.",
+    ideas: Array.from({ length: ideaCount }, (_, i) => ({
+      title: `Idea ${index}-${i}`,
+      summary: "A concise version of the idea.",
+      expandedExplanation: "A longer explanation of the project direction.",
+      trajectory: "If viable, this becomes a paper.",
+      recommended: true,
+      noveltyStatus: "needs_novelty_check",
+      scores: { relevance: 0.8, significance: 0.8, originality: 0.8, feasibility: 0.8, overall },
+      scoreExplanations: {
+        relevance: "Aligned.",
+        significance: "Meaningful.",
+        originality: "Distinct.",
+        feasibility: "Doable.",
+        overall: "Strong enough."
+      },
+      risks: ["A concrete risk."],
+      smallestViabilitySprint: "Run a small pilot.",
+      citations: [createCitation({ sourceId, url, title: `Paper ${index}` })]
+    }))
+  };
+}
+
 function createViabilityOutput(overrides: Record<string, unknown> = {}) {
   return {
     jobId: "job-1",
@@ -91,6 +127,33 @@ describe("worker output validation", () => {
     const parsed = parseViabilityOutput(JSON.stringify(createViabilityOutput()));
 
     expect(parsed.verdict).toBe("needs_novelty_check");
+  });
+
+  it("clamps an over-cap inbox to the daily maximum before validating", () => {
+    // 4 papers x 3 ideas = 12 > MAX_DAILY_IDEAS (10). Paper 4 is the weakest, so
+    // without the clamp the strict schema would reject the whole inbox.
+    const papers = [
+      createPaperGroup(1, 3, 0.95),
+      createPaperGroup(2, 3, 0.9),
+      createPaperGroup(3, 3, 0.85),
+      createPaperGroup(4, 3, 0.1)
+    ];
+
+    const parsed = parseInboxGenerationOutput(JSON.stringify(createInboxOutput({ papers })));
+
+    const total = parsed.papers.reduce((sum, paper) => sum + paper.ideas.length, 0);
+    expect(total).toBe(MAX_DAILY_IDEAS);
+  });
+
+  it("clamps a paper that exceeds the per-paper cap even within the daily total", () => {
+    // One paper with 5 ideas (total 5 <= 10, but > 3 per paper) would otherwise be
+    // rejected by ideas.max(MAX_IDEAS_PER_PAPER).
+    const parsed = parseInboxGenerationOutput(
+      JSON.stringify(createInboxOutput({ papers: [createPaperGroup(1, 5, 0.8)] }))
+    );
+
+    expect(parsed.papers).toHaveLength(1);
+    expect(parsed.papers[0].ideas.length).toBeLessThanOrEqual(3);
   });
 
   it("rejects invalid json before schema validation", () => {
