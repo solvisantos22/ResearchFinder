@@ -6,7 +6,7 @@ import { claimNextInboxGenerationJob } from "@/lib/jobs/inbox-generation";
 import { claimNextNoveltyScanJob } from "@/lib/jobs/novelty-scan";
 import { claimNextViabilityJob } from "@/lib/jobs/viability";
 import { readBearerToken } from "@/lib/jobs/worker-auth";
-import { claimNextResearchPlanJob, failResearchPlanJob, buildViabilityContextFromArtifactContent } from "@/lib/jobs/research";
+import { claimNextResearchStageJob, failResearchStageJob, buildViabilityContextFromArtifactContent } from "@/lib/jobs/research";
 import { laneClaimsJobType } from "@/lib/workers/lanes";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
 import {
@@ -15,7 +15,10 @@ import {
   type NoveltyScanJobInput,
   NoveltyScanJobInputSchema,
   ResearchPlanJobInputSchema,
-  type ResearchPlanJobInput
+  type ResearchPlanJobInput,
+  LiteratureJobInputSchema,
+  type LiteratureJobInput,
+  ResearchPlanSchema
 } from "@/lib/v2/schemas";
 
 export async function POST(request: Request) {
@@ -128,23 +131,23 @@ export async function POST(request: Request) {
     }
   }
 
-  if (laneClaimsJobType(lane, "research_plan")) {
-    const researchPlanJob = await claimNextResearchPlanJob({
+  if (laneClaimsJobType(lane, "research_plan") || laneClaimsJobType(lane, "research_literature")) {
+    const stageJob = await claimNextResearchStageJob({
       userId: worker.userId,
       workerId: worker.id
     });
 
-    if (researchPlanJob) {
+    if (stageJob) {
       try {
+        const input =
+          stageJob.stageType === "literature"
+            ? await buildLiteratureJobInput(stageJob)
+            : await buildResearchPlanJobInput(stageJob);
         return NextResponse.json({
-          job: {
-            type: "research_plan",
-            id: researchPlanJob.id,
-            input: await buildResearchPlanJobInput(researchPlanJob)
-          }
+          job: { type: `research_${stageJob.stageType}`, id: stageJob.id, input }
         });
       } catch (error) {
-        await failResearchPlanJob({ jobId: researchPlanJob.id, errorMessage: formatErrorMessage(error) });
+        await failResearchStageJob({ jobId: stageJob.id, errorMessage: formatErrorMessage(error) });
         return NextResponse.json({ error: "Claimed job payload could not be built" }, { status: 500 });
       }
     }
@@ -208,9 +211,9 @@ function buildNoveltyScanJobInput(job: ClaimedNoveltyScanJob): NoveltyScanJobInp
   });
 }
 
-type ClaimedResearchPlanJob = NonNullable<Awaited<ReturnType<typeof claimNextResearchPlanJob>>>;
+type ClaimedResearchStageJob = NonNullable<Awaited<ReturnType<typeof claimNextResearchStageJob>>>;
 
-async function buildResearchPlanJobInput(job: ClaimedResearchPlanJob): Promise<ResearchPlanJobInput> {
+async function buildResearchPlanJobInput(job: ClaimedResearchStageJob): Promise<ResearchPlanJobInput> {
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
 
@@ -230,31 +233,58 @@ async function buildResearchPlanJobInput(job: ClaimedResearchPlanJob): Promise<R
     userId: job.userId,
     researchProjectId: job.researchProjectId,
     idea: {
-      id: idea.id,
-      title: idea.title,
-      summary: idea.summary,
-      expandedExplanation: idea.expandedExplanation,
-      trajectory: idea.trajectory,
+      id: idea.id, title: idea.title, summary: idea.summary,
+      expandedExplanation: idea.expandedExplanation, trajectory: idea.trajectory,
       smallestSprint: idea.smallestSprint
     },
     paper: {
-      id: paper.id,
-      arxivId: paper.arxivId,
-      title: paper.title,
-      abstract: paper.abstract,
-      url: paper.url,
+      id: paper.id, arxivId: paper.arxivId, title: paper.title, abstract: paper.abstract, url: paper.url,
       authors: parseJsonArray(paper.authorsJson, "authorsJson"),
       categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
       publishedAt: paper.publishedAt.toISOString()
     },
     viability,
     citations: idea.citations.map((citation) => ({
-      sourceType: citation.sourceType,
-      title: citation.title,
-      url: citation.url,
-      sourceId: citation.sourceId ?? undefined,
-      claim: citation.claim,
-      confidence: citation.confidence
+      sourceType: citation.sourceType, title: citation.title, url: citation.url,
+      sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
+    }))
+  });
+}
+
+async function buildLiteratureJobInput(job: ClaimedResearchStageJob): Promise<LiteratureJobInput> {
+  const idea = job.researchProject.generatedIdea;
+  const paper = idea.paper;
+
+  const planArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "plan");
+  if (!planArtifact) {
+    throw new Error("Literature stage requires a completed plan artifact");
+  }
+  const plan = ResearchPlanSchema.parse(JSON.parse(planArtifact.artifactJson));
+
+  return LiteratureJobInputSchema.parse({
+    jobId: job.id,
+    userId: job.userId,
+    researchProjectId: job.researchProjectId,
+    idea: {
+      id: idea.id, title: idea.title, summary: idea.summary,
+      expandedExplanation: idea.expandedExplanation, trajectory: idea.trajectory,
+      smallestSprint: idea.smallestSprint
+    },
+    paper: {
+      id: paper.id, arxivId: paper.arxivId, title: paper.title, abstract: paper.abstract, url: paper.url,
+      authors: parseJsonArray(paper.authorsJson, "authorsJson"),
+      categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
+      publishedAt: paper.publishedAt.toISOString()
+    },
+    plan: {
+      relationToSourcePaper: plan.relationToSourcePaper,
+      hypotheses: plan.hypotheses,
+      experimentalDesign: plan.experimentalDesign,
+      metrics: plan.metrics
+    },
+    citations: idea.citations.map((citation) => ({
+      sourceType: citation.sourceType, title: citation.title, url: citation.url,
+      sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
     }))
   });
 }

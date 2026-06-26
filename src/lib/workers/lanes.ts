@@ -7,14 +7,15 @@ export const WORKER_JOB_TYPES = [
   "inbox_generation",
   "novelty_scan",
   "viability_check",
-  "research_plan"
+  "research_plan",
+  "research_literature"
 ] as const;
 export type WorkerJobType = (typeof WORKER_JOB_TYPES)[number];
 
 export const LANE_JOB_TYPES: Record<WorkerLane, readonly WorkerJobType[]> = {
   inbox: ["inbox_generation", "novelty_scan"],
-  research: ["viability_check", "research_plan"],
-  both: ["inbox_generation", "novelty_scan", "viability_check", "research_plan"]
+  research: ["viability_check", "research_plan", "research_literature"],
+  both: ["inbox_generation", "novelty_scan", "viability_check", "research_plan", "research_literature"]
 };
 
 // `lane` is a free-form String column; an unrecognized value (e.g. a future

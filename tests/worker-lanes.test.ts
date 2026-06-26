@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { laneClaimsJobType, LANE_JOB_TYPES } from "@/lib/workers/lanes";
+import { laneClaimsJobType, LANE_JOB_TYPES, WORKER_JOB_TYPES } from "@/lib/workers/lanes";
 
 describe("laneClaimsJobType", () => {
   it("inbox lane claims only inbox_generation and novelty_scan", () => {
@@ -27,9 +27,20 @@ describe("laneClaimsJobType", () => {
     expect(laneClaimsJobType("garbage", "research_plan")).toBe(true);
   });
 
-  it("LANE_JOB_TYPES.both lists all four job types", () => {
+  it("LANE_JOB_TYPES.both lists all five job types", () => {
     expect([...LANE_JOB_TYPES.both].sort()).toEqual(
-      ["inbox_generation", "novelty_scan", "research_plan", "viability_check"]
+      ["inbox_generation", "novelty_scan", "research_literature", "research_plan", "viability_check"]
     );
+  });
+});
+
+describe("research_literature lane mapping", () => {
+  it("is a known worker job type", () => {
+    expect(WORKER_JOB_TYPES).toContain("research_literature");
+  });
+  it("is claimed by the research and both lanes, not inbox", () => {
+    expect(laneClaimsJobType("research", "research_literature")).toBe(true);
+    expect(laneClaimsJobType("both", "research_literature")).toBe(true);
+    expect(laneClaimsJobType("inbox", "research_literature")).toBe(false);
   });
 });
