@@ -19,7 +19,8 @@
     "db:seed": "tsx src/lib/seed.ts",
     "ingest:daily": "tsx scripts/ingest-daily.ts",
     "worker:local": "tsx scripts/researchfinder-worker.ts",
-    "worker:once": "tsx scripts/researchfinder-worker.ts --once"
+    "worker:once": "tsx scripts/researchfinder-worker.ts --once",
+    "launcher:local": "tsx scripts/researchfinder-launcher.ts"
   },
   "prisma": {
     "seed": "tsx src/lib/seed.ts"
