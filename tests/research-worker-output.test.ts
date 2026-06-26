@@ -1,36 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import { parseResearchPlanOutput } from "@/worker/output-validation";
+import { parseResearchStageOutput } from "@/worker/output-validation";
 
-describe("parseResearchPlanOutput", () => {
-  it("parses a valid plan JSON string", () => {
-    const raw = JSON.stringify({
-      researchProjectId: "p1",
-      relationToSourcePaper: "Extends it.",
-      hypotheses: ["H1"],
-      experimentalDesign: "D",
-      protocolSteps: ["S1"],
-      datasets: ["D1"],
-      baselines: ["B1"],
-      metrics: ["m"],
-      successCriteria: ["beats baseline"],
-      computeEstimate: "1 GPU-day",
-      risks: ["r"],
-      citations: [
-        {
-          sourceType: "paper",
-          url: "https://arxiv.org/abs/2501.00001",
-          sourceId: "2501.00001",
-          title: "Src",
-          claim: "c",
-          confidence: 0.9
-        }
-      ]
-    });
-    expect(parseResearchPlanOutput(raw).researchProjectId).toBe("p1");
+describe("parseResearchStageOutput", () => {
+  it("parses a plan stage output", () => {
+    const out = parseResearchStageOutput("plan", JSON.stringify({
+      researchProjectId: "p1", relationToSourcePaper: "x", hypotheses: ["h"], experimentalDesign: "d",
+      protocolSteps: ["s"], datasets: [], baselines: [], metrics: [], successCriteria: ["c"],
+      computeEstimate: "e", risks: [],
+      citations: [{ sourceType: "paper", title: "t", url: "https://a/abs/1", sourceId: "1", claim: "c", confidence: 0.9 }]
+    }));
+    expect(out).toMatchObject({ researchProjectId: "p1" });
   });
 
-  it("throws on malformed JSON", () => {
-    expect(() => parseResearchPlanOutput("not json")).toThrow();
+  it("parses a literature stage output", () => {
+    const out = parseResearchStageOutput("literature", JSON.stringify({
+      researchProjectId: "p1", relationToSourcePaper: "x",
+      relatedWorks: [{ title: "rw", summary: "s", relationToProposed: "r" }],
+      themes: ["t"], gaps: ["g"], positioning: "pos",
+      citations: [{ sourceType: "paper", title: "t", url: "https://a/abs/1", sourceId: "1", claim: "c", confidence: 0.9 }]
+    }));
+    expect(out).toMatchObject({ researchProjectId: "p1" });
+  });
+
+  it("throws for an unknown stage", () => {
+    expect(() => parseResearchStageOutput("experiment", "{}")).toThrow();
   });
 });
