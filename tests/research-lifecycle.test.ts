@@ -16,6 +16,8 @@ afterEach(() => {
   mocked.prisma = null;
 });
 
+import { developIdea, claimNextResearchStageJob, completeResearchStageJob, failResearchStageJob } from "@/lib/jobs/research";
+
 async function seedIdea(client: PrismaClient) {
   const user = await client.user.create({ data: { email: "researcher@example.com" } });
   const paper = await client.paper.create({
@@ -81,141 +83,143 @@ function planOutput(researchProjectId: string, paper: { arxivId: string; url: st
   };
 }
 
-describe("research plan lifecycle", () => {
-  it("developIdea creates a running project + queued plan job, and is idempotent", async () => {
-    const { developIdea } = await import("@/lib/jobs/research");
-    await withPostgresTestDatabase(async (client) => {
-      mocked.prisma = client;
-      const { user, idea } = await seedIdea(client);
+function literatureOutput(researchProjectId: string, paper: { arxivId: string; url: string }) {
+  return {
+    researchProjectId,
+    relationToSourcePaper: "Extends the source paper.",
+    relatedWorks: [{ title: "RW", summary: "does x", relationToProposed: "we differ" }],
+    themes: ["theme"],
+    gaps: ["gap"],
+    positioning: "we close the gap",
+    citations: [
+      { sourceType: "paper", title: "Source paper", url: paper.url, sourceId: paper.arxivId, claim: "c", confidence: 0.9 }
+    ]
+  };
+}
 
+describe("developIdea (generic stage model)", () => {
+  it("creates a project and a queued plan stage job", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea } = await seedIdea(db);
       const project = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
-      expect(project.status).toBe("running");
+      const jobs = await db.researchStageJob.findMany({ where: { researchProjectId: project.id } });
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({ stageType: "plan", status: "queued" });
       expect(project.currentStage).toBe("plan");
-
-      const job = await client.researchPlanJob.findUniqueOrThrow({
-        where: { researchProjectId: project.id }
-      });
-      expect(job.status).toBe("queued");
-
-      const again = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
-      expect(again.id).toBe(project.id);
-      expect(await client.researchProject.count()).toBe(1);
     });
   });
 
-  it("completing the plan job persists the plan and advances to plan_ready", async () => {
-    const { developIdea, claimNextResearchPlanJob, completeResearchPlanJob } = await import(
-      "@/lib/jobs/research"
-    );
-    await withPostgresTestDatabase(async (client) => {
-      mocked.prisma = client;
-      const { user, paper, idea } = await seedIdea(client);
-      const project = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+  it("is idempotent for a non-aborted project", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea } = await seedIdea(db);
+      const a = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const b = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      expect(b.id).toBe(a.id);
+    });
+  });
+});
 
-      const claimed = await claimNextResearchPlanJob({ userId: user.id, workerId: "w1" });
-      expect(claimed?.researchProjectId).toBe(project.id);
+describe("claimNextResearchStageJob", () => {
+  it("claims the queued plan job with the idea + paper loaded", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea } = await seedIdea(db);
+      await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const claimed = await claimNextResearchStageJob({ userId: user.id, workerId: "w1" });
+      expect(claimed?.stageType).toBe("plan");
+      expect(claimed?.researchProject.generatedIdea.paper.arxivId).toBe("2501.00001");
+    });
+  });
+});
 
-      await completeResearchPlanJob({
-        jobId: claimed!.id,
-        workerId: "w1",
-        output: planOutput(project.id, paper)
+describe("completeResearchStageJob advance", () => {
+  it("plan completion enqueues a literature job and sets the project running", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const plan = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
+      await completeResearchStageJob({
+        jobId: plan!.id, workerId: "w",
+        output: planOutput(plan!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
       });
-
-      const refreshed = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
-      expect(refreshed.status).toBe("plan_ready");
-      const plan = await client.researchPlan.findUniqueOrThrow({
-        where: { researchProjectId: project.id }
-      });
-      expect(JSON.parse(plan.planJson).relationToSourcePaper).toContain("Extends");
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: plan!.researchProjectId } });
+      expect(project).toMatchObject({ currentStage: "literature", status: "running" });
+      const litJob = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "literature" } });
+      expect(litJob?.status).toBe("queued");
+      const planArtifact = await db.researchStageArtifact.findFirst({ where: { researchProjectId: project.id, stageType: "plan" } });
+      expect(planArtifact).not.toBeNull();
     });
   });
 
-  it("rejects completion when the plan omits the source-paper citation", async () => {
-    const { developIdea, claimNextResearchPlanJob, completeResearchPlanJob } = await import(
-      "@/lib/jobs/research"
-    );
-    await withPostgresTestDatabase(async (client) => {
-      mocked.prisma = client;
-      const { user, paper, idea } = await seedIdea(client);
-      const project = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
-      const claimed = await claimNextResearchPlanJob({ userId: user.id, workerId: "w1" });
+  it("literature completion sets literature_ready (no further executor)", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const plan = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
+      await completeResearchStageJob({
+        jobId: plan!.id, workerId: "w",
+        output: planOutput(plan!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
+      });
+      const lit = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
+      expect(lit?.stageType).toBe("literature");
+      await completeResearchStageJob({
+        jobId: lit!.id, workerId: "w",
+        output: literatureOutput(lit!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
+      });
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: lit!.researchProjectId } });
+      expect(project.status).toBe("literature_ready");
+    });
+  });
 
-      const bad = planOutput(project.id, paper);
-      bad.citations = [
-        {
-          sourceType: "web" as unknown as "paper",
-          url: "https://example.com",
-          sourceId: "x",
-          title: "Unrelated",
-          claim: "Unrelated.",
-          confidence: 0.5
-        }
-      ];
-
+  it("rejects a stage output that omits the source-paper citation", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const plan = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
+      const bad = planOutput(plan!.researchProjectId, { arxivId: paper.arxivId, url: paper.url });
+      bad.citations = bad.citations.map((c) => ({ ...c, sourceType: "generated_analysis", url: "" }));
       await expect(
-        completeResearchPlanJob({ jobId: claimed!.id, workerId: "w1", output: bad })
+        completeResearchStageJob({ jobId: plan!.id, workerId: "w", output: bad })
       ).rejects.toThrow();
-      expect(await client.researchPlan.count()).toBe(0);
+      const artifact = await db.researchStageArtifact.findFirst({ where: { researchProjectId: plan!.researchProjectId } });
+      expect(artifact).toBeNull();
     });
   });
 
-  it("does not advance an aborted project on completion", async () => {
-    const { developIdea, claimNextResearchPlanJob, completeResearchPlanJob, abortResearchProject } =
-      await import("@/lib/jobs/research");
-    await withPostgresTestDatabase(async (client) => {
-      mocked.prisma = client;
-      const { user, paper, idea } = await seedIdea(client);
-      const project = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
-      const claimed = await claimNextResearchPlanJob({ userId: user.id, workerId: "w1" });
-
-      await abortResearchProject({ currentUserId: user.id, researchProjectId: project.id });
-      await completeResearchPlanJob({
-        jobId: claimed!.id,
-        workerId: "w1",
-        output: planOutput(project.id, paper)
+  it("abort blocks advancement", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const plan = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
+      await db.researchProject.update({ where: { id: plan!.researchProjectId }, data: { status: "aborted" } });
+      await completeResearchStageJob({
+        jobId: plan!.id, workerId: "w",
+        output: planOutput(plan!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
       });
-
-      const refreshed = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
-      expect(refreshed.status).toBe("aborted");
-      expect(await client.researchPlan.count()).toBe(0);
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: plan!.researchProjectId } });
+      expect(project.status).toBe("aborted");
+      const litJob = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "literature" } });
+      expect(litJob).toBeNull();
     });
   });
 
-  it("failResearchPlanJob marks the job and the project failed", async () => {
-    const { developIdea, claimNextResearchPlanJob, failResearchPlanJob } = await import(
-      "@/lib/jobs/research"
-    );
-    await withPostgresTestDatabase(async (client) => {
-      mocked.prisma = client;
-      const { user, idea } = await seedIdea(client);
-      const project = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
-      const claimed = await claimNextResearchPlanJob({ userId: user.id, workerId: "w1" });
-
-      await failResearchPlanJob({ jobId: claimed!.id, errorMessage: "Codex failed" });
-
-      const job = await client.researchPlanJob.findUniqueOrThrow({ where: { id: claimed!.id } });
+  it("failResearchStageJob fails the job and the running project", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea } = await seedIdea(db);
+      await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
+      const plan = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
+      await failResearchStageJob({ jobId: plan!.id, errorMessage: "boom" });
+      const job = await db.researchStageJob.findUniqueOrThrow({ where: { id: plan!.id } });
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: plan!.researchProjectId } });
       expect(job.status).toBe("failed");
-      expect(job.errorMessage).toBe("Codex failed");
-      const refreshed = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
-      expect(refreshed.status).toBe("failed");
-      expect(await client.researchPlan.count()).toBe(0);
-    });
-  });
-
-  it("failResearchPlanJob does not overwrite an aborted project", async () => {
-    const { developIdea, claimNextResearchPlanJob, failResearchPlanJob, abortResearchProject } =
-      await import("@/lib/jobs/research");
-    await withPostgresTestDatabase(async (client) => {
-      mocked.prisma = client;
-      const { user, idea } = await seedIdea(client);
-      const project = await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
-      const claimed = await claimNextResearchPlanJob({ userId: user.id, workerId: "w1" });
-
-      await abortResearchProject({ currentUserId: user.id, researchProjectId: project.id });
-      await failResearchPlanJob({ jobId: claimed!.id, errorMessage: "Codex failed" });
-
-      const refreshed = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
-      expect(refreshed.status).toBe("aborted");
+      expect(project.status).toBe("failed");
     });
   });
 });

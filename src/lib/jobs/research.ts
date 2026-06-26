@@ -1,7 +1,8 @@
 import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
-import { type Citation, ResearchPlanSchema, ViabilityResultSchema } from "@/lib/v2/schemas";
+import { EXECUTABLE_STAGES, STAGE_REGISTRY, nextExecutableStage, type ResearchStage } from "@/lib/research/stages";
+import { type Citation, ViabilityResultSchema } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
 
@@ -44,10 +45,11 @@ export async function developIdea(input: { currentUserId: string; generatedIdeaI
       }
     });
 
-    await tx.researchPlanJob.create({
+    await tx.researchStageJob.create({
       data: {
         researchProjectId: project.id,
         userId: input.currentUserId,
+        stageType: "plan",
         status: "queued",
         inputJson: JSON.stringify({ researchProjectId: project.id })
       }
@@ -57,12 +59,13 @@ export async function developIdea(input: { currentUserId: string; generatedIdeaI
   });
 }
 
-export async function claimNextResearchPlanJob(input: { userId: string; workerId: string }) {
+export async function claimNextResearchStageJob(input: { userId: string; workerId: string }) {
   for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
     const staleStartedBefore = staleRunningJobStartedBefore();
-    const job = await prisma.researchPlanJob.findFirst({
+    const job = await prisma.researchStageJob.findFirst({
       where: {
         userId: input.userId,
+        stageType: { in: EXECUTABLE_STAGES },
         researchProject: { status: { not: "aborted" } },
         OR: [
           { status: "queued" },
@@ -74,7 +77,7 @@ export async function claimNextResearchPlanJob(input: { userId: string; workerId
 
     if (!job) return null;
 
-    const claim = await prisma.researchPlanJob.updateMany({
+    const claim = await prisma.researchStageJob.updateMany({
       where: {
         id: job.id,
         userId: input.userId,
@@ -94,12 +97,13 @@ export async function claimNextResearchPlanJob(input: { userId: string; workerId
 
     if (claim.count !== 1) continue;
 
-    return prisma.researchPlanJob.findUniqueOrThrow({
+    return prisma.researchStageJob.findUniqueOrThrow({
       where: { id: job.id },
       include: {
         researchProject: {
           include: {
-            generatedIdea: { include: { paper: true, citations: true } }
+            generatedIdea: { include: { paper: true, citations: true } },
+            stageArtifacts: true
           }
         }
       }
@@ -109,86 +113,102 @@ export async function claimNextResearchPlanJob(input: { userId: string; workerId
   return null;
 }
 
-export async function completeResearchPlanJob(input: {
+export async function completeResearchStageJob(input: {
   jobId: string;
   workerId: string;
   output: unknown;
 }) {
-  const parsed = ResearchPlanSchema.parse(input.output);
-
   await prisma.$transaction(async (tx) => {
-    const job = await tx.researchPlanJob.findFirst({
+    const job = await tx.researchStageJob.findFirst({
       where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
       include: {
-        researchProject: {
-          include: { generatedIdea: { include: { paper: true } } }
-        }
+        researchProject: { include: { generatedIdea: { include: { paper: true } } } }
       }
     });
 
     if (!job) {
-      throw new Error("Research plan job is no longer running");
+      throw new Error("Research stage job is no longer running");
     }
+
+    const stage = job.stageType as ResearchStage;
+    const definition = STAGE_REGISTRY[stage as "plan" | "literature"];
+    if (!definition) {
+      throw new Error(`No registry entry for research stage "${job.stageType}"`);
+    }
+
+    const parsed = definition.outputSchema.parse(input.output) as {
+      researchProjectId: string;
+      citations: Citation[];
+    };
 
     if (parsed.researchProjectId !== job.researchProjectId) {
-      throw new Error("Research plan output does not match the claimed project");
+      throw new Error("Research stage output does not match the claimed project");
     }
 
-    const sourcePaper = job.researchProject.generatedIdea.paper;
-    assertCitesSourcePaper(parsed.citations, {
-      id: sourcePaper.id,
-      arxivId: sourcePaper.arxivId,
-      url: sourcePaper.url
-    });
+    if (definition.requiresSourcePaperCitation) {
+      const sourcePaper = job.researchProject.generatedIdea.paper;
+      assertCitesSourcePaper(parsed.citations, {
+        id: sourcePaper.id,
+        arxivId: sourcePaper.arxivId,
+        url: sourcePaper.url
+      });
+    }
 
-    const completion = await tx.researchPlanJob.updateMany({
+    const completion = await tx.researchStageJob.updateMany({
       where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
       data: { status: "completed", outputJson: JSON.stringify(parsed), completedAt: new Date() }
     });
 
     if (completion.count !== 1) {
-      throw new Error("Research plan job is no longer running");
+      throw new Error("Research stage job is no longer running");
     }
 
-    // Harness advance, abort-safe: only advance a project that has not been aborted.
-    // An abort can commit concurrently while this stage runs, so we gate the advance
-    // on the project's CURRENT status via a conditional updateMany rather than the
-    // in-memory snapshot loaded above — a stale snapshot must not resurrect an aborted
-    // project. A later sub-project replaces "plan_ready" with "enqueue the next stage".
+    // Harness advance, abort-safe: gate on the project's CURRENT status via conditional
+    // updateMany so an abort committing concurrently is never resurrected.
+    const next = nextExecutableStage(stage);
     const advance = await tx.researchProject.updateMany({
       where: { id: job.researchProjectId, status: { not: "aborted" } },
-      data: { status: "plan_ready" }
+      data: next ? { currentStage: next, status: "running" } : { status: `${stage}_ready` }
     });
 
-    // Project was aborted (or removed) between claim and completion: the job is
-    // recorded completed above, but no plan is persisted and no advance happens.
+    // Project was aborted between claim and completion: job recorded completed, but no
+    // artifact persisted and no next stage enqueued.
     if (advance.count !== 1) {
       return;
     }
 
-    await tx.researchPlan.create({
-      data: { researchProjectId: job.researchProjectId, planJson: JSON.stringify(parsed) }
+    await tx.researchStageArtifact.create({
+      data: { researchProjectId: job.researchProjectId, stageType: stage, artifactJson: JSON.stringify(parsed) }
     });
+
+    if (next) {
+      await tx.researchStageJob.create({
+        data: {
+          researchProjectId: job.researchProjectId,
+          userId: job.userId,
+          stageType: next,
+          status: "queued",
+          inputJson: JSON.stringify({ researchProjectId: job.researchProjectId })
+        }
+      });
+    }
   });
 }
 
-export async function failResearchPlanJob(input: { jobId: string; errorMessage: string }) {
+export async function failResearchStageJob(input: { jobId: string; errorMessage: string }) {
   await prisma.$transaction(async (tx) => {
-    const job = await tx.researchPlanJob.findUnique({
+    const job = await tx.researchStageJob.findUnique({
       where: { id: input.jobId },
       select: { researchProjectId: true }
     });
 
     if (!job) return;
 
-    // Mark the job failed if it is still in a non-terminal state.
-    await tx.researchPlanJob.updateMany({
+    await tx.researchStageJob.updateMany({
       where: { id: input.jobId, status: { in: ["queued", "running"] } },
       data: { status: "failed", errorMessage: input.errorMessage, completedAt: new Date() }
     });
 
-    // Fail the owning project, but only from "running" — never overwrite a project
-    // that was aborted (abort is terminal) or already advanced to plan_ready.
     await tx.researchProject.updateMany({
       where: { id: job.researchProjectId, status: "running" },
       data: { status: "failed" }
@@ -228,8 +248,8 @@ export async function getResearchProjectDetail(input: { currentUserId: string; p
     where: { id: input.projectId },
     include: {
       generatedIdea: { include: { paper: true } },
-      planJob: true,
-      plan: true
+      stageJobs: { orderBy: { createdAt: "asc" } },
+      stageArtifacts: true
     }
   });
 
