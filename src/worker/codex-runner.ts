@@ -1,4 +1,5 @@
-import { spawn, type SpawnOptions } from "node:child_process";
+import { execFileSync, spawn, type SpawnOptions } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -7,6 +8,7 @@ type DataEmitter = {
 };
 
 type CodexChildProcess = {
+  pid?: number;
   stdin: {
     write(chunk: string): unknown;
     end(): unknown;
@@ -15,6 +17,7 @@ type CodexChildProcess = {
   stderr: DataEmitter;
   on(event: "error", listener: (error: Error) => void): unknown;
   on(event: "close", listener: (code: number | null) => void): unknown;
+  kill?(): unknown;
 };
 
 export type CodexSpawn = (
@@ -38,6 +41,20 @@ type CodexSpawnCommand = {
 
 export function buildCodexExecArgs(outputFile: string) {
   return ["exec", "--json", "--skip-git-repo-check", "--output-last-message", outputFile, "-"];
+}
+
+export function buildCodexAgenticExecArgs(outputFile: string, workspaceDir: string) {
+  return [
+    "exec",
+    "--json",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check",
+    "--cd",
+    workspaceDir,
+    "--output-last-message",
+    outputFile,
+    "-"
+  ];
 }
 
 function wrapCmdPayload(value: string) {
@@ -148,6 +165,116 @@ export async function runCodex(
 
       child.stdin.write(prompt);
       child.stdin.end();
+    });
+
+    return await readFile(outputFile, "utf8");
+  } finally {
+    await rm(outputDir, { force: true, recursive: true });
+  }
+}
+
+type LogStream = {
+  write(chunk: string): unknown;
+  end(): unknown;
+};
+
+type RunCodexAgenticOptions = {
+  workspaceDir: string;
+  codexCommand?: string;
+  platform?: NodeJS.Platform;
+  spawn?: CodexSpawn;
+  signal?: AbortSignal;
+  logFile?: string;
+  killChildTree?: (pid: number, platform: NodeJS.Platform) => void;
+  createLogStream?: (logFile: string) => LogStream;
+};
+
+function killProcessTree(pid: number, platform: NodeJS.Platform) {
+  if (platform === "win32") {
+    execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"]);
+  } else {
+    process.kill(pid, "SIGKILL");
+  }
+}
+
+export async function runCodexAgentic(
+  promptFile: string,
+  options: RunCodexAgenticOptions
+): Promise<string> {
+  const prompt = await readFile(promptFile, "utf8");
+  const outputDir = await mkdtemp(join(options.workspaceDir, ".codex-output-"));
+  const outputFile = join(outputDir, "last-message.txt");
+
+  try {
+    const args = buildCodexAgenticExecArgs(outputFile, options.workspaceDir);
+    const platform = options.platform ?? process.platform;
+    const commandPlan = createCodexSpawnCommand(
+      options.codexCommand ?? getDefaultCodexCommand(platform),
+      args,
+      platform
+    );
+    const spawnCodex = options.spawn ?? (spawn as CodexSpawn);
+    const killChildTree = options.killChildTree ?? killProcessTree;
+    const logFile = options.logFile ?? join(options.workspaceDir, "codex-run.log");
+    const openLog = options.createLogStream ?? ((file: string) => createWriteStream(file));
+
+    let logStream: LogStream | null = null;
+    const writeLog = (chunk: string) => {
+      if (!logStream) logStream = openLog(logFile);
+      logStream.write(chunk);
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const child = spawnCodex(commandPlan.command, commandPlan.args, {
+        ...commandPlan.options,
+        ...(commandPlan.envOverrides
+          ? { env: { ...process.env, ...commandPlan.envOverrides } }
+          : {}),
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      let stderr = "";
+      let stdout = "";
+      let aborted = false;
+
+      const onAbort = () => {
+        aborted = true;
+        child.kill?.();
+        if (typeof child.pid === "number") killChildTree(child.pid, platform);
+        reject(new Error("codex run aborted"));
+      };
+
+      if (options.signal) {
+        if (options.signal.aborted) {
+          onAbort();
+          return;
+        }
+        options.signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      child.stdout.on("data", (chunk) => {
+        const text = String(chunk);
+        stdout += text;
+        writeLog(text);
+      });
+
+      child.stderr.on("data", (chunk) => {
+        const text = String(chunk);
+        stderr += text;
+        writeLog(text);
+      });
+
+      child.on("error", reject);
+      child.on("close", (code) => {
+        options.signal?.removeEventListener("abort", onAbort);
+        if (aborted) return;
+        if (code === 0) resolve();
+        else reject(new Error(buildFailureMessage(code, stderr, stdout)));
+      });
+
+      child.stdin.write(prompt);
+      child.stdin.end();
+    }).finally(() => {
+      logStream?.end();
     });
 
     return await readFile(outputFile, "utf8");
