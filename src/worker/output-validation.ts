@@ -1,6 +1,7 @@
 import { clampGeneratedInboxIdeas } from "@/lib/v2/clamp-inbox";
 import {
   AnalysisResultSchema,
+  CriticVerdictSchema,
   ExperimentResultSchema,
   GeneratedInboxSchema,
   LiteratureReviewSchema,
@@ -34,4 +35,8 @@ export function parseResearchStageOutput(stageType: string, raw: string) {
     throw new Error(`No worker output schema for research stage "${stageType}"`);
   }
   return schema.parse(JSON.parse(raw));
+}
+
+export function parseCriticVerdict(raw: string) {
+  return CriticVerdictSchema.parse(JSON.parse(raw));
 }

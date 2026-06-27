@@ -5,6 +5,7 @@ import {
   MAX_DAILY_IDEAS,
   MAX_IDEAS_PER_PAPER,
   NOVELTY_STATUSES,
+  RESEARCH_STAGES,
   VIABILITY_VERDICTS
 } from "@/lib/v2/domain";
 
@@ -582,6 +583,45 @@ export const AnalysisJobInputSchema = strictObject({
   citations: z.array(CitationSchema)
 });
 
+const CriticScorecardEntrySchema = strictObject({
+  criterion: NonEmptyTrimmedStringSchema,
+  pass: z.boolean(),
+  note: NonEmptyTrimmedStringSchema
+});
+
+export const CriticVerdictSchema = strictObject({
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  stageType: z.enum(RESEARCH_STAGES),
+  verdict: z.enum(["PASS", "REDO", "BACKTRACK"]),
+  scorecard: z.array(CriticScorecardEntrySchema).min(1),
+  targetStage: z.enum(RESEARCH_STAGES).optional(),
+  feedback: NonEmptyTrimmedStringSchema.optional()
+}).superRefine((value, ctx) => {
+  if (value.verdict === "BACKTRACK") {
+    if (!value.targetStage) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "BACKTRACK verdict requires targetStage",
+        path: ["targetStage"]
+      });
+    }
+  } else if (value.targetStage !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "targetStage is only allowed on a BACKTRACK verdict",
+      path: ["targetStage"]
+    });
+  }
+
+  if (value.verdict !== "PASS" && !value.feedback) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "REDO and BACKTRACK verdicts require feedback",
+      path: ["feedback"]
+    });
+  }
+});
+
 export type ResearchPlan = z.infer<typeof ResearchPlanSchema>;
 export type ResearchPlanJobInput = z.infer<typeof ResearchPlanJobInputSchema>;
 export type LiteratureReview = z.infer<typeof LiteratureReviewSchema>;
@@ -599,3 +639,4 @@ export type InboxGenerationJobInput = z.infer<typeof InboxGenerationJobInputSche
 export type NoveltyScanResult = z.infer<typeof NoveltyScanResultSchema>;
 export type NoveltyScanJobInput = z.infer<typeof NoveltyScanJobInputSchema>;
 export type ViabilityResult = z.infer<typeof ViabilityResultSchema>;
+export type CriticVerdict = z.infer<typeof CriticVerdictSchema>;
