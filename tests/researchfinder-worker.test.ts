@@ -779,7 +779,7 @@ describe("researchfinder local worker", () => {
       )
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
     let promptText = "";
-    const runCodexAgentic = vi.fn(async (promptPath: string, _options?: { workspaceDir?: string }) => {
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
       promptText = await readFile(promptPath, "utf8");
       return JSON.stringify(codexOutput);
     });
@@ -888,7 +888,7 @@ describe("researchfinder local worker", () => {
       )
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
     let promptText = "";
-    const runCodexAgentic = vi.fn(async (promptPath: string, _options?: { workspaceDir?: string }) => {
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
       promptText = await readFile(promptPath, "utf8");
       return JSON.stringify(codexOutput);
     });
@@ -908,7 +908,8 @@ describe("researchfinder local worker", () => {
     expect(runCodexAgentic).toHaveBeenCalledTimes(1);
     // Analysis runs at the project root (so it can read the sibling experiment/ outputs),
     // NOT the analysis/ subdir — lock that in.
-    expect(runCodexAgentic.mock.calls[0]?.[1]?.workspaceDir).toMatch(/[\\/]proj-1$/);
+    const analysisCall = runCodexAgentic.mock.calls[0] as unknown as [string, { workspaceDir?: string }];
+    expect(analysisCall?.[1]?.workspaceDir).toMatch(/[\\/]proj-1$/);
     expect(promptText).toContain("INPUT.json");
     expect(promptText).toContain("analysis/");
     const completionRequest = fetchMock.mock.calls[1];
