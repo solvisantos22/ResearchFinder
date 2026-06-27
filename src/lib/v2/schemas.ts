@@ -458,12 +458,129 @@ export const ExperimentJobInputSchema = strictObject({
   citations: z.array(CitationSchema)
 });
 
+export const AnalysisResultSchema = strictObject({
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: NonEmptyTrimmedStringSchema,
+  successCriteriaAssessment: z
+    .array(
+      strictObject({
+        criterion: NonEmptyTrimmedStringSchema,
+        status: z.enum(["met", "partially_met", "not_met", "inconclusive"]),
+        evidence: NonEmptyTrimmedStringSchema
+      })
+    )
+    .min(1),
+  statisticalFindings: z.array(
+    strictObject({
+      description: NonEmptyTrimmedStringSchema,
+      method: NonEmptyTrimmedStringSchema.optional(),
+      value: NonEmptyTrimmedStringSchema.optional(),
+      interpretation: NonEmptyTrimmedStringSchema
+    })
+  ),
+  keyFindings: z.array(NonEmptyTrimmedStringSchema).min(1),
+  artifacts: z.array(
+    strictObject({
+      path: NonEmptyTrimmedStringSchema,
+      caption: NonEmptyTrimmedStringSchema,
+      kind: z.enum(["figure", "table", "data"]),
+      bytes: z.number().int().nonnegative()
+    })
+  ),
+  comparisonToBaselines: NonEmptyTrimmedStringSchema,
+  threatsToValidity: z.array(NonEmptyTrimmedStringSchema),
+  recommendedNextSteps: z.array(NonEmptyTrimmedStringSchema),
+  verdict: z.enum(["supports_hypotheses", "mixed", "refutes_hypotheses", "inconclusive"]),
+  summary: NonEmptyTrimmedStringSchema,
+  citations: z.array(CitationSchema).min(1)
+});
+
+export const AnalysisJobInputSchema = strictObject({
+  jobId: NonEmptyTrimmedStringSchema,
+  userId: NonEmptyTrimmedStringSchema,
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  idea: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    expandedExplanation: NonEmptyTrimmedStringSchema,
+    trajectory: NonEmptyTrimmedStringSchema,
+    smallestSprint: NonEmptyTrimmedStringSchema
+  }),
+  paper: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    arxivId: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    abstract: NonEmptyTrimmedStringSchema,
+    url: RequiredUrlSchema,
+    authors: z.array(NonEmptyTrimmedStringSchema),
+    categories: z.array(NonEmptyTrimmedStringSchema),
+    publishedAt: z.string().datetime()
+  }),
+  plan: strictObject({
+    relationToSourcePaper: NonEmptyTrimmedStringSchema,
+    hypotheses: z.array(NonEmptyTrimmedStringSchema).min(1),
+    successCriteria: z.array(NonEmptyTrimmedStringSchema).min(1),
+    metrics: z.array(NonEmptyTrimmedStringSchema),
+    baselines: z.array(NonEmptyTrimmedStringSchema),
+    experimentalDesign: NonEmptyTrimmedStringSchema
+  }),
+  literature: strictObject({
+    positioning: NonEmptyTrimmedStringSchema,
+    gaps: z.array(NonEmptyTrimmedStringSchema).min(1)
+  }),
+  experiment: strictObject({
+    hypothesisOutcomes: z
+      .array(
+        strictObject({
+          hypothesis: NonEmptyTrimmedStringSchema,
+          outcome: z.enum(["supported", "refuted", "inconclusive"]),
+          evidence: NonEmptyTrimmedStringSchema
+        })
+      )
+      .min(1),
+    metrics: z.array(
+      strictObject({
+        name: NonEmptyTrimmedStringSchema,
+        value: NonEmptyTrimmedStringSchema,
+        unit: NonEmptyTrimmedStringSchema.optional(),
+        baseline: NonEmptyTrimmedStringSchema.optional()
+      })
+    ),
+    findings: z.array(NonEmptyTrimmedStringSchema).min(1),
+    limitations: z.array(NonEmptyTrimmedStringSchema),
+    verdict: z.enum(["success", "partial", "failed"]),
+    environment: NonEmptyTrimmedStringSchema,
+    reproductionSteps: z.array(NonEmptyTrimmedStringSchema).min(1),
+    artifacts: z.array(
+      strictObject({
+        path: NonEmptyTrimmedStringSchema,
+        description: NonEmptyTrimmedStringSchema.optional(),
+        bytes: z.number().int().nonnegative()
+      })
+    ),
+    logsExcerpt: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema
+  }),
+  viability: strictObject({
+    verdict: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    feasibility: NonEmptyTrimmedStringSchema,
+    noveltyRisk: NonEmptyTrimmedStringSchema,
+    minimumExperiment: NonEmptyTrimmedStringSchema,
+    blockers: z.array(NonEmptyTrimmedStringSchema)
+  }).nullable(),
+  citations: z.array(CitationSchema)
+});
+
 export type ResearchPlan = z.infer<typeof ResearchPlanSchema>;
 export type ResearchPlanJobInput = z.infer<typeof ResearchPlanJobInputSchema>;
 export type LiteratureReview = z.infer<typeof LiteratureReviewSchema>;
 export type LiteratureJobInput = z.infer<typeof LiteratureJobInputSchema>;
 export type ExperimentResult = z.infer<typeof ExperimentResultSchema>;
 export type ExperimentJobInput = z.infer<typeof ExperimentJobInputSchema>;
+export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
+export type AnalysisJobInput = z.infer<typeof AnalysisJobInputSchema>;
 
 export type Citation = z.infer<typeof CitationSchema>;
 export type GeneratedInbox = z.infer<typeof GeneratedInboxSchema>;
