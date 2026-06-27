@@ -643,7 +643,7 @@ describe("research_analysis worker routes", () => {
 });
 
 describe("research stage completion routes", () => {
-  it("completing a running plan stage job advances project to literature stage", async () => {
+  it("completing a running plan producer enqueues a plan critic", async () => {
     const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
     const { POST: completePOST } = await import(
       "@/app/api/workers/jobs/[jobId]/complete/route"
@@ -703,28 +703,34 @@ describe("research stage completion routes", () => {
       );
       expect(completeResponse.status).toBe(200);
 
-      // Project should advance to literature stage
+      // Project should stay on plan stage and keep running (critic not yet done)
       const updatedProject = await client.researchProject.findUniqueOrThrow({
         where: { id: project.id }
       });
-      expect(updatedProject.currentStage).toBe("literature");
+      expect(updatedProject.currentStage).toBe("plan");
       expect(updatedProject.status).toBe("running");
 
-      // A queued literature job should exist
-      const litJob = await client.researchStageJob.findFirst({
-        where: { researchProjectId: project.id, stageType: "literature", status: "queued" }
+      // A queued plan critic job should exist
+      const planCriticJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "plan", kind: "critic", status: "queued" }
       });
-      expect(litJob).not.toBeNull();
+      expect(planCriticJob).not.toBeNull();
 
-      // A plan artifact should exist
+      // NO queued literature producer job should exist
+      const litProducerJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "literature", kind: "producer", status: "queued" }
+      });
+      expect(litProducerJob).toBeNull();
+
+      // A live (non-superseded) plan artifact should exist
       const planArtifact = await client.researchStageArtifact.findFirst({
-        where: { researchProjectId: project.id, stageType: "plan" }
+        where: { researchProjectId: project.id, stageType: "plan", supersededAt: null }
       });
       expect(planArtifact).not.toBeNull();
     });
   });
 
-  it("completing a running literature stage job advances the project to experiment", async () => {
+  it("completing a running literature producer enqueues a literature critic", async () => {
     const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
     const { POST: completePOST } = await import(
       "@/app/api/workers/jobs/[jobId]/complete/route"
@@ -785,21 +791,27 @@ describe("research stage completion routes", () => {
       );
       expect(completeResponse.status).toBe(200);
 
-      // Project should advance to the experiment stage and stay running
+      // Project should stay on literature stage and keep running (critic not yet done)
       const updatedProject = await client.researchProject.findUniqueOrThrow({
         where: { id: project.id }
       });
-      expect(updatedProject).toMatchObject({ currentStage: "experiment", status: "running" });
+      expect(updatedProject).toMatchObject({ currentStage: "literature", status: "running" });
 
-      // A queued experiment job should exist
-      const experimentJob = await client.researchStageJob.findFirst({
-        where: { researchProjectId: project.id, stageType: "experiment", status: "queued" }
+      // A queued literature critic job should exist
+      const litCriticJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "literature", kind: "critic", status: "queued" }
       });
-      expect(experimentJob).not.toBeNull();
+      expect(litCriticJob).not.toBeNull();
 
-      // A literature artifact should exist
+      // NO queued experiment producer job should exist
+      const experimentProducerJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "experiment", kind: "producer", status: "queued" }
+      });
+      expect(experimentProducerJob).toBeNull();
+
+      // A live (non-superseded) literature artifact should exist
       const litArtifact = await client.researchStageArtifact.findFirst({
-        where: { researchProjectId: project.id, stageType: "literature" }
+        where: { researchProjectId: project.id, stageType: "literature", supersededAt: null }
       });
       expect(litArtifact).not.toBeNull();
     });
@@ -814,7 +826,7 @@ describe("research stage completion routes", () => {
       const { worker, project } = await seedProjectWithAnalysisJob(client);
       mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
 
-      // Claim it so it is "running" and owned by this worker.
+      // Claim the analysis producer job so it is "running" and owned by this worker.
       const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
       const claimResponse = await claimPOST(
         new Request("http://localhost/api/workers/claim", {
@@ -823,9 +835,10 @@ describe("research stage completion routes", () => {
         })
       );
       const { job } = (await claimResponse.json()) as { job: { id: string } };
-      const jobId = job.id;
+      const producerJobId = job.id;
 
-      const output = {
+      // (a) Complete the analysis producer
+      const analysisOutput = {
         researchProjectId: project.id,
         relationToSourcePaper: "Analyzes results extending the source paper.",
         successCriteriaAssessment: [
@@ -846,20 +859,64 @@ describe("research stage completion routes", () => {
         ]
       };
 
-      const completeResponse = await completePOST(
-        new Request(`http://localhost/api/workers/jobs/${jobId}/complete`, {
+      const producerCompleteResponse = await completePOST(
+        new Request(`http://localhost/api/workers/jobs/${producerJobId}/complete`, {
           method: "POST",
-          headers: { authorization: "Bearer t" },
-          body: JSON.stringify({ type: "research_analysis", output })
+          headers: { authorization: "Bearer t", "content-type": "application/json" },
+          body: JSON.stringify({ type: "research_analysis", output: analysisOutput })
         }),
-        { params: Promise.resolve({ jobId }) }
+        { params: Promise.resolve({ jobId: producerJobId }) }
       );
-      expect(completeResponse.status).toBe(200);
+      expect(producerCompleteResponse.status).toBe(200);
 
+      // Project should still be running — critic has not passed yet
+      const afterProducer = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
+      expect(afterProducer.status).toBe("running");
+
+      // A queued analysis critic job should exist
+      const analysisCriticJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "analysis", kind: "critic", status: "queued" }
+      });
+      expect(analysisCriticJob).not.toBeNull();
+      const criticJobId = analysisCriticJob!.id;
+
+      // (b) Claim the critic job
+      const criticClaimResponse = await claimPOST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST",
+          headers: { authorization: "Bearer t" }
+        })
+      );
+      expect(criticClaimResponse.status).toBe(200);
+      const criticClaimPayload = (await criticClaimResponse.json()) as { job: { id: string } };
+      expect(criticClaimPayload.job.id).toBe(criticJobId);
+
+      // Complete the critic job with a PASS CriticVerdict
+      const criticVerdict = {
+        researchProjectId: project.id,
+        stageType: "analysis",
+        verdict: "PASS",
+        scorecard: [
+          { criterion: "Clarity", pass: true, note: "Clear and well-structured." }
+        ]
+      };
+
+      const criticCompleteResponse = await completePOST(
+        new Request(`http://localhost/api/workers/jobs/${criticJobId}/complete`, {
+          method: "POST",
+          headers: { authorization: "Bearer t", "content-type": "application/json" },
+          body: JSON.stringify({ type: "research_analysis_critic", output: criticVerdict })
+        }),
+        { params: Promise.resolve({ jobId: criticJobId }) }
+      );
+      expect(criticCompleteResponse.status).toBe(200);
+
+      // (c) Project should now be analysis_ready and a live analysis artifact should exist
       const updated = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
       expect(updated.status).toBe("analysis_ready");
+
       const artifact = await client.researchStageArtifact.findFirst({
-        where: { researchProjectId: project.id, stageType: "analysis" }
+        where: { researchProjectId: project.id, stageType: "analysis", supersededAt: null }
       });
       expect(artifact).not.toBeNull();
     });
