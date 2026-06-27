@@ -50,6 +50,18 @@ export const CRITIC_CRITERIA: Record<ExecutableStage, StageCriteria> = {
     ],
     routingGuidance:
       "If the data cannot support the claims because the experiment is insufficient, BACKTRACK to experiment. If the statistics, figures, or writing are flawed but the underlying data is adequate, REDO."
+  },
+  paper: {
+    criteria: [
+      "Every empirical claim and number traces to an analysis result: cross-check each figure, number, and claim against UPSTREAM_analysis.json (and the analysis/ artifacts). No invented numbers, no claims the analysis does not support.",
+      "Every citation is real and verifiable: each reference resolves to a real paper (URL/DOI) — spot-check with web search — and the source paper is cited.",
+      "Figures and tables are present and referenced: the artifacts the paper claims exist with sensible sizes and are referenced in the text.",
+      "Novelty is explicit relative to the source paper: the paper states a concrete contribution beyond the source paper, not a restatement.",
+      "Method is reproducible from the text: a reader could re-run the study from the described method and protocol.",
+      "The LaTeX compiles to a PDF: a non-empty compiled PDF exists (compiled is true and a 'pdf' artifact / pdfPath with bytes > 0). If compilation failed, this criterion fails."
+    ],
+    routingGuidance:
+      "This is the strictest gate — default to rejection unless the paper is genuinely submittable. If any empirical claim is unsupported by the analysis (or the data cannot support it), BACKTRACK to analysis. Writing, structure, missing-section, citation-format, or compilation problems that do not need new results are REDO."
   }
 };
 

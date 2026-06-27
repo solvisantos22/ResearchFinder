@@ -42,3 +42,14 @@ describe("renderCriticCriteria", () => {
     expect(rendered.toLowerCase()).toContain("one scorecard entry per criterion");
   });
 });
+
+describe("CRITIC_CRITERIA.paper", () => {
+  it("defines the strictest paper gate: claims trace to analysis, PDF compiles, backtrack to analysis", () => {
+    const paper = CRITIC_CRITERIA.paper;
+    const text = paper.criteria.join(" ").toLowerCase();
+    expect(text).toContain("compil");      // "compiles to a PDF"
+    expect(text).toContain("citation");
+    expect(text).toContain("novelt");
+    expect(paper.routingGuidance.toLowerCase()).toContain("backtrack to analysis");
+  });
+});
