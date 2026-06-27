@@ -588,6 +588,77 @@ export const AnalysisJobInputSchema = strictObject({
   feedback: NonEmptyTrimmedStringSchema.optional()
 });
 
+export const PaperResultSchema = strictObject({
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: CoercibleString,
+  title: CoercibleString,
+  abstract: CoercibleString,
+  noveltyStatement: CoercibleString,
+  sections: z.array(CoercibleString).min(1),
+  texPath: CoercibleString,
+  pdfPath: CoercibleString,
+  compiled: z.boolean(),
+  artifacts: z.array(
+    strictObject({
+      path: CoercibleString,
+      caption: CoercibleString,
+      kind: z.enum(["figure", "table", "pdf", "tex"]),
+      bytes: z.number().int().nonnegative()
+    })
+  ),
+  summary: CoercibleString,
+  citations: z.array(CitationSchema).min(1)
+});
+
+export const PaperJobInputSchema = strictObject({
+  jobId: NonEmptyTrimmedStringSchema,
+  userId: NonEmptyTrimmedStringSchema,
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  idea: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    expandedExplanation: NonEmptyTrimmedStringSchema,
+    trajectory: NonEmptyTrimmedStringSchema,
+    smallestSprint: NonEmptyTrimmedStringSchema
+  }),
+  paper: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    arxivId: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    abstract: NonEmptyTrimmedStringSchema,
+    url: RequiredUrlSchema,
+    authors: z.array(NonEmptyTrimmedStringSchema),
+    categories: z.array(NonEmptyTrimmedStringSchema),
+    publishedAt: z.string().datetime()
+  }),
+  plan: strictObject({
+    relationToSourcePaper: NonEmptyTrimmedStringSchema,
+    hypotheses: z.array(NonEmptyTrimmedStringSchema).min(1),
+    successCriteria: z.array(NonEmptyTrimmedStringSchema).min(1),
+    metrics: z.array(NonEmptyTrimmedStringSchema),
+    baselines: z.array(NonEmptyTrimmedStringSchema),
+    experimentalDesign: NonEmptyTrimmedStringSchema
+  }),
+  literature: strictObject({
+    positioning: NonEmptyTrimmedStringSchema,
+    gaps: z.array(NonEmptyTrimmedStringSchema).min(1)
+  }),
+  experiment: strictObject({
+    summary: NonEmptyTrimmedStringSchema,
+    verdict: NonEmptyTrimmedStringSchema,
+    findings: z.array(NonEmptyTrimmedStringSchema).min(1)
+  }),
+  analysis: strictObject({
+    summary: NonEmptyTrimmedStringSchema,
+    verdict: NonEmptyTrimmedStringSchema,
+    keyFindings: z.array(NonEmptyTrimmedStringSchema).min(1),
+    comparisonToBaselines: NonEmptyTrimmedStringSchema
+  }),
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
+});
+
 const CriticScorecardEntrySchema = strictObject({
   criterion: NonEmptyTrimmedStringSchema,
   pass: z.boolean(),
@@ -645,6 +716,8 @@ export type ExperimentResult = z.infer<typeof ExperimentResultSchema>;
 export type ExperimentJobInput = z.infer<typeof ExperimentJobInputSchema>;
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 export type AnalysisJobInput = z.infer<typeof AnalysisJobInputSchema>;
+export type PaperResult = z.infer<typeof PaperResultSchema>;
+export type PaperJobInput = z.infer<typeof PaperJobInputSchema>;
 
 export type Citation = z.infer<typeof CitationSchema>;
 export type GeneratedInbox = z.infer<typeof GeneratedInboxSchema>;

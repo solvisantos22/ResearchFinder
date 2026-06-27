@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { LiteratureReviewSchema, ResearchPlanJobInputSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
+import { LiteratureReviewSchema, PaperJobInputSchema, PaperResultSchema, ResearchPlanJobInputSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
 
 const sourcePaperCitation = {
   sourceType: "paper" as const,
@@ -156,5 +156,74 @@ describe("LiteratureReviewSchema", () => {
     ).toEqual(["CIFAR-10 (public)", "timm (GitHub)"]);
     // still valid without it (optional)
     expect(LiteratureReviewSchema.parse(valid).availableResources).toBeUndefined();
+  });
+});
+
+describe("PaperResultSchema", () => {
+  const valid = {
+    researchProjectId: "proj-1",
+    relationToSourcePaper: "Extends the source method to a new benchmark.",
+    title: "A Rigorous Study of X",
+    abstract: "We study X and find Y.",
+    noveltyStatement: "First to evaluate X on the public Z benchmark with ablations.",
+    sections: ["Introduction", "Related Work", "Method", "Experiments", "Results", "Conclusion"],
+    texPath: "paper/main.tex",
+    pdfPath: "paper/main.pdf",
+    compiled: true,
+    artifacts: [
+      { path: "paper/main.pdf", caption: "Compiled paper", kind: "pdf", bytes: 240000 },
+      { path: "analysis/fig1.png", caption: "Accuracy vs depth", kind: "figure", bytes: 30000 }
+    ],
+    summary: "A submittable workshop-grade draft.",
+    citations: [
+      { sourceType: "paper", title: "Source", url: "https://arxiv.org/abs/2501.00001", sourceId: "2501.00001", claim: "Foundational", confidence: 0.9 }
+    ]
+  };
+
+  it("accepts a complete paper result", () => {
+    expect(PaperResultSchema.parse(valid)).toMatchObject({ researchProjectId: "proj-1", compiled: true });
+  });
+
+  it("requires at least one section and one citation", () => {
+    expect(PaperResultSchema.safeParse({ ...valid, sections: [] }).success).toBe(false);
+    expect(PaperResultSchema.safeParse({ ...valid, citations: [] }).success).toBe(false);
+  });
+
+  it("rejects unknown keys and a non-boolean compiled", () => {
+    expect(PaperResultSchema.safeParse({ ...valid, extra: 1 }).success).toBe(false);
+    expect(PaperResultSchema.safeParse({ ...valid, compiled: "yes" }).success).toBe(false);
+  });
+
+  it("coerces object-valued content fields to strings", () => {
+    const parsed = PaperResultSchema.parse({ ...valid, abstract: { text: "We study X." } });
+    expect(typeof parsed.abstract).toBe("string");
+  });
+});
+
+describe("PaperJobInputSchema", () => {
+  const valid = {
+    jobId: "job-1", userId: "user-1", researchProjectId: "proj-1",
+    idea: { id: "i1", title: "T", summary: "S", expandedExplanation: "E", trajectory: "Tr", smallestSprint: "SS" },
+    paper: {
+      id: "p1", arxivId: "2501.00001", title: "Source", abstract: "A", url: "https://arxiv.org/abs/2501.00001",
+      authors: ["Ada"], categories: ["cs.LG"], publishedAt: "2026-06-25T00:00:00.000Z"
+    },
+    plan: { relationToSourcePaper: "Extends.", hypotheses: ["H1"], successCriteria: ["beats baseline"], metrics: ["acc"], baselines: ["ResNet"], experimentalDesign: "ablation" },
+    literature: { positioning: "We close the Z gap.", gaps: ["no open benchmark"] },
+    experiment: { summary: "Ran full study.", verdict: "success", findings: ["X improves Y"] },
+    analysis: { summary: "Supports hypotheses.", verdict: "supports_hypotheses", keyFindings: ["+4% acc"], comparisonToBaselines: "Beats ResNet." },
+    citations: [{ sourceType: "paper", title: "Source", url: "https://arxiv.org/abs/2501.00001", sourceId: "2501.00001", claim: "Foundational", confidence: 0.9 }]
+  };
+
+  it("accepts a valid paper job input", () => {
+    expect(PaperJobInputSchema.parse(valid)).toMatchObject({ jobId: "job-1" });
+  });
+
+  it("accepts an optional feedback string", () => {
+    expect(PaperJobInputSchema.parse({ ...valid, feedback: "Tighten the abstract." }).feedback).toBe("Tighten the abstract.");
+  });
+
+  it("rejects unknown keys", () => {
+    expect(PaperJobInputSchema.safeParse({ ...valid, extra: 1 }).success).toBe(false);
   });
 });

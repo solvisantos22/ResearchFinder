@@ -6,6 +6,7 @@ import {
   GeneratedInboxSchema,
   LiteratureReviewSchema,
   NoveltyScanResultSchema,
+  PaperResultSchema,
   ResearchPlanSchema,
   ViabilityResultSchema
 } from "@/lib/v2/schemas";
@@ -26,7 +27,8 @@ const RESEARCH_STAGE_SCHEMAS = {
   plan: ResearchPlanSchema,
   literature: LiteratureReviewSchema,
   experiment: ExperimentResultSchema,
-  analysis: AnalysisResultSchema
+  analysis: AnalysisResultSchema,
+  paper: PaperResultSchema
 } as const;
 
 export function parseResearchStageOutput(stageType: string, raw: string) {
