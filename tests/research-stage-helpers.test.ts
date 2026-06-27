@@ -11,9 +11,10 @@ describe("needs_review status", () => {
 
 describe("stagesAfter", () => {
   it("returns executable stages strictly after the given stage, in order", () => {
-    expect(stagesAfter("plan")).toEqual(["literature", "experiment", "analysis"]);
-    expect(stagesAfter("experiment")).toEqual(["analysis"]);
-    expect(stagesAfter("analysis")).toEqual([]);
+    expect(stagesAfter("plan")).toEqual(["literature", "experiment", "analysis", "paper"]);
+    expect(stagesAfter("experiment")).toEqual(["analysis", "paper"]);
+    expect(stagesAfter("analysis")).toEqual(["paper"]);
+    expect(stagesAfter("paper")).toEqual([]);
   });
 });
 
