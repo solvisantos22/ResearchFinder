@@ -50,6 +50,7 @@ describe("routeAfterCritic — REDO", () => {
     expect(action).toEqual({
       type: "backtrack",
       targetStage: "plan",
+      attempt: 1,
       feedback: "Still thin.",
       supersedeAfter: "plan"
     });
@@ -75,6 +76,7 @@ describe("routeAfterCritic — BACKTRACK", () => {
     expect(action).toEqual({
       type: "backtrack",
       targetStage: "plan",
+      attempt: 1,
       feedback: "Re-scope.",
       supersedeAfter: "plan"
     });

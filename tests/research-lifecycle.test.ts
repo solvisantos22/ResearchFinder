@@ -403,7 +403,8 @@ describe("completeResearchStageJob advance", () => {
       expect(livePlan).not.toBeNull();
       const replan = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "plan", kind: "producer", status: "queued" } });
       expect(replan).not.toBeNull();
-      expect(replan!.attempt).toBe(2);
+      // A backtrack is a fresh visit to the target stage, so its REDO counter resets to 1.
+      expect(replan!.attempt).toBe(1);
     });
   });
 

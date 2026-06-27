@@ -317,7 +317,7 @@ async function completeCriticJob(
       userId: job.userId,
       stageType: action.targetStage,
       kind: "producer",
-      attempt: job.attempt + 1,
+      attempt: action.attempt,
       feedback: action.feedback,
       status: "queued",
       inputJson: JSON.stringify({ researchProjectId: job.researchProjectId })

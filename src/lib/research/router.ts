@@ -23,6 +23,7 @@ export type RouteAction =
   | {
       type: "backtrack";
       targetStage: ExecutableStage;
+      attempt: number;
       feedback: string;
       supersedeAfter: ExecutableStage;
     }
@@ -80,7 +81,8 @@ export function routeAfterCritic(
     if (!previous || project.backtracksUsed >= MAX_BACKTRACKS) {
       return { type: "set_status", status: "needs_review" };
     }
-    return { type: "backtrack", targetStage: previous, feedback, supersedeAfter: previous };
+    // A backtrack starts a fresh visit to the target stage, so its REDO counter resets to 1.
+    return { type: "backtrack", targetStage: previous, attempt: 1, feedback, supersedeAfter: previous };
   }
 
   // BACKTRACK
@@ -89,5 +91,6 @@ export function routeAfterCritic(
   if (project.backtracksUsed >= MAX_BACKTRACKS) {
     return { type: "set_status", status: "needs_review" };
   }
-  return { type: "backtrack", targetStage, feedback, supersedeAfter: targetStage };
+  // A backtrack starts a fresh visit to the target stage, so its REDO counter resets to 1.
+  return { type: "backtrack", targetStage, attempt: 1, feedback, supersedeAfter: targetStage };
 }
