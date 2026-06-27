@@ -1,5 +1,6 @@
 import { clampGeneratedInboxIdeas } from "@/lib/v2/clamp-inbox";
 import {
+  AnalysisResultSchema,
   ExperimentResultSchema,
   GeneratedInboxSchema,
   LiteratureReviewSchema,
@@ -23,7 +24,8 @@ export function parseViabilityOutput(raw: string) {
 const RESEARCH_STAGE_SCHEMAS = {
   plan: ResearchPlanSchema,
   literature: LiteratureReviewSchema,
-  experiment: ExperimentResultSchema
+  experiment: ExperimentResultSchema,
+  analysis: AnalysisResultSchema
 } as const;
 
 export function parseResearchStageOutput(stageType: string, raw: string) {

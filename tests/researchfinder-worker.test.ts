@@ -810,6 +810,117 @@ describe("researchfinder local worker", () => {
     expect(completionBody.output).toEqual(codexOutput);
   });
 
+  it("completes claimed research_analysis jobs with an agentic run and validated output", async () => {
+    const codexOutput = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Analyzes the source paper's method results.",
+      successCriteriaAssessment: [
+        { criterion: "Beat baseline by >2%.", status: "met", evidence: "Accuracy +4% (p<0.05)." }
+      ],
+      statisticalFindings: [
+        { description: "Accuracy delta", method: "paired t-test", value: "p=0.03", interpretation: "Significant." }
+      ],
+      keyFindings: ["The method significantly beats the baseline."],
+      artifacts: [{ path: "analysis/accuracy.png", caption: "Accuracy vs baseline", kind: "figure", bytes: 20480 }],
+      comparisonToBaselines: "Outperforms the vanilla baseline.",
+      threatsToValidity: ["Single dataset."],
+      recommendedNextSteps: ["Repeat on a larger corpus."],
+      verdict: "supports_hypotheses",
+      summary: "The evidence supports the hypotheses.",
+      citations: [
+        {
+          sourceType: "paper",
+          url: "https://arxiv.org/abs/2401.00001",
+          sourceId: "2401.00001",
+          title: "Source Paper",
+          claim: "We analyze results extending this method.",
+          confidence: 0.9
+        }
+      ]
+    };
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_analysis",
+            id: "ana-1",
+            input: {
+              jobId: "ana-1",
+              userId: "user-1",
+              researchProjectId: "proj-1",
+              idea: {
+                id: "idea-1", title: "Idea", summary: "Summary",
+                expandedExplanation: "Explanation", trajectory: "Trajectory", smallestSprint: "Sprint"
+              },
+              paper: {
+                id: "paper-1", arxivId: "2401.00001", title: "Source Paper", abstract: "Abstract.",
+                url: "https://arxiv.org/abs/2401.00001", authors: ["A. Author"], categories: ["cs.LG"],
+                publishedAt: "2024-01-01T00:00:00.000Z"
+              },
+              plan: {
+                relationToSourcePaper: "Extends it.",
+                hypotheses: ["H1"],
+                successCriteria: ["Beat baseline by >2%."],
+                metrics: ["accuracy"],
+                baselines: ["vanilla"],
+                experimentalDesign: "A/B on a small split."
+              },
+              literature: { positioning: "Novel.", gaps: ["No small-scale ablation."] },
+              experiment: {
+                hypothesisOutcomes: [{ hypothesis: "H1", outcome: "supported", evidence: "Accuracy rose 4%." }],
+                metrics: [{ name: "accuracy", value: "0.84", baseline: "0.80" }],
+                findings: ["Beats baseline."],
+                limitations: ["One seed."],
+                verdict: "success",
+                environment: "python 3.11",
+                reproductionSteps: ["uv run python train.py"],
+                artifacts: [{ path: "experiment/train.py", description: "training script", bytes: 1200 }],
+                logsExcerpt: "epoch 1 ... done",
+                summary: "Hypothesis supported."
+              },
+              viability: null,
+              citations: []
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(codexOutput);
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token",
+        codexCommand: "codex-test"
+      },
+      { runCodexAgentic, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(runCodexAgentic).toHaveBeenCalledTimes(1);
+    // Analysis runs at the project root (so it can read the sibling experiment/ outputs),
+    // NOT the analysis/ subdir — lock that in.
+    const analysisCall = runCodexAgentic.mock.calls[0] as unknown as [string, { workspaceDir?: string }];
+    expect(analysisCall?.[1]?.workspaceDir).toMatch(/[\\/]proj-1$/);
+    expect(promptText).toContain("INPUT.json");
+    expect(promptText).toContain("analysis/");
+    const completionRequest = fetchMock.mock.calls[1];
+    expect(completionRequest?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/ana-1/complete"
+    );
+    const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
+    expect(completionBody.type).toBe("research_analysis");
+    expect(completionBody.output).toEqual(codexOutput);
+  });
+
   it("completes claimed novelty scan jobs with source evidence and validated Codex output", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

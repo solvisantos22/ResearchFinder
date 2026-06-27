@@ -5,7 +5,7 @@ import { PageShell } from "@/components/PageShell";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { abortResearchProjectAction } from "@/app/research/actions";
 import { getResearchProjectDetail } from "@/lib/jobs/research";
-import { ExperimentResultSchema, LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
+import { AnalysisResultSchema, ExperimentResultSchema, LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
 import { RESEARCH_STAGES } from "@/lib/research/stages";
 
 function StatusBadge({ status }: { status: string }) {
@@ -50,6 +50,14 @@ export default async function ResearchProjectPage({
   const experiment = expArtifact
     ? (() => {
         const r = ExperimentResultSchema.safeParse(JSON.parse(expArtifact.artifactJson));
+        return r.success ? r.data : null;
+      })()
+    : null;
+
+  const analysisArtifact = artifactByStage.get("analysis");
+  const analysis = analysisArtifact
+    ? (() => {
+        const r = AnalysisResultSchema.safeParse(JSON.parse(analysisArtifact.artifactJson));
         return r.success ? r.data : null;
       })()
     : null;
@@ -262,7 +270,78 @@ export default async function ResearchProjectPage({
           </section>
         ) : null}
 
-        {!plan && !literature && !experiment ? (
+        {analysis ? (
+          <section className="mt-4 grid gap-4 rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
+            <div>
+              <h2 className="text-lg font-semibold text-rf-white">Analysis</h2>
+              <p className="mt-1">
+                <StatusBadge status={analysis.verdict} /> {analysis.summary}
+              </p>
+              <p className="mt-1">{analysis.relationToSourcePaper}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-rf-white">Success criteria</h3>
+              <ul className="mt-1 grid gap-2">
+                {analysis.successCriteriaAssessment.map((item, index) => (
+                  <li key={`${item.criterion}-${index}`}>
+                    <span className="text-rf-white">{item.criterion}</span> —{" "}
+                    <span className="uppercase">{item.status.replaceAll("_", " ")}</span>: {item.evidence}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {analysis.statisticalFindings.length > 0 ? (
+              <div>
+                <h3 className="font-semibold text-rf-white">Statistical findings</h3>
+                <ul className="mt-1 grid gap-1">
+                  {analysis.statisticalFindings.map((finding, index) => (
+                    <li key={`${finding.description}-${index}`}>
+                      <span className="text-rf-white">{finding.description}</span>
+                      {finding.method ? ` [${finding.method}]` : ""}
+                      {finding.value ? ` = ${finding.value}` : ""}: {finding.interpretation}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <PlanList title="Key findings" items={analysis.keyFindings} />
+            <div>
+              <h3 className="font-semibold text-rf-white">Comparison to baselines</h3>
+              <p className="mt-1">{analysis.comparisonToBaselines}</p>
+            </div>
+            <PlanList title="Threats to validity" items={analysis.threatsToValidity} />
+            <PlanList title="Recommended next steps" items={analysis.recommendedNextSteps} />
+            {analysis.artifacts.length > 0 ? (
+              <div>
+                <h3 className="font-semibold text-rf-white">Artifacts</h3>
+                <ul className="mt-1 grid gap-1">
+                  {analysis.artifacts.map((artifact, index) => (
+                    <li key={`${artifact.path}-${index}`}>
+                      <span className="text-rf-white">{artifact.path}</span> — {artifact.caption}{" "}
+                      <span className="text-rf-muted">({artifact.kind}, {artifact.bytes} bytes)</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div>
+              <h3 className="font-semibold text-rf-white">Citations</h3>
+              <ul className="mt-1 grid gap-1">
+                {analysis.citations.map((citation, index) => (
+                  <li key={`${citation.title}-${index}`}>
+                    {citation.url ? (
+                      <a className="text-rf-violetSoft" href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a>
+                    ) : (
+                      <span className="text-rf-white">{citation.title}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        ) : null}
+
+        {!plan && !literature && !experiment && !analysis ? (
           <section className="rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
             {project.status === "failed"
               ? `Stage failed${jobByStage.get(project.currentStage)?.errorMessage ? `: ${jobByStage.get(project.currentStage)?.errorMessage}` : "."}`
