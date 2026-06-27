@@ -45,6 +45,20 @@ export function stagesAfter(stage: ResearchStage): ExecutableStage[] {
   return after;
 }
 
+// Executable stages strictly before `stage`, in pipeline order. Used to attach the
+// upstream artifacts a critic needs to evaluate cross-stage criteria.
+export function stagesBefore(stage: ResearchStage): ExecutableStage[] {
+  const endIndex = RESEARCH_STAGES.indexOf(stage);
+  const before: ExecutableStage[] = [];
+  for (let i = 0; i < endIndex; i++) {
+    const prior = RESEARCH_STAGES[i];
+    if ((EXECUTABLE_STAGES as readonly ResearchStage[]).includes(prior)) {
+      before.push(prior as ExecutableStage);
+    }
+  }
+  return before;
+}
+
 export function producerJobType(stage: ResearchStage): string {
   return `research_${stage}`;
 }

@@ -604,7 +604,88 @@ describe("research critic worker routes", () => {
       expect(payload.job.input.stageType).toBe("plan");
       expect(payload.job.input.artifactToJudge.hypotheses.length).toBeGreaterThan(0);
       expect(payload.job.input.sourcePaper.arxivId).toBe("2502.00006");
-      expect(payload.job.input.criteria).toContain("Phase 2");
+      expect(payload.job.input.criteria).toContain("Feasibility");
+      expect(payload.job.input.criteria.toLowerCase()).toContain("one scorecard entry per criterion");
+    });
+  });
+});
+
+async function seedProjectWithExperimentCriticJob(client: PrismaClient) {
+  const user = await client.user.create({ data: { email: "worker-routes-exp-critic@example.com" } });
+  const worker = await client.workerRegistration.create({
+    data: { userId: user.id, label: "w-exp-critic", tokenHash: "h-exp-critic", status: "active" }
+  });
+  const paper = await client.paper.create({
+    data: {
+      arxivId: "2502.00007", title: "Exp Critic Src", abstract: "E",
+      url: "https://arxiv.org/abs/2502.00007", publishedAt: new Date(), arxivUpdatedAt: new Date(),
+      authorsJson: "[]", categoriesJson: "[]"
+    }
+  });
+  const idea = await client.generatedIdea.create({
+    data: {
+      userId: user.id, paperId: paper.id, inboxDate: "2026-06-25", title: "Exp Critic Idea", summary: "S",
+      expandedExplanation: "E", trajectory: "Tr", recommended: true, noveltyStatus: "not_checked",
+      relevanceScore: 0.8, significanceScore: 0.8, originalityScore: 0.8, feasibilityScore: 0.8,
+      overallScore: 0.8, scoreExplanationsJson: "{}", risksJson: "[]", smallestSprint: "SS", generatedBy: "codex"
+    }
+  });
+  const project = await client.researchProject.create({
+    data: { userId: user.id, generatedIdeaId: idea.id, status: "running", currentStage: "experiment" }
+  });
+  for (const [stageType, marker] of [
+    ["plan", "PLAN-ARTIFACT"],
+    ["literature", "LIT-ARTIFACT"],
+    ["experiment", "EXP-ARTIFACT"]
+  ] as const) {
+    await client.researchStageArtifact.create({
+      data: {
+        researchProjectId: project.id,
+        stageType,
+        artifactJson: JSON.stringify({ researchProjectId: project.id, marker })
+      }
+    });
+  }
+  const job = await client.researchStageJob.create({
+    data: {
+      researchProjectId: project.id, userId: user.id, stageType: "experiment", kind: "critic",
+      status: "queued", inputJson: JSON.stringify({ researchProjectId: project.id, stageType: "experiment" })
+    }
+  });
+  return { user, worker, paper, project, job };
+}
+
+describe("research experiment critic worker routes", () => {
+  it("attaches live upstream artifacts (plan + literature) and real criteria to an experiment critic", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker, job } = await seedProjectWithExperimentCriticJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      const response = await POST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST", headers: { authorization: "Bearer t" }
+        })
+      );
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        job: {
+          id: string;
+          type: string;
+          input: {
+            criteria: string;
+            upstreamArtifacts: { stageType: string; artifact: { marker: string } }[];
+          };
+        };
+      };
+      expect(payload.job.id).toBe(job.id);
+      expect(payload.job.type).toBe("research_experiment_critic");
+      expect(payload.job.input.criteria.toLowerCase()).toContain("real data");
+      expect(payload.job.input.upstreamArtifacts.map((u) => u.stageType)).toEqual(["plan", "literature"]);
+      expect(
+        payload.job.input.upstreamArtifacts.find((u) => u.stageType === "plan")?.artifact.marker
+      ).toBe("PLAN-ARTIFACT");
     });
   });
 });

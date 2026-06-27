@@ -9,6 +9,8 @@ import { readBearerToken } from "@/lib/jobs/worker-auth";
 import { claimNextResearchStageJob, failResearchStageJob, buildViabilityContextFromArtifactContent } from "@/lib/jobs/research";
 import { laneClaimsJobType } from "@/lib/workers/lanes";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
+import { renderCriticCriteria } from "@/lib/research/critic-criteria";
+import { stagesBefore, type ExecutableStage } from "@/lib/research/stages";
 import {
   type InboxGenerationJobInput,
   InboxGenerationJobInputSchema,
@@ -472,10 +474,19 @@ function buildStageCriticJobInput(job: ClaimedResearchStageJob) {
     throw new Error(`Critic stage requires a live ${stage} artifact to judge`);
   }
 
+  const upstreamArtifacts = stagesBefore(stage as ExecutableStage)
+    .map((upstreamStage) => {
+      const artifact = findLiveArtifact(job, upstreamStage);
+      if (!artifact) return null;
+      return { stageType: upstreamStage, artifact: JSON.parse(artifact.artifactJson) as unknown };
+    })
+    .filter((entry): entry is { stageType: ExecutableStage; artifact: unknown } => entry !== null);
+
   return {
     researchProjectId: job.researchProjectId,
     stageType: stage,
     artifactToJudge: JSON.parse(liveArtifact.artifactJson) as unknown,
+    upstreamArtifacts,
     sourcePaper: {
       id: paper.id,
       arxivId: paper.arxivId,
@@ -486,7 +497,7 @@ function buildStageCriticJobInput(job: ClaimedResearchStageJob) {
       categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
       publishedAt: paper.publishedAt.toISOString()
     },
-    criteria: `${stage} criteria placeholder — Phase 2 fills this in`
+    criteria: renderCriticCriteria(stage as ExecutableStage)
   };
 }
 

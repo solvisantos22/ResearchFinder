@@ -3,6 +3,7 @@ import {
   RESEARCH_STAGES,
   EXECUTABLE_STAGES,
   nextExecutableStage,
+  stagesBefore,
   STAGE_REGISTRY
 } from "@/lib/research/stages";
 import { AnalysisResultSchema, LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
@@ -36,5 +37,12 @@ describe("research stage registry", () => {
     expect(STAGE_REGISTRY.plan.requiresSourcePaperCitation).toBe(true);
     expect(STAGE_REGISTRY.literature.requiresSourcePaperCitation).toBe(true);
     expect(STAGE_REGISTRY.analysis.outputSchema).toBe(AnalysisResultSchema);
+  });
+
+  it("stagesBefore returns the executable stages strictly before, in order", () => {
+    expect(stagesBefore("plan")).toEqual([]);
+    expect(stagesBefore("literature")).toEqual(["plan"]);
+    expect(stagesBefore("experiment")).toEqual(["plan", "literature"]);
+    expect(stagesBefore("analysis")).toEqual(["plan", "literature", "experiment"]);
   });
 });
