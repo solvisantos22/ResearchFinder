@@ -758,8 +758,10 @@ function buildAnalysisPrompt(input: AnalysisJobInput) {
     "The experiment's raw outputs (code, data, logs, artifacts) are in the experiment/ subdirectory.",
     "The full task input (idea, source paper, plan success criteria, literature positioning, and the",
     "experiment's reported results) is in analysis/INPUT.json — read it first.",
-    "Do REAL analysis on the experiment's raw outputs: compute the relevant statistics and significance,",
-    "judge the results against the plan's successCriteria, and generate paper-ready figures and tables.",
+    "Do RIGOROUS statistics on the experiment's RAW outputs: report significance tests, effect sizes,",
+    "confidence intervals, and multiple-comparison corrections appropriate to the design, plus robustness",
+    "checks. Do not report bare means. Judge the results HONESTLY against the plan's successCriteria, and",
+    "generate publication-quality figures and tables.",
     "Write every figure/table/data file you produce into the analysis/ subdirectory.",
     "When finished, output ONLY valid JSON matching the AnalysisResult schema as your final message. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
@@ -770,7 +772,8 @@ function buildAnalysisPrompt(input: AnalysisJobInput) {
     "comparisonToBaselines, threatsToValidity, recommendedNextSteps,",
     "verdict (supports_hypotheses|mixed|refutes_hypotheses|inconclusive), summary, citations (>=1).",
     "Ground in the source paper: relationToSourcePaper must explain how this analysis relates to it,",
-    'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.'
+    'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.',
+    ...buildPriorFeedbackSection(input.feedback)
   ].join("\n");
 }
 

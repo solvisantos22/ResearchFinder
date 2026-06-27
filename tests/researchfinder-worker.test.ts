@@ -884,7 +884,8 @@ describe("researchfinder local worker", () => {
                 summary: "Hypothesis supported."
               },
               viability: null,
-              citations: []
+              citations: [],
+              feedback: "Prior critic: report confidence intervals."
             }
           }
         })
@@ -915,6 +916,9 @@ describe("researchfinder local worker", () => {
     expect(analysisCall?.[1]?.workspaceDir).toMatch(/[\\/]proj-1$/);
     expect(promptText).toContain("INPUT.json");
     expect(promptText).toContain("analysis/");
+    expect(promptText.toLowerCase()).toContain("confidence interval");
+    expect(promptText.toLowerCase()).toContain("effect size");
+    expect(promptText).toContain("Prior critic: report confidence intervals.");
     const completionRequest = fetchMock.mock.calls[1];
     expect(completionRequest?.[0]).toBe(
       "https://research.example.com/api/workers/jobs/ana-1/complete"
