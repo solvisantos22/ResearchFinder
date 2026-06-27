@@ -4,6 +4,10 @@ import { fetchArxivPapers } from "@/lib/arxiv/client";
 import { prisma } from "@/lib/db";
 import { parseJsonField } from "@/lib/seed";
 
+// When the newest-N window is entirely already-seen (e.g. weekends/holidays, when
+// arXiv announces nothing new), reach this much deeper to surface older unseen papers.
+const FALLBACK_MAX_RESULTS = 200;
+
 export async function createArxivCandidateBatchForUser(userId: string, inboxDate: string) {
   const source = "arxiv";
   const existing = await findExistingArxivBatch(userId, inboxDate);
@@ -21,9 +25,21 @@ export async function createArxivCandidateBatchForUser(userId: string, inboxDate
   });
   const seenArxivIds = new Set(seenCandidates.map((candidate) => candidate.arxivId));
 
-  const papers = dedupePapersByArxivId(
-    await fetchArxivPapers(profile.arxivQuery, profile.maxPapersScreened)
-  ).filter((paper) => !seenArxivIds.has(paper.arxivId));
+  const fetchUnseen = async (maxResults: number) =>
+    dedupePapersByArxivId(await fetchArxivPapers(profile.arxivQuery, maxResults)).filter(
+      (paper) => !seenArxivIds.has(paper.arxivId)
+    );
+
+  // Primary: the newest `maxPapersScreened` papers, minus anything already seen.
+  let papers = await fetchUnseen(profile.maxPapersScreened);
+
+  // Fallback: if everything new is already seen, reach deeper and take the most
+  // recent unseen papers so the inbox still builds (e.g. on weekends). Genuinely
+  // empty only if there is nothing unseen anywhere in the deeper window.
+  if (papers.length === 0) {
+    const deeper = await fetchUnseen(Math.max(FALLBACK_MAX_RESULTS, profile.maxPapersScreened));
+    papers = deeper.slice(0, profile.maxPapersScreened);
+  }
 
   try {
     return await prisma.$transaction(async (tx) => {

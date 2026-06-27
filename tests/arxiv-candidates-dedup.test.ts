@@ -93,3 +93,73 @@ describe("createArxivCandidateBatchForUser cross-day dedup", () => {
     });
   });
 });
+
+describe("createArxivCandidateBatchForUser weekend fallback", () => {
+  it("surfaces the most recent unseen papers when every new paper is already seen", async () => {
+    const { createArxivCandidateBatchForUser } = await import("@/lib/sources/arxiv-candidates");
+
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const user = await client.user.create({
+        data: {
+          email: "weekend@example.com",
+          profile: {
+            create: {
+              interestsJson: "[]",
+              constraintsJson: "[]",
+              preferredOutputsJson: "[]",
+              rankingWeightsJson: "{}",
+              arxivQuery: "cat:cs.AI",
+              maxPapersScreened: 2
+            }
+          }
+        }
+      });
+
+      // Earlier batch: the two newest papers are already seen.
+      const earlier = await client.candidateBatch.create({
+        data: {
+          userId: user.id,
+          inboxDate: "2026-06-26",
+          source: "arxiv",
+          query: "cat:cs.AI",
+          status: "completed",
+          completedAt: new Date()
+        }
+      });
+      await client.candidatePaper.createMany({
+        data: ["2606.1001", "2606.1002"].map((arxivId) => ({
+          batchId: earlier.id,
+          arxivId,
+          title: `Title ${arxivId}`,
+          abstract: "Abstract",
+          url: `https://arxiv.org/abs/${arxivId}`,
+          publishedAt: new Date("2026-06-26T00:00:00.000Z"),
+          authorsJson: "[]",
+          categoriesJson: "[]",
+          rawJson: "{}"
+        }))
+      });
+
+      // The newest window (maxPapersScreened=2) is entirely already-seen; the deeper
+      // fallback window also returns older, unseen papers.
+      mocked.fetchArxivPapers.mockImplementation(async (_query: string, maxResults: number) =>
+        maxResults <= 2
+          ? [paper("2606.1001"), paper("2606.1002")]
+          : [
+              paper("2606.1001"),
+              paper("2606.1002"),
+              paper("2606.0903"),
+              paper("2606.0902"),
+              paper("2606.0901")
+            ]
+      );
+
+      const batch = await createArxivCandidateBatchForUser(user.id, "2026-06-27");
+      const ids = batch.candidates.map((candidate) => candidate.arxivId).sort();
+
+      // The two most recent UNSEEN papers, not the empty new-window.
+      expect(ids).toEqual(["2606.0902", "2606.0903"]);
+    });
+  });
+});
