@@ -49,7 +49,7 @@ export function routeAfterCritic(
 
   if (verdict.verdict === "PASS") {
     const [next] = stagesAfter(stage);
-    if (!next) return { type: "set_status", status: "analysis_ready" };
+    if (!next) return { type: "set_status", status: "paper_ready" };
     return {
       type: "enqueue_producer",
       stage: next,

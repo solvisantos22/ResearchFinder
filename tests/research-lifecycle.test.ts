@@ -214,6 +214,46 @@ async function advanceToAnalysisClaim(
   return passCriticAndClaimNext(db, ids, expCritic!);
 }
 
+function paperOutput(researchProjectId: string, paper: { arxivId: string; url: string }) {
+  return {
+    researchProjectId,
+    relationToSourcePaper: "Writes up the study extending the source paper.",
+    title: "A Study Extending the Source Method",
+    abstract: "We extend and evaluate the source method on a public benchmark.",
+    noveltyStatement: "First public-benchmark evaluation of the method with ablations.",
+    sections: ["Introduction", "Method", "Experiments", "Results", "Conclusion"],
+    texPath: "paper/main.tex",
+    pdfPath: "paper/main.pdf",
+    compiled: true,
+    artifacts: [{ path: "paper/main.pdf", caption: "Compiled paper", kind: "pdf" as const, bytes: 200000 }],
+    summary: "A submittable workshop-grade draft.",
+    citations: [
+      { sourceType: "paper" as const, url: paper.url, sourceId: paper.arxivId, title: "Source paper", claim: "Original method.", confidence: 0.9 }
+    ]
+  };
+}
+
+async function advanceToPaperCriticClaim(
+  db: PrismaClient,
+  ids: { user: { id: string }; idea: { id: string }; paper: { arxivId: string; url: string } }
+) {
+  // plan/literature/experiment producers+critics -> analysis producer claim
+  const analysisProducer = await advanceToAnalysisClaim(db, ids);
+  await completeResearchStageJob({
+    jobId: analysisProducer!.id, workerId: "w",
+    output: analysisOutput(analysisProducer!.researchProjectId, ids.paper)
+  });
+  // analysis critic PASS -> paper producer claim
+  const analysisCritic = await claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+  const paperProducer = await passCriticAndClaimNext(db, ids, analysisCritic!);
+  await completeResearchStageJob({
+    jobId: paperProducer!.id, workerId: "w",
+    output: paperOutput(paperProducer!.researchProjectId, ids.paper)
+  });
+  // paper critic claim
+  return claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+}
+
 describe("developIdea (generic stage model)", () => {
   it("creates a project and a queued plan stage job", async () => {
     await withPostgresTestDatabase(async (db) => {
@@ -408,7 +448,7 @@ describe("completeResearchStageJob advance", () => {
     });
   });
 
-  it("analysis completion + critic PASS sets the project analysis_ready and persists the artifact", async () => {
+  it("analysis completion + critic PASS advances to the paper producer", async () => {
     await withPostgresTestDatabase(async (db) => {
       mocked.prisma = db;
       const { user, idea, paper } = await seedIdea(db);
@@ -420,7 +460,7 @@ describe("completeResearchStageJob advance", () => {
         jobId: ana!.id, workerId: "w",
         output: analysisOutput(ana!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
       });
-      // Producer completion enqueues the analysis critic; PASS it to terminate.
+      // Producer completion enqueues the analysis critic; PASS it to advance.
       const anaCritic = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
       expect(anaCritic?.stageType).toBe("analysis");
       expect(anaCritic?.kind).toBe("critic");
@@ -428,11 +468,35 @@ describe("completeResearchStageJob advance", () => {
         jobId: anaCritic!.id, workerId: "w", output: passVerdict(anaCritic!.researchProjectId, "analysis")
       });
       const project = await db.researchProject.findUniqueOrThrow({ where: { id: ana!.researchProjectId } });
-      expect(project.status).toBe("analysis_ready");
+      expect(project).toMatchObject({ currentStage: "paper", status: "running" });
+      const paperJob = await db.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "paper", kind: "producer", status: "queued" }
+      });
+      expect(paperJob).not.toBeNull();
       const analysisArtifact = await db.researchStageArtifact.findFirst({
         where: { researchProjectId: project.id, stageType: "analysis", supersededAt: null }
       });
       expect(analysisArtifact).not.toBeNull();
+    });
+  });
+
+  it("paper completion + critic PASS sets the project paper_ready", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      const paperCritic = await advanceToPaperCriticClaim(db, { user, idea, paper: { arxivId: paper.arxivId, url: paper.url } });
+      expect(paperCritic?.stageType).toBe("paper");
+      expect(paperCritic?.kind).toBe("critic");
+      await completeResearchStageJob({
+        jobId: paperCritic!.id, workerId: "w",
+        output: passVerdict(paperCritic!.researchProjectId, "paper")
+      });
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: paperCritic!.researchProjectId } });
+      expect(project.status).toBe("paper_ready");
+      const paperArtifact = await db.researchStageArtifact.findFirst({
+        where: { researchProjectId: project.id, stageType: "paper", supersededAt: null }
+      });
+      expect(paperArtifact).not.toBeNull();
     });
   });
 

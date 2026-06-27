@@ -1084,7 +1084,7 @@ describe("research stage completion routes", () => {
     });
   });
 
-  it("completes a research_analysis job and sets the project analysis_ready", async () => {
+  it("completes a research_analysis job and advances the project to the paper producer", async () => {
     const { POST: completePOST } = await import(
       "@/app/api/workers/jobs/[jobId]/complete/route"
     );
@@ -1178,9 +1178,15 @@ describe("research stage completion routes", () => {
       );
       expect(criticCompleteResponse.status).toBe(200);
 
-      // (c) Project should now be analysis_ready and a live analysis artifact should exist
+      // (c) Analysis is no longer terminal: PASS advances to the paper producer.
       const updated = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
-      expect(updated.status).toBe("analysis_ready");
+      expect(updated.status).toBe("running");
+      expect(updated.currentStage).toBe("paper");
+
+      const paperProducerJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "paper", kind: "producer", status: "queued" }
+      });
+      expect(paperProducerJob).not.toBeNull();
 
       const artifact = await client.researchStageArtifact.findFirst({
         where: { researchProjectId: project.id, stageType: "analysis", supersededAt: null }

@@ -25,9 +25,14 @@ describe("routeAfterCritic — PASS", () => {
     expect(action).toEqual({ type: "enqueue_producer", stage: "literature", attempt: 1, feedback: null, incrementProducerRuns: true });
   });
 
-  it("PASS on analysis (no next stage) terminates analysis_ready", () => {
+  it("PASS on analysis advances to the paper producer", () => {
     const action = routeAfterCritic(verdict({ verdict: "PASS", stageType: "analysis" }), project, { attempt: 1 });
-    expect(action).toEqual({ type: "set_status", status: "analysis_ready" });
+    expect(action).toEqual({ type: "enqueue_producer", stage: "paper", attempt: 1, feedback: null, incrementProducerRuns: true });
+  });
+
+  it("PASS on paper (no next stage) terminates paper_ready", () => {
+    const action = routeAfterCritic(verdict({ verdict: "PASS", stageType: "paper" }), project, { attempt: 1 });
+    expect(action).toEqual({ type: "set_status", status: "paper_ready" });
   });
 });
 
@@ -102,11 +107,11 @@ describe("routeAfterCritic — BACKTRACK", () => {
 
   it("PASS still terminates even at the producer-run cap (no new run needed)", () => {
     const action = routeAfterCritic(
-      verdict({ verdict: "PASS", stageType: "analysis" }),
+      verdict({ verdict: "PASS", stageType: "paper" }),
       { producerRunsUsed: MAX_PRODUCER_RUNS, backtracksUsed: MAX_BACKTRACKS },
       { attempt: 1 }
     );
-    expect(action).toEqual({ type: "set_status", status: "analysis_ready" });
+    expect(action).toEqual({ type: "set_status", status: "paper_ready" });
   });
 });
 
