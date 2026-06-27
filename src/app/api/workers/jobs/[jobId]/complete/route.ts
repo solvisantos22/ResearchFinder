@@ -20,7 +20,9 @@ type WorkerJobType =
   | "research_plan_critic"
   | "research_literature_critic"
   | "research_experiment_critic"
-  | "research_analysis_critic";
+  | "research_analysis_critic"
+  | "research_paper"
+  | "research_paper_critic";
 
 export async function POST(
   request: Request,
@@ -149,10 +151,12 @@ async function markWorkerJobFailed(input: {
     input.jobType === "research_literature" ||
     input.jobType === "research_experiment" ||
     input.jobType === "research_analysis" ||
+    input.jobType === "research_paper" ||
     input.jobType === "research_plan_critic" ||
     input.jobType === "research_literature_critic" ||
     input.jobType === "research_experiment_critic" ||
-    input.jobType === "research_analysis_critic"
+    input.jobType === "research_analysis_critic" ||
+    input.jobType === "research_paper_critic"
   ) {
     await failResearchStageJob({ jobId: input.jobId, errorMessage: input.errorMessage });
   } else {
@@ -181,10 +185,12 @@ async function resolveJobType(input: {
     input.requestedType === "research_literature" ||
     input.requestedType === "research_experiment" ||
     input.requestedType === "research_analysis" ||
+    input.requestedType === "research_paper" ||
     input.requestedType === "research_plan_critic" ||
     input.requestedType === "research_literature_critic" ||
     input.requestedType === "research_experiment_critic" ||
-    input.requestedType === "research_analysis_critic"
+    input.requestedType === "research_analysis_critic" ||
+    input.requestedType === "research_paper_critic"
       ? input.requestedType
       : null;
 

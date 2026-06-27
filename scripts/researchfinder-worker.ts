@@ -396,7 +396,9 @@ function parseClaimPayload(value: unknown): { job: null | ClaimedWorkerJob } {
     job.type !== "research_plan_critic" &&
     job.type !== "research_literature_critic" &&
     job.type !== "research_experiment_critic" &&
-    job.type !== "research_analysis_critic"
+    job.type !== "research_analysis_critic" &&
+    job.type !== "research_paper" &&
+    job.type !== "research_paper_critic"
   ) {
     throw new FatalWorkerError(`Unsupported worker job type: ${String(job.type)}`);
   }

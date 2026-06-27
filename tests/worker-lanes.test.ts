@@ -38,11 +38,22 @@ describe("laneClaimsJobType", () => {
         "research_experiment_critic",
         "research_literature",
         "research_literature_critic",
+        "research_paper",
+        "research_paper_critic",
         "research_plan",
         "research_plan_critic",
         "viability_check"
       ]
     );
+  });
+
+  it("includes the paper producer + critic in the research and both lanes", () => {
+    expect(WORKER_JOB_TYPES).toContain("research_paper");
+    expect(WORKER_JOB_TYPES).toContain("research_paper_critic");
+    expect(laneClaimsJobType("research", "research_paper")).toBe(true);
+    expect(laneClaimsJobType("research", "research_paper_critic")).toBe(true);
+    expect(laneClaimsJobType("both", "research_paper")).toBe(true);
+    expect(laneClaimsJobType("inbox", "research_paper")).toBe(false);
   });
 });
 
