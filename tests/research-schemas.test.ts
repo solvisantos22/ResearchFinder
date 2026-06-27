@@ -149,4 +149,12 @@ describe("LiteratureReviewSchema", () => {
     expect(LiteratureReviewSchema.safeParse({ ...valid, gaps: [] }).success).toBe(false);
     expect(LiteratureReviewSchema.safeParse({ ...valid, citations: [] }).success).toBe(false);
   });
+
+  it("accepts an optional availableResources inventory", () => {
+    expect(
+      LiteratureReviewSchema.parse({ ...valid, availableResources: ["CIFAR-10 (public)", "timm (GitHub)"] }).availableResources
+    ).toEqual(["CIFAR-10 (public)", "timm (GitHub)"]);
+    // still valid without it (optional)
+    expect(LiteratureReviewSchema.parse(valid).availableResources).toBeUndefined();
+  });
 });

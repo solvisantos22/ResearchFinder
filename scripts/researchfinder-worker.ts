@@ -978,16 +978,19 @@ async function writeLiteraturePrompt(
 
 function buildLiteraturePrompt(input: LiteratureJobInput, evidenceBundle: Record<string, unknown>) {
   return [
-    "You are writing a focused literature review for a viability-checked research project.",
+    "You are writing a RIGOROUS, VERIFIABLE literature review for a viability-checked research project.",
     "Return only valid JSON matching the LiteratureReview schema exactly. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
     "Required keys: researchProjectId, relationToSourcePaper, relatedWorks (>=1, each with",
-    "title/summary/relationToProposed), themes (>=1), gaps (>=1), positioning, citations (>=1).",
-    "Synthesize the gathered evidence; cite real retrieved works as sourceType \"related_work\".",
+    "title/summary/relationToProposed), themes (>=1), gaps (>=1), positioning, availableResources, citations (>=1).",
+    "Cite REAL retrieved works with resolvable URLs as sourceType \"related_work\" — never invent citations.",
+    "Identify a concrete, genuinely-open gap (not a truism).",
+    "availableResources: inventory the publicly available datasets/code/benchmarks relevant to this direction",
+    "(these feed experiment feasibility) — name each with how to obtain it.",
     "Ground in the source paper: relationToSourcePaper must explain how this work extends it,",
     "and citations MUST include the source paper as sourceType \"paper\" with its exact url and sourceId.",
     "If evidence is empty, still synthesize from the plan and the source paper.",
-    "",
+    ...buildPriorFeedbackSection(input.feedback),
     "Claimed job input (idea, source paper, and the approved plan):",
     JSON.stringify(input, null, 2),
     "",

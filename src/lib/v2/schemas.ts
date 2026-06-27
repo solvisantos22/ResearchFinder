@@ -350,6 +350,7 @@ export const LiteratureReviewSchema = strictObject({
   themes: z.array(CoercibleString).min(1),
   gaps: z.array(CoercibleString).min(1),
   positioning: CoercibleString,
+  availableResources: z.array(CoercibleString).optional(),
   citations: z.array(CitationSchema).min(1)
 });
 

@@ -666,13 +666,18 @@ describe("researchfinder local worker", () => {
                 experimentalDesign: "d",
                 metrics: ["m"]
               },
-              citations: []
+              citations: [],
+              feedback: "Prior critic: verify every citation URL."
             }
           }
         })
       )
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
-    const runCodex = vi.fn().mockResolvedValue(JSON.stringify(codexOutput));
+    let promptText = "";
+    const runCodex = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(codexOutput);
+    });
     const gatherNoveltySourceEvidence = vi.fn().mockResolvedValue({
       adaptersAttempted: [],
       adaptersFailed: [],
@@ -698,6 +703,9 @@ describe("researchfinder local worker", () => {
     const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
     expect(completionBody.type).toBe("research_literature");
     expect(completionBody.output.researchProjectId).toBe("proj-1");
+    expect(promptText.toLowerCase()).toContain("availableresources");
+    expect(promptText.toLowerCase()).toContain("never invent");
+    expect(promptText).toContain("Prior critic: verify every citation URL.");
   });
 
   it("completes claimed research_experiment jobs with an agentic run and validated output", async () => {
