@@ -604,6 +604,16 @@ export const CriticVerdictSchema = strictObject({
         message: "BACKTRACK verdict requires targetStage",
         path: ["targetStage"]
       });
+    } else {
+      const stageIndex = RESEARCH_STAGES.indexOf(value.stageType);
+      const targetIndex = RESEARCH_STAGES.indexOf(value.targetStage);
+      if (targetIndex >= stageIndex) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "BACKTRACK targetStage must be a stage strictly before stageType",
+          path: ["targetStage"]
+        });
+      }
     }
   } else if (value.targetStage !== undefined) {
     ctx.addIssue({

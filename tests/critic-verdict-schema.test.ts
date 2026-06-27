@@ -26,7 +26,7 @@ describe("CriticVerdictSchema", () => {
       CriticVerdictSchema.safeParse({ ...base, verdict: "BACKTRACK", feedback: "Re-scope." }).success
     ).toBe(false);
     expect(
-      CriticVerdictSchema.safeParse({ ...base, verdict: "BACKTRACK", targetStage: "plan", feedback: "Re-scope." }).success
+      CriticVerdictSchema.safeParse({ ...base, stageType: "experiment", verdict: "BACKTRACK", targetStage: "plan", feedback: "Re-scope." }).success
     ).toBe(true);
   });
 
@@ -48,5 +48,41 @@ describe("CriticVerdictSchema", () => {
   it("parseCriticVerdict parses a JSON string", () => {
     const raw = JSON.stringify({ ...base, verdict: "PASS" });
     expect(parseCriticVerdict(raw)).toMatchObject({ verdict: "PASS", stageType: "plan" });
+  });
+
+  it("accepts a BACKTRACK that targets a strictly-upstream stage", () => {
+    expect(
+      CriticVerdictSchema.safeParse({
+        ...base,
+        stageType: "experiment",
+        verdict: "BACKTRACK",
+        targetStage: "plan",
+        feedback: "Toy data; re-scope."
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects a BACKTRACK that targets the same stage", () => {
+    expect(
+      CriticVerdictSchema.safeParse({
+        ...base,
+        stageType: "experiment",
+        verdict: "BACKTRACK",
+        targetStage: "experiment",
+        feedback: "No."
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects a BACKTRACK that targets a downstream stage", () => {
+    expect(
+      CriticVerdictSchema.safeParse({
+        ...base,
+        stageType: "plan",
+        verdict: "BACKTRACK",
+        targetStage: "experiment",
+        feedback: "No."
+      }).success
+    ).toBe(false);
   });
 });
