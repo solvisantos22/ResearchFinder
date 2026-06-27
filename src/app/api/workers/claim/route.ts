@@ -141,7 +141,11 @@ export async function POST(request: Request) {
     laneClaimsJobType(lane, "research_plan") ||
     laneClaimsJobType(lane, "research_literature") ||
     laneClaimsJobType(lane, "research_experiment") ||
-    laneClaimsJobType(lane, "research_analysis")
+    laneClaimsJobType(lane, "research_analysis") ||
+    laneClaimsJobType(lane, "research_plan_critic") ||
+    laneClaimsJobType(lane, "research_literature_critic") ||
+    laneClaimsJobType(lane, "research_experiment_critic") ||
+    laneClaimsJobType(lane, "research_analysis_critic")
   ) {
     const stageJob = await claimNextResearchStageJob({
       userId: worker.userId,
@@ -150,6 +154,13 @@ export async function POST(request: Request) {
 
     if (stageJob) {
       try {
+        if (stageJob.kind === "critic") {
+          const input = buildStageCriticJobInput(stageJob);
+          return NextResponse.json({
+            job: { type: `research_${stageJob.stageType}_critic`, id: stageJob.id, input }
+          });
+        }
+
         const input =
           stageJob.stageType === "analysis"
             ? await buildAnalysisJobInput(stageJob)
@@ -443,6 +454,36 @@ async function buildAnalysisJobInput(job: ClaimedResearchStageJob): Promise<Anal
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
     }))
   });
+}
+
+function buildStageCriticJobInput(job: ClaimedResearchStageJob) {
+  const idea = job.researchProject.generatedIdea;
+  const paper = idea.paper;
+  const stage = job.stageType;
+
+  const liveArtifact = job.researchProject.stageArtifacts
+    .filter((a) => a.stageType === stage && a.supersededAt === null)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  if (!liveArtifact) {
+    throw new Error(`Critic stage requires a live ${stage} artifact to judge`);
+  }
+
+  return {
+    researchProjectId: job.researchProjectId,
+    stageType: stage,
+    artifactToJudge: JSON.parse(liveArtifact.artifactJson) as unknown,
+    sourcePaper: {
+      id: paper.id,
+      arxivId: paper.arxivId,
+      title: paper.title,
+      abstract: paper.abstract,
+      url: paper.url,
+      authors: parseJsonArray(paper.authorsJson, "authorsJson"),
+      categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
+      publishedAt: paper.publishedAt.toISOString()
+    },
+    criteria: `${stage} criteria placeholder — Phase 2 fills this in`
+  };
 }
 
 type ClaimedViabilityJob = NonNullable<Awaited<ReturnType<typeof claimNextViabilityJob>>>;
