@@ -976,6 +976,61 @@ describe("researchfinder local worker", () => {
     expect(completionBody.output).toEqual(verdictOutput);
   });
 
+  it("writes upstream artifacts and references them in the critic prompt", async () => {
+    const verdictOutput = {
+      researchProjectId: "proj-1",
+      stageType: "experiment",
+      verdict: "PASS",
+      scorecard: [{ criterion: "Real data", pass: true, note: "Provenance traceable." }]
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_experiment_critic",
+            id: "exp-critic-1",
+            input: {
+              researchProjectId: "proj-1",
+              stageType: "experiment",
+              artifactToJudge: { researchProjectId: "proj-1", findings: ["f1"] },
+              upstreamArtifacts: [
+                { stageType: "plan", artifact: { researchProjectId: "proj-1", marker: "PLAN" } },
+                { stageType: "literature", artifact: { researchProjectId: "proj-1", marker: "LIT" } }
+              ],
+              sourcePaper: {
+                id: "p1", arxivId: "2401.00001", title: "Source Paper", abstract: "A.",
+                url: "https://arxiv.org/abs/2401.00001", authors: [], categories: [],
+                publishedAt: "2024-01-01T00:00:00.000Z"
+              },
+              criteria: "Evaluate the experiment artifact. 1. Real data with real provenance."
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(verdictOutput);
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      { appUrl: "https://research.example.com", workerToken: "worker-token", codexCommand: "codex-test" },
+      { runCodexAgentic, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(promptText).toContain("UPSTREAM_plan.json");
+    expect(promptText).toContain("UPSTREAM_literature.json");
+    expect(promptText).toContain("Real data with real provenance");
+    // The existing JSON-shape contract must still hold:
+    expect(promptText).toContain("CriticVerdict");
+    expect(promptText).toContain("PASS|REDO|BACKTRACK");
+  });
+
   it("completes claimed novelty scan jobs with source evidence and validated Codex output", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

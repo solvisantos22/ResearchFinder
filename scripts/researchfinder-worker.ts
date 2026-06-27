@@ -806,6 +806,7 @@ type StageCriticJobInput = {
   researchProjectId: string;
   stageType: string;
   artifactToJudge: unknown;
+  upstreamArtifacts: { stageType: string; artifact: unknown }[];
   sourcePaper: unknown;
   criteria: string;
 };
@@ -814,10 +815,15 @@ function parseStageCriticJobInput(value: unknown): StageCriticJobInput {
   if (!isRecord(value)) {
     throw new FatalWorkerError("Stage critic job input must be an object");
   }
+  const rawUpstream = Array.isArray(value.upstreamArtifacts) ? value.upstreamArtifacts : [];
+  const upstreamArtifacts = rawUpstream
+    .filter((entry): entry is Record<string, unknown> => isRecord(entry) && typeof entry.stageType === "string")
+    .map((entry) => ({ stageType: entry.stageType as string, artifact: entry.artifact }));
   return {
     researchProjectId: readString(value.researchProjectId, "researchProjectId"),
     stageType: readString(value.stageType, "stageType"),
     artifactToJudge: value.artifactToJudge,
+    upstreamArtifacts,
     sourcePaper: value.sourcePaper,
     criteria: readString(value.criteria, "criteria")
   };
@@ -831,6 +837,11 @@ function stageCriticWorkspaceDir(researchProjectId: string, stageType: string) {
 }
 
 function buildStageCriticPrompt(input: StageCriticJobInput) {
+  const upstreamFiles = input.upstreamArtifacts.map((u) => `UPSTREAM_${u.stageType}.json`);
+  const upstreamLine =
+    upstreamFiles.length > 0
+      ? `Upstream stage artifacts for cross-checking are in: ${upstreamFiles.join(", ")}.`
+      : "There are no upstream stage artifacts for this stage.";
   return [
     "You are an adversarial research critic. Judge the ARTIFACT.json in your current working",
     "directory against the stated criteria and return a single CriticVerdict JSON as your final message.",
@@ -840,11 +851,12 @@ function buildStageCriticPrompt(input: StageCriticJobInput) {
     "Required keys: researchProjectId, stageType, verdict (one of PASS|REDO|BACKTRACK),",
     "scorecard (>=1, each {criterion, pass: boolean, note}).",
     "If verdict is REDO or BACKTRACK, include feedback. If verdict is BACKTRACK, also include",
-    "targetStage (one of plan|literature|experiment|analysis|paper).",
+    "targetStage — it must be a stage STRICTLY BEFORE this one (one of plan|literature|experiment|analysis).",
     "Criteria for this stage:",
     input.criteria,
     "",
-    "The artifact to judge and the source paper are in ARTIFACT.json and SOURCE.json in this directory."
+    "The artifact to judge and the source paper are in ARTIFACT.json and SOURCE.json in this directory.",
+    upstreamLine
   ].join("\n");
 }
 
@@ -858,6 +870,13 @@ async function runStageCriticJob(
   await mkdir(workspaceDir, { recursive: true });
   await writeFile(join(workspaceDir, "ARTIFACT.json"), JSON.stringify(input.artifactToJudge, null, 2), "utf8");
   await writeFile(join(workspaceDir, "SOURCE.json"), JSON.stringify(input.sourcePaper, null, 2), "utf8");
+  for (const upstream of input.upstreamArtifacts) {
+    await writeFile(
+      join(workspaceDir, `UPSTREAM_${upstream.stageType}.json`),
+      JSON.stringify(upstream.artifact, null, 2),
+      "utf8"
+    );
+  }
 
   const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-critic-"));
   const promptFile = join(promptDir, `${job.id}.prompt.md`);
