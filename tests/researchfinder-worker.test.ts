@@ -772,7 +772,8 @@ describe("researchfinder local worker", () => {
                 gaps: ["No small-scale ablation exists."]
               },
               viability: null,
-              citations: []
+              citations: [],
+              feedback: "Prior critic: use the full dataset, not a subset."
             }
           }
         })
@@ -797,10 +798,12 @@ describe("researchfinder local worker", () => {
 
     expect(processed).toBe(true);
     expect(runCodexAgentic).toHaveBeenCalledTimes(1);
-    expect(promptText).toContain(
-      "You are running a real, minimal research experiment in your current working directory."
-    );
+    expect(promptText).not.toContain("minimal research experiment");
+    expect(promptText).not.toContain("smallest credible experiment");
     expect(promptText).toContain("INPUT.json");
+    expect(promptText.toLowerCase()).toContain("real data");
+    expect(promptText.toLowerCase()).toContain("never fabricate");
+    expect(promptText).toContain("Prior critic: use the full dataset, not a subset.");
     const completionRequest = fetchMock.mock.calls[1];
     expect(completionRequest?.[0]).toBe(
       "https://research.example.com/api/workers/jobs/exp-1/complete"

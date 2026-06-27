@@ -661,10 +661,15 @@ function experimentWorkspaceDir(researchProjectId: string) {
 
 function buildExperimentPrompt(input: ExperimentJobInput) {
   return [
-    "You are running a real, minimal research experiment in your current working directory.",
+    "You are running a REAL, COMPLETE research experiment in your current working directory.",
     "The full task input (idea, source paper, approved plan, literature positioning/gaps) is in INPUT.json in this directory — read it first.",
-    "Implement and ACTUALLY RUN the smallest credible experiment that tests the plan's hypotheses:",
-    "write code, install any dependencies you need, run it, and collect real metrics versus the baselines.",
+    "Obtain the REAL data the plan names: download it or build it from real public sources, and record its",
+    "provenance (source URLs + how you obtained it). Then implement the method and ACTUALLY RUN THE FULL STUDY —",
+    "all planned conditions, datasets, and baselines, with MULTIPLE seeds/repetitions. Save raw outputs and",
+    "artifacts to disk. Take as long as you need: there is no time limit, and thoroughness matters more than speed.",
+    "NEVER fabricate, synthesize, or stub the data, and never create toy/'_micro'/'_style'/dummy fixtures.",
+    "If you genuinely cannot obtain a required dataset or run a condition, say so honestly in limitations and",
+    "report verdict \"partial\" or \"failed\" — do NOT invent stand-in data to appear complete.",
     "When finished, output ONLY valid JSON matching the ExperimentResult schema as your final message. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
     "Required keys: researchProjectId, relationToSourcePaper, implementationSummary, environment,",
@@ -674,7 +679,7 @@ function buildExperimentPrompt(input: ExperimentJobInput) {
     "verdict (success|partial|failed), summary, citations (>=1).",
     "Ground in the source paper: relationToSourcePaper must explain how this work extends it,",
     'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.',
-    'If something fails, report it honestly with verdict "partial" or "failed" and explain in limitations.'
+    ...buildPriorFeedbackSection(input.feedback)
   ].join("\n");
 }
 
