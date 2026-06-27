@@ -26,6 +26,7 @@ import {
 } from "@/worker/codex-runner";
 import { gatherNoveltySourceEvidence as defaultGatherNoveltySourceEvidence } from "@/worker/novelty-sources";
 import {
+  parseCriticVerdict,
   parseInboxGenerationOutput,
   parseNoveltyScanOutput,
   parseResearchStageOutput,
@@ -250,6 +251,19 @@ export async function runResearchFinderWorkerOnce(
 
   if (payload.job.type === "research_analysis") {
     const result = await runAnalysisJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
+  if (
+    payload.job.type === "research_plan_critic" ||
+    payload.job.type === "research_literature_critic" ||
+    payload.job.type === "research_experiment_critic" ||
+    payload.job.type === "research_analysis_critic"
+  ) {
+    const result = await runStageCriticJob(payload.job, config, options);
     await completeWorkerJob(config, payload.job, result.output);
     if (result.validationError) throw new ProcessedWorkerError(result.validationError);
     console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
@@ -779,6 +793,104 @@ async function runAnalysisJob(
 
     try {
       return { output: parseResearchStageOutput("analysis", rawOutput) };
+    } catch (error) {
+      return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
+    }
+  } finally {
+    clearInterval(heartbeat);
+    await rm(promptDir, { force: true, recursive: true });
+  }
+}
+
+type StageCriticJobInput = {
+  researchProjectId: string;
+  stageType: string;
+  artifactToJudge: unknown;
+  sourcePaper: unknown;
+  criteria: string;
+};
+
+function parseStageCriticJobInput(value: unknown): StageCriticJobInput {
+  if (!isRecord(value)) {
+    throw new FatalWorkerError("Stage critic job input must be an object");
+  }
+  return {
+    researchProjectId: readString(value.researchProjectId, "researchProjectId"),
+    stageType: readString(value.stageType, "stageType"),
+    artifactToJudge: value.artifactToJudge,
+    sourcePaper: value.sourcePaper,
+    criteria: readString(value.criteria, "criteria")
+  };
+}
+
+function stageCriticWorkspaceDir(researchProjectId: string, stageType: string) {
+  const root =
+    process.env.RESEARCHFINDER_EXPERIMENT_WORKSPACE_ROOT ??
+    join(process.cwd(), ".research-workspaces");
+  return join(root, researchProjectId, `${stageType}-critic`);
+}
+
+function buildStageCriticPrompt(input: StageCriticJobInput) {
+  return [
+    "You are an adversarial research critic. Judge the ARTIFACT.json in your current working",
+    "directory against the stated criteria and return a single CriticVerdict JSON as your final message.",
+    "Do not wrap it in Markdown. Default to rejection when genuinely unsure (anti-rubber-stamp).",
+    `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
+    `The JSON stageType must be exactly ${JSON.stringify(input.stageType)}.`,
+    "Required keys: researchProjectId, stageType, verdict (one of PASS|REDO|BACKTRACK),",
+    "scorecard (>=1, each {criterion, pass: boolean, note}).",
+    "If verdict is REDO or BACKTRACK, include feedback. If verdict is BACKTRACK, also include",
+    "targetStage (one of plan|literature|experiment|analysis|paper).",
+    "Criteria for this stage:",
+    input.criteria,
+    "",
+    "The artifact to judge and the source paper are in ARTIFACT.json and SOURCE.json in this directory."
+  ].join("\n");
+}
+
+async function runStageCriticJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parseStageCriticJobInput(job.input);
+  const workspaceDir = stageCriticWorkspaceDir(input.researchProjectId, input.stageType);
+  await mkdir(workspaceDir, { recursive: true });
+  await writeFile(join(workspaceDir, "ARTIFACT.json"), JSON.stringify(input.artifactToJudge, null, 2), "utf8");
+  await writeFile(join(workspaceDir, "SOURCE.json"), JSON.stringify(input.sourcePaper, null, 2), "utf8");
+
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-critic-"));
+  const promptFile = join(promptDir, `${job.id}.prompt.md`);
+  await writeFile(promptFile, buildStageCriticPrompt(input), "utf8");
+
+  const controller = new AbortController();
+  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const heartbeat = setInterval(() => {
+    void sendWorkerHeartbeat(config, job.id)
+      .then((result) => {
+        if (result?.aborted) controller.abort();
+      })
+      .catch((error) => {
+        console.warn(`Heartbeat failed (continuing): ${formatErrorMessage(error)}`);
+      });
+  }, heartbeatMs);
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodexAgentic ?? defaultRunCodexAgentic)(promptFile, {
+        workspaceDir,
+        codexCommand: config.codexCommand,
+        signal: controller.signal
+      });
+    } catch (error) {
+      const message = controller.signal.aborted ? "Critic aborted by user" : formatErrorMessage(error);
+      await failWorkerJob(config, job, new Error(message));
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseCriticVerdict(rawOutput) };
     } catch (error) {
       return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
     }

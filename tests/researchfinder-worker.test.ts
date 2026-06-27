@@ -921,6 +921,61 @@ describe("researchfinder local worker", () => {
     expect(completionBody.output).toEqual(codexOutput);
   });
 
+  it("completes a claimed research critic job with an agentic stub run and validated verdict", async () => {
+    const verdictOutput = {
+      researchProjectId: "proj-1",
+      stageType: "plan",
+      verdict: "PASS",
+      scorecard: [{ criterion: "Phase-1 stub", pass: true, note: "Looks adequate for the spine." }]
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_plan_critic",
+            id: "plan-critic-1",
+            input: {
+              researchProjectId: "proj-1",
+              stageType: "plan",
+              artifactToJudge: { researchProjectId: "proj-1", hypotheses: ["H1"] },
+              sourcePaper: {
+                id: "p1", arxivId: "2401.00001", title: "Source Paper", abstract: "A.",
+                url: "https://arxiv.org/abs/2401.00001", authors: [], categories: [],
+                publishedAt: "2024-01-01T00:00:00.000Z"
+              },
+              criteria: "plan criteria placeholder — Phase 2 fills this in"
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(verdictOutput);
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      { appUrl: "https://research.example.com", workerToken: "worker-token", codexCommand: "codex-test" },
+      { runCodexAgentic, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(runCodexAgentic).toHaveBeenCalledTimes(1);
+    expect(promptText).toContain("CriticVerdict");
+    expect(promptText).toContain("PASS|REDO|BACKTRACK");
+    const completionRequest = fetchMock.mock.calls[1];
+    expect(completionRequest?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/plan-critic-1/complete"
+    );
+    const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
+    expect(completionBody.type).toBe("research_plan_critic");
+    expect(completionBody.output).toEqual(verdictOutput);
+  });
+
   it("completes claimed novelty scan jobs with source evidence and validated Codex output", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
