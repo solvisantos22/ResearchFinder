@@ -33,6 +33,7 @@ export default async function WorkersPage() {
           registerLauncherAction={registerLauncher}
           setLaneDesiredAction={setLaneDesiredAction}
           restartLauncherAction={restartLauncherAction}
+          overviewAction={getLauncherOverview}
         />
       </div>
       <WorkerSetupContent

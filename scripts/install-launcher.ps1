@@ -88,6 +88,13 @@ Register-ScheduledTask `
   -Description "Runs the always-on ResearchFinder launcher that manages local Codex workers for the signed-in user." `
   -Force | Out-Null
 
+# The logon trigger only fires on next sign-in; start it now so the launcher runs immediately.
+try {
+  Start-ScheduledTask -TaskName $TaskName
+} catch {
+  Write-Warning "Could not auto-start '$TaskName'. Start it from the shortcut or run: schtasks /Run /TN `"$TaskName`""
+}
+
 $WshShell = New-Object -ComObject WScript.Shell
 $shortcutDirs = @(
   [Environment]::GetFolderPath("Desktop"),

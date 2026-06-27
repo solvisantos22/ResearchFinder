@@ -2,6 +2,8 @@
 
 import React from "react";
 
+const POLL_MS = 20_000;
+
 type LauncherPanelProps = {
   appUrl: string;
   initialStatus: "online" | "offline";
@@ -9,6 +11,7 @@ type LauncherPanelProps = {
   registerLauncherAction: () => Promise<{ token: string }>;
   setLaneDesiredAction: (lane: "inbox" | "research", enabled: boolean) => Promise<{ inbox: boolean; research: boolean }>;
   restartLauncherAction: () => Promise<void>;
+  overviewAction?: () => Promise<{ status: "online" | "offline"; desired: { inbox: boolean; research: boolean } }>;
 };
 
 function quotePowerShellLiteral(value: string) {
@@ -21,12 +24,30 @@ export function LauncherPanel({
   initialDesired,
   registerLauncherAction,
   setLaneDesiredAction,
-  restartLauncherAction
+  restartLauncherAction,
+  overviewAction
 }: LauncherPanelProps) {
   const [token, setToken] = React.useState<string | null>(null);
   const [desired, setDesired] = React.useState(initialDesired);
+  const [status, setStatus] = React.useState(initialStatus);
   const [restartNotice, setRestartNotice] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
+
+  React.useEffect(() => {
+    if (!overviewAction) return;
+    let active = true;
+    const id = setInterval(() => {
+      overviewAction()
+        .then((next) => {
+          if (active) setStatus(next.status);
+        })
+        .catch(() => {});
+    }, POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [overviewAction]);
 
   function handleRegister() {
     startTransition(async () => {
@@ -64,9 +85,9 @@ export function LauncherPanel({
         </div>
         <div className="flex items-center gap-2">
           <span
-            className={`inline-block h-2 w-2 rounded-full ${initialStatus === "online" ? "bg-rf-violet" : "bg-rf-border"}`}
+            className={`inline-block h-2 w-2 rounded-full ${status === "online" ? "bg-rf-violet" : "bg-rf-border"}`}
           />
-          <span className="text-sm text-rf-muted">{initialStatus}</span>
+          <span className="text-sm text-rf-muted">{status}</span>
         </div>
       </div>
 

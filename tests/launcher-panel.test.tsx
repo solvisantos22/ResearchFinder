@@ -1,6 +1,6 @@
 import React from "react";
 import "@testing-library/jest-dom/vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { LauncherPanel } from "@/components/LauncherPanel";
@@ -88,5 +88,37 @@ describe("LauncherPanel", () => {
 
     await screen.findByText("Restart requested — workers bounce within ~20s.");
     expect(restartLauncherAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls overviewAction and flips the status dot to online", async () => {
+    vi.useFakeTimers();
+    try {
+      const overviewAction = vi
+        .fn()
+        .mockResolvedValue({ status: "online", desired: { inbox: false, research: false } });
+
+      render(
+        <LauncherPanel
+          appUrl="https://research.example.com"
+          initialStatus="offline"
+          initialDesired={{ inbox: false, research: false }}
+          registerLauncherAction={vi.fn()}
+          setLaneDesiredAction={vi.fn()}
+          restartLauncherAction={vi.fn()}
+          overviewAction={overviewAction}
+        />
+      );
+
+      expect(screen.getByText("offline")).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(overviewAction).toHaveBeenCalled();
+      expect(screen.getByText("online")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

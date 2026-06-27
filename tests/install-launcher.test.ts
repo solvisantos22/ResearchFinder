@@ -93,4 +93,10 @@ describe("launcher installer resilience", () => {
   it("uses ResearchFinderLauncher install dir", () => {
     expect(installerScript).toContain("$env:LOCALAPPDATA\\ResearchFinderLauncher");
   });
+
+  it("starts the task immediately after registering (logon trigger only fires next sign-in)", () => {
+    const registerIndex = installerScript.indexOf("Register-ScheduledTask");
+    const startIndex = installerScript.indexOf("Start-ScheduledTask -TaskName $TaskName");
+    expect(startIndex).toBeGreaterThan(registerIndex);
+  });
 });
