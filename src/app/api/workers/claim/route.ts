@@ -281,7 +281,8 @@ async function buildResearchPlanJobInput(job: ClaimedResearchStageJob): Promise<
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
-    }))
+    })),
+    feedback: job.feedback ?? undefined
   });
 }
 
@@ -319,7 +320,8 @@ async function buildLiteratureJobInput(job: ClaimedResearchStageJob): Promise<Li
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
-    }))
+    })),
+    feedback: job.feedback ?? undefined
   });
 }
 
@@ -382,7 +384,8 @@ async function buildExperimentJobInput(job: ClaimedResearchStageJob): Promise<Ex
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
-    }))
+    })),
+    feedback: job.feedback ?? undefined
   });
 }
 
@@ -460,7 +463,8 @@ async function buildAnalysisJobInput(job: ClaimedResearchStageJob): Promise<Anal
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
-    }))
+    })),
+    feedback: job.feedback ?? undefined
   });
 }
 

@@ -331,7 +331,8 @@ export const ResearchPlanJobInputSchema = strictObject({
     minimumExperiment: NonEmptyTrimmedStringSchema,
     blockers: z.array(NonEmptyTrimmedStringSchema)
   }).nullable(),
-  citations: z.array(CitationSchema)
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
 });
 
 export const LiteratureReviewSchema = strictObject({
@@ -380,7 +381,8 @@ export const LiteratureJobInputSchema = strictObject({
     experimentalDesign: NonEmptyTrimmedStringSchema,
     metrics: z.array(NonEmptyTrimmedStringSchema)
   }),
-  citations: z.array(CitationSchema)
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
 });
 
 export const ExperimentResultSchema = strictObject({
@@ -465,7 +467,8 @@ export const ExperimentJobInputSchema = strictObject({
     minimumExperiment: NonEmptyTrimmedStringSchema,
     blockers: z.array(NonEmptyTrimmedStringSchema)
   }).nullable(),
-  citations: z.array(CitationSchema)
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
 });
 
 export const AnalysisResultSchema = strictObject({
@@ -580,7 +583,8 @@ export const AnalysisJobInputSchema = strictObject({
     minimumExperiment: NonEmptyTrimmedStringSchema,
     blockers: z.array(NonEmptyTrimmedStringSchema)
   }).nullable(),
-  citations: z.array(CitationSchema)
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
 });
 
 const CriticScorecardEntrySchema = strictObject({

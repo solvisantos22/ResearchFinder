@@ -103,6 +103,13 @@ describe("ResearchPlanJobInputSchema", () => {
   it("rejects unknown keys", () => {
     expect(ResearchPlanJobInputSchema.safeParse({ ...validJobInput, extra: 1 }).success).toBe(false);
   });
+
+  it("accepts an optional feedback string from a prior critic", () => {
+    expect(ResearchPlanJobInputSchema.parse({ ...validJobInput, feedback: "Add seeds + ablations." }))
+      .toMatchObject({ feedback: "Add seeds + ablations." });
+    // still valid without feedback
+    expect(ResearchPlanJobInputSchema.parse(validJobInput).feedback).toBeUndefined();
+  });
 });
 
 describe("LiteratureReviewSchema", () => {
