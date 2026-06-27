@@ -5,7 +5,7 @@ import { PageShell } from "@/components/PageShell";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { abortResearchProjectAction } from "@/app/research/actions";
 import { getResearchProjectDetail } from "@/lib/jobs/research";
-import { AnalysisResultSchema, ExperimentResultSchema, LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
+import { AnalysisResultSchema, ExperimentResultSchema, LiteratureReviewSchema, PaperResultSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
 import { RESEARCH_STAGES } from "@/lib/research/stages";
 
 function StatusBadge({ status }: { status: string }) {
@@ -58,6 +58,14 @@ export default async function ResearchProjectPage({
   const analysis = analysisArtifact
     ? (() => {
         const r = AnalysisResultSchema.safeParse(JSON.parse(analysisArtifact.artifactJson));
+        return r.success ? r.data : null;
+      })()
+    : null;
+
+  const paperArtifact = artifactByStage.get("paper");
+  const paperDoc = paperArtifact
+    ? (() => {
+        const r = PaperResultSchema.safeParse(JSON.parse(paperArtifact.artifactJson));
         return r.success ? r.data : null;
       })()
     : null;
@@ -341,7 +349,62 @@ export default async function ResearchProjectPage({
           </section>
         ) : null}
 
-        {!plan && !literature && !experiment && !analysis ? (
+        {paperDoc ? (
+          <section className="mt-4 grid gap-4 rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
+            <div>
+              <h2 className="text-lg font-semibold text-rf-white">Paper</h2>
+              <p className="mt-1">
+                <StatusBadge status={paperDoc.compiled ? "compiled" : "not compiled"} /> {paperDoc.title}
+              </p>
+              <p className="mt-1">{paperDoc.relationToSourcePaper}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-rf-white">Abstract</h3>
+              <p className="mt-1">{paperDoc.abstract}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-rf-white">Novelty</h3>
+              <p className="mt-1">{paperDoc.noveltyStatement}</p>
+            </div>
+            <PlanList title="Sections" items={paperDoc.sections} />
+            <div>
+              <h3 className="font-semibold text-rf-white">Files</h3>
+              <ul className="mt-1 grid gap-1">
+                <li><span className="text-rf-white">{paperDoc.texPath}</span> (LaTeX source)</li>
+                <li><span className="text-rf-white">{paperDoc.pdfPath}</span> (compiled PDF)</li>
+              </ul>
+            </div>
+            {paperDoc.artifacts.length > 0 ? (
+              <div>
+                <h3 className="font-semibold text-rf-white">Artifacts</h3>
+                <ul className="mt-1 grid gap-1">
+                  {paperDoc.artifacts.map((artifact, index) => (
+                    <li key={`${artifact.path}-${index}`}>
+                      <span className="text-rf-white">{artifact.path}</span> — {artifact.caption}{" "}
+                      <span className="text-rf-muted">({artifact.kind}, {artifact.bytes} bytes)</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div>
+              <h3 className="font-semibold text-rf-white">Citations</h3>
+              <ul className="mt-1 grid gap-1">
+                {paperDoc.citations.map((citation, index) => (
+                  <li key={`${citation.title}-${index}`}>
+                    {citation.url ? (
+                      <a className="text-rf-violetSoft" href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a>
+                    ) : (
+                      <span className="text-rf-white">{citation.title}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        ) : null}
+
+        {!plan && !literature && !experiment && !analysis && !paperDoc ? (
           <section className="rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
             {project.status === "failed"
               ? `Stage failed${jobByStage.get(project.currentStage)?.errorMessage ? `: ${jobByStage.get(project.currentStage)?.errorMessage}` : "."}`
