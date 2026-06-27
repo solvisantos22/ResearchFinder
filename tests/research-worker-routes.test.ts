@@ -388,6 +388,187 @@ describe("research_experiment worker routes", () => {
   });
 });
 
+async function seedProjectWithAnalysisJob(client: PrismaClient) {
+  const user = await client.user.create({ data: { email: "worker-routes-ana@example.com" } });
+  const worker = await client.workerRegistration.create({
+    data: { userId: user.id, label: "w-ana", tokenHash: "h-ana", status: "active" }
+  });
+  const paper = await client.paper.create({
+    data: {
+      arxivId: "2502.00005",
+      title: "Ana Src",
+      abstract: "D",
+      url: "https://arxiv.org/abs/2502.00005",
+      publishedAt: new Date(),
+      arxivUpdatedAt: new Date(),
+      authorsJson: "[]",
+      categoriesJson: "[]"
+    }
+  });
+  const idea = await client.generatedIdea.create({
+    data: {
+      userId: user.id,
+      paperId: paper.id,
+      inboxDate: "2026-06-25",
+      title: "Ana Idea",
+      summary: "S",
+      expandedExplanation: "E",
+      trajectory: "Tr",
+      recommended: true,
+      noveltyStatus: "not_checked",
+      relevanceScore: 0.8,
+      significanceScore: 0.8,
+      originalityScore: 0.8,
+      feasibilityScore: 0.8,
+      overallScore: 0.8,
+      scoreExplanationsJson: "{}",
+      risksJson: "[]",
+      smallestSprint: "SS",
+      generatedBy: "codex"
+    }
+  });
+  const project = await client.researchProject.create({
+    data: {
+      userId: user.id,
+      generatedIdeaId: idea.id,
+      status: "running",
+      currentStage: "analysis"
+    }
+  });
+  // Seed a completed plan artifact (ResearchPlanSchema shape)
+  const planArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Builds on source paper",
+    hypotheses: ["Hypothesis A", "Hypothesis B"],
+    experimentalDesign: "Run experiments",
+    protocolSteps: ["Step 1", "Step 2"],
+    datasets: [],
+    baselines: [],
+    metrics: ["Accuracy"],
+    successCriteria: ["Beats baseline"],
+    computeEstimate: "1 GPU day",
+    risks: [],
+    citations: [
+      {
+        sourceType: "paper",
+        title: "Source Paper",
+        url: "https://arxiv.org/abs/2502.00005",
+        sourceId: "2502.00005",
+        claim: "Foundational work",
+        confidence: 0.9
+      }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "plan",
+      artifactJson: JSON.stringify(planArtifact)
+    }
+  });
+  // Seed a completed literature artifact (LiteratureReviewSchema shape)
+  const literatureArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Extends the source paper with a literature survey",
+    relatedWorks: [
+      {
+        title: "Related Work A",
+        summary: "Explores a similar approach",
+        relationToProposed: "Complementary method"
+      }
+    ],
+    themes: ["Machine learning", "Efficiency"],
+    gaps: ["Lack of large-scale evaluation"],
+    positioning: "This work fills the gap by providing large-scale experiments",
+    citations: [
+      {
+        sourceType: "paper",
+        title: "Source Paper",
+        url: "https://arxiv.org/abs/2502.00005",
+        sourceId: "2502.00005",
+        claim: "Foundational source paper",
+        confidence: 0.95
+      }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "literature",
+      artifactJson: JSON.stringify(literatureArtifact)
+    }
+  });
+  // Seed a completed experiment artifact (ExperimentResultSchema shape)
+  const experimentArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Implements and tests the source paper's method.",
+    implementationSummary: "Built a minimal training loop.",
+    environment: "python 3.11",
+    hypothesisOutcomes: [{ hypothesis: "Hypothesis A", outcome: "supported", evidence: "Accuracy improved." }],
+    metrics: [{ name: "accuracy", value: "0.84", baseline: "0.80" }],
+    findings: ["Beats the baseline on the small split."],
+    limitations: ["Single seed."],
+    artifacts: [{ path: "experiment/train.py", description: "training script", bytes: 1200 }],
+    logsExcerpt: "epoch 1 ... done",
+    reproductionSteps: ["uv run python train.py"],
+    verdict: "success",
+    summary: "Hypothesis supported.",
+    citations: [
+      { sourceType: "paper", title: "Source Paper", url: "https://arxiv.org/abs/2502.00005", sourceId: "2502.00005", claim: "Foundational", confidence: 0.9 }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "experiment",
+      artifactJson: JSON.stringify(experimentArtifact)
+    }
+  });
+  await client.researchStageJob.create({
+    data: {
+      researchProjectId: project.id,
+      userId: user.id,
+      stageType: "analysis",
+      status: "queued",
+      inputJson: JSON.stringify({ researchProjectId: project.id })
+    }
+  });
+  return { user, worker, paper, project };
+}
+
+describe("research_analysis worker routes", () => {
+  it("claims a research_analysis job and returns input with plan, literature and experiment", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker } = await seedProjectWithAnalysisJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      const response = await POST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST",
+          headers: { authorization: "Bearer t" }
+        })
+      );
+      const payload = (await response.json()) as {
+        job: {
+          type: string;
+          input: {
+            researchProjectId: string;
+            paper: { arxivId: string };
+            plan: { successCriteria: string[] };
+            experiment: { findings: string[] };
+          };
+        };
+      };
+      expect(payload.job.type).toBe("research_analysis");
+      expect(payload.job.input.paper.arxivId).toBe("2502.00005");
+      expect(payload.job.input.plan.successCriteria.length).toBeGreaterThan(0);
+      expect(payload.job.input.experiment.findings.length).toBeGreaterThan(0);
+    });
+  });
+});
+
 describe("research stage completion routes", () => {
   it("completing a running plan stage job advances project to literature stage", async () => {
     const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
@@ -548,6 +729,66 @@ describe("research stage completion routes", () => {
         where: { researchProjectId: project.id, stageType: "literature" }
       });
       expect(litArtifact).not.toBeNull();
+    });
+  });
+
+  it("completes a research_analysis job and sets the project analysis_ready", async () => {
+    const { POST: completePOST } = await import(
+      "@/app/api/workers/jobs/[jobId]/complete/route"
+    );
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker, project } = await seedProjectWithAnalysisJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      // Claim it so it is "running" and owned by this worker.
+      const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
+      const claimResponse = await claimPOST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST",
+          headers: { authorization: "Bearer t" }
+        })
+      );
+      const { job } = (await claimResponse.json()) as { job: { id: string } };
+      const jobId = job.id;
+
+      const output = {
+        researchProjectId: project.id,
+        relationToSourcePaper: "Analyzes results extending the source paper.",
+        successCriteriaAssessment: [
+          { criterion: "Beats baseline", status: "met", evidence: "Accuracy +4%." }
+        ],
+        statisticalFindings: [
+          { description: "Accuracy delta", method: "t-test", value: "p=0.03", interpretation: "Significant." }
+        ],
+        keyFindings: ["Beats the baseline."],
+        artifacts: [{ path: "analysis/accuracy.png", caption: "Accuracy", kind: "figure", bytes: 2048 }],
+        comparisonToBaselines: "Outperforms vanilla.",
+        threatsToValidity: ["Single dataset."],
+        recommendedNextSteps: ["Scale up."],
+        verdict: "supports_hypotheses",
+        summary: "Hypotheses supported.",
+        citations: [
+          { sourceType: "paper", title: "Source Paper", url: "https://arxiv.org/abs/2502.00005", sourceId: "2502.00005", claim: "Foundational", confidence: 0.9 }
+        ]
+      };
+
+      const completeResponse = await completePOST(
+        new Request(`http://localhost/api/workers/jobs/${jobId}/complete`, {
+          method: "POST",
+          headers: { authorization: "Bearer t" },
+          body: JSON.stringify({ type: "research_analysis", output })
+        }),
+        { params: Promise.resolve({ jobId }) }
+      );
+      expect(completeResponse.status).toBe(200);
+
+      const updated = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
+      expect(updated.status).toBe("analysis_ready");
+      const artifact = await client.researchStageArtifact.findFirst({
+        where: { researchProjectId: project.id, stageType: "analysis" }
+      });
+      expect(artifact).not.toBeNull();
     });
   });
 });
