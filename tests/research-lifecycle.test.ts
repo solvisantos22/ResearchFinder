@@ -118,21 +118,66 @@ function experimentOutput(researchProjectId: string, paper: { arxivId: string; u
   };
 }
 
-async function advanceToExperimentClaim(
+function passVerdict(researchProjectId: string, stageType: string) {
+  return {
+    researchProjectId,
+    stageType,
+    verdict: "PASS" as const,
+    scorecard: [{ criterion: "Phase-1 stub criteria", pass: true, note: "Stub critic passes." }]
+  };
+}
+
+async function completePlanProducerAndClaimCritic(
   db: PrismaClient,
   ids: { user: { id: string }; idea: { id: string }; paper: { arxivId: string; url: string } }
 ) {
   await developIdea({ currentUserId: ids.user.id, generatedIdeaId: ids.idea.id });
   const plan = await claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
   await completeResearchStageJob({
-    jobId: plan!.id, workerId: "w",
-    output: planOutput(plan!.researchProjectId, ids.paper)
+    jobId: plan!.id, workerId: "w", output: planOutput(plan!.researchProjectId, ids.paper)
   });
-  const lit = await claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+  return claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+}
+
+async function passCriticAndClaimNext(
+  db: PrismaClient,
+  ids: { user: { id: string } },
+  criticJob: { id: string; researchProjectId: string; stageType: string }
+) {
   await completeResearchStageJob({
-    jobId: lit!.id, workerId: "w",
-    output: literatureOutput(lit!.researchProjectId, ids.paper)
+    jobId: criticJob.id, workerId: "w",
+    output: passVerdict(criticJob.researchProjectId, criticJob.stageType)
   });
+  return claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+}
+
+async function advanceToExperimentClaim(
+  db: PrismaClient,
+  ids: { user: { id: string }; idea: { id: string }; paper: { arxivId: string; url: string } }
+) {
+  // plan producer -> plan critic
+  const planCritic = await completePlanProducerAndClaimCritic(db, ids);
+  // plan critic PASS -> literature producer
+  const litProducer = await passCriticAndClaimNext(db, ids, planCritic!);
+  await completeResearchStageJob({
+    jobId: litProducer!.id, workerId: "w",
+    output: literatureOutput(litProducer!.researchProjectId, ids.paper)
+  });
+  // literature critic PASS -> experiment producer claim
+  const litCritic = await claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+  return passCriticAndClaimNext(db, ids, litCritic!);
+}
+
+async function advanceToExperimentCriticClaim(
+  db: PrismaClient,
+  ids: { user: { id: string }; idea: { id: string }; paper: { arxivId: string; url: string } }
+) {
+  const expProducer = await advanceToExperimentClaim(db, ids);
+  await completeResearchStageJob({
+    jobId: expProducer!.id, workerId: "w",
+    output: experimentOutput(expProducer!.researchProjectId, ids.paper)
+  });
+  // experiment critic
   return claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
 }
 
@@ -163,12 +208,10 @@ async function advanceToAnalysisClaim(
   db: PrismaClient,
   ids: { user: { id: string }; idea: { id: string }; paper: { arxivId: string; url: string } }
 ) {
-  const exp = await advanceToExperimentClaim(db, ids);
-  await completeResearchStageJob({
-    jobId: exp!.id, workerId: "w",
-    output: experimentOutput(exp!.researchProjectId, ids.paper)
-  });
-  return claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+  // plan/literature producers+critics -> experiment critic claim
+  const expCritic = await advanceToExperimentCriticClaim(db, ids);
+  // experiment critic PASS -> analysis producer claim
+  return passCriticAndClaimNext(db, ids, expCritic!);
 }
 
 describe("developIdea (generic stage model)", () => {
@@ -277,74 +320,94 @@ describe("claimNextResearchStageJob heartbeat staleness", () => {
 });
 
 describe("completeResearchStageJob advance", () => {
-  it("plan completion enqueues a literature job and sets the project running", async () => {
+  it("plan producer completion enqueues a plan critic (not the next producer)", async () => {
     await withPostgresTestDatabase(async (db) => {
       mocked.prisma = db;
       const { user, idea, paper } = await seedIdea(db);
-      await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
-      const plan = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
-      await completeResearchStageJob({
-        jobId: plan!.id, workerId: "w",
-        output: planOutput(plan!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
+      const critic = await completePlanProducerAndClaimCritic(db, {
+        user, idea, paper: { arxivId: paper.arxivId, url: paper.url }
       });
-      const project = await db.researchProject.findUniqueOrThrow({ where: { id: plan!.researchProjectId } });
-      expect(project).toMatchObject({ currentStage: "literature", status: "running" });
+      expect(critic?.stageType).toBe("plan");
+      expect(critic?.kind).toBe("critic");
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: critic!.researchProjectId } });
+      // Producer completion keeps the project on the plan stage, running.
+      expect(project).toMatchObject({ currentStage: "plan", status: "running" });
+      // No literature producer yet — only after the plan critic PASSes.
       const litJob = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "literature" } });
-      expect(litJob?.status).toBe("queued");
-      const planArtifact = await db.researchStageArtifact.findFirst({ where: { researchProjectId: project.id, stageType: "plan" } });
+      expect(litJob).toBeNull();
+      const planArtifact = await db.researchStageArtifact.findFirst({ where: { researchProjectId: project.id, stageType: "plan", supersededAt: null } });
       expect(planArtifact).not.toBeNull();
     });
   });
 
-  it("literature completion enqueues an experiment job and sets the project running", async () => {
+  it("plan critic PASS enqueues the literature producer and advances the project", async () => {
     await withPostgresTestDatabase(async (db) => {
       mocked.prisma = db;
       const { user, idea, paper } = await seedIdea(db);
-      await developIdea({ currentUserId: user.id, generatedIdeaId: idea.id });
-      const plan = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
-      await completeResearchStageJob({
-        jobId: plan!.id, workerId: "w",
-        output: planOutput(plan!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
-      });
-      const lit = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
-      expect(lit?.stageType).toBe("literature");
-      await completeResearchStageJob({
-        jobId: lit!.id, workerId: "w",
-        output: literatureOutput(lit!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
-      });
-      const project = await db.researchProject.findUniqueOrThrow({ where: { id: lit!.researchProjectId } });
-      expect(project).toMatchObject({ currentStage: "experiment", status: "running" });
-      const experimentJob = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "experiment" } });
-      expect(experimentJob?.status).toBe("queued");
-    });
-  });
-
-  it("experiment completion enqueues an analysis job and sets the project running", async () => {
-    await withPostgresTestDatabase(async (db) => {
-      mocked.prisma = db;
-      const { user, idea, paper } = await seedIdea(db);
-      const exp = await advanceToExperimentClaim(db, {
+      const critic = await completePlanProducerAndClaimCritic(db, {
         user, idea, paper: { arxivId: paper.arxivId, url: paper.url }
       });
-      expect(exp?.stageType).toBe("experiment");
       await completeResearchStageJob({
-        jobId: exp!.id, workerId: "w",
-        output: experimentOutput(exp!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
+        jobId: critic!.id, workerId: "w", output: passVerdict(critic!.researchProjectId, "plan")
       });
-      const project = await db.researchProject.findUniqueOrThrow({ where: { id: exp!.researchProjectId } });
-      expect(project).toMatchObject({ currentStage: "analysis", status: "running" });
-      const analysisJob = await db.researchStageJob.findFirst({
-        where: { researchProjectId: project.id, stageType: "analysis" }
-      });
-      expect(analysisJob?.status).toBe("queued");
-      const experimentArtifact = await db.researchStageArtifact.findFirst({
-        where: { researchProjectId: project.id, stageType: "experiment" }
-      });
-      expect(experimentArtifact).not.toBeNull();
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: critic!.researchProjectId } });
+      expect(project).toMatchObject({ currentStage: "literature", status: "running" });
+      const litJob = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "literature", kind: "producer", status: "queued" } });
+      expect(litJob).not.toBeNull();
+      expect(project.producerRunsUsed).toBe(1);
     });
   });
 
-  it("analysis completion sets the project analysis_ready and persists the artifact", async () => {
+  it("plan critic REDO re-enqueues the plan producer attempt+1 with feedback", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      const critic = await completePlanProducerAndClaimCritic(db, {
+        user, idea, paper: { arxivId: paper.arxivId, url: paper.url }
+      });
+      await completeResearchStageJob({
+        jobId: critic!.id, workerId: "w",
+        output: { ...passVerdict(critic!.researchProjectId, "plan"), verdict: "REDO", scorecard: [{ criterion: "Rigor", pass: false, note: "Add seeds." }], feedback: "Add seeds + ablations." }
+      });
+      const redo = await db.researchStageJob.findFirst({
+        where: { researchProjectId: critic!.researchProjectId, stageType: "plan", kind: "producer", status: "queued" }
+      });
+      expect(redo).not.toBeNull();
+      expect(redo!.attempt).toBe(2);
+      expect(redo!.feedback).toBe("Add seeds + ablations.");
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: critic!.researchProjectId } });
+      expect(project.producerRunsUsed).toBe(1);
+    });
+  });
+
+  it("experiment critic BACKTRACK to plan supersedes downstream artifacts and re-enqueues plan", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      // Drive the loop to a claimed experiment critic by PASSing plan + literature critics,
+      // then completing the experiment producer.
+      const expCritic = await advanceToExperimentCriticClaim(db, { user, idea, paper: { arxivId: paper.arxivId, url: paper.url } });
+      expect(expCritic?.stageType).toBe("experiment");
+      expect(expCritic?.kind).toBe("critic");
+      await completeResearchStageJob({
+        jobId: expCritic!.id, workerId: "w",
+        output: { researchProjectId: expCritic!.researchProjectId, stageType: "experiment", verdict: "BACKTRACK", targetStage: "plan", feedback: "Toy data; re-scope.", scorecard: [{ criterion: "Real data", pass: false, note: "_style_micro toy fixtures." }] }
+      });
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: expCritic!.researchProjectId } });
+      expect(project).toMatchObject({ currentStage: "plan", status: "running" });
+      expect(project.backtracksUsed).toBe(1);
+      // Experiment + literature artifacts after `plan` are superseded; plan artifact is still live.
+      const liveExp = await db.researchStageArtifact.findFirst({ where: { researchProjectId: project.id, stageType: "experiment", supersededAt: null } });
+      expect(liveExp).toBeNull();
+      const livePlan = await db.researchStageArtifact.findFirst({ where: { researchProjectId: project.id, stageType: "plan", supersededAt: null } });
+      expect(livePlan).not.toBeNull();
+      const replan = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "plan", kind: "producer", status: "queued" } });
+      expect(replan).not.toBeNull();
+      expect(replan!.attempt).toBe(2);
+    });
+  });
+
+  it("analysis completion + critic PASS sets the project analysis_ready and persists the artifact", async () => {
     await withPostgresTestDatabase(async (db) => {
       mocked.prisma = db;
       const { user, idea, paper } = await seedIdea(db);
@@ -356,10 +419,17 @@ describe("completeResearchStageJob advance", () => {
         jobId: ana!.id, workerId: "w",
         output: analysisOutput(ana!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
       });
+      // Producer completion enqueues the analysis critic; PASS it to terminate.
+      const anaCritic = await claimNextResearchStageJob({ userId: user.id, workerId: "w" });
+      expect(anaCritic?.stageType).toBe("analysis");
+      expect(anaCritic?.kind).toBe("critic");
+      await completeResearchStageJob({
+        jobId: anaCritic!.id, workerId: "w", output: passVerdict(anaCritic!.researchProjectId, "analysis")
+      });
       const project = await db.researchProject.findUniqueOrThrow({ where: { id: ana!.researchProjectId } });
       expect(project.status).toBe("analysis_ready");
       const analysisArtifact = await db.researchStageArtifact.findFirst({
-        where: { researchProjectId: project.id, stageType: "analysis" }
+        where: { researchProjectId: project.id, stageType: "analysis", supersededAt: null }
       });
       expect(analysisArtifact).not.toBeNull();
     });
@@ -432,8 +502,8 @@ describe("completeResearchStageJob advance", () => {
       });
       const project = await db.researchProject.findUniqueOrThrow({ where: { id: plan!.researchProjectId } });
       expect(project.status).toBe("aborted");
-      const litJob = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "literature" } });
-      expect(litJob).toBeNull();
+      const planCritic = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "plan", kind: "critic" } });
+      expect(planCritic).toBeNull();
     });
   });
 
