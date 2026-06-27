@@ -1153,6 +1153,108 @@ describe("researchfinder local worker", () => {
     expect(completionBody.output.scans[0].label).toBe("unclear");
   });
 
+  it("completes claimed research_paper jobs with an agentic run and validated output", async () => {
+    const codexOutput = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper's method to a new benchmark.",
+      title: "A Rigorous Study of X",
+      abstract: "We study X and find Y.",
+      noveltyStatement: "First to evaluate X on the public Z benchmark with ablations.",
+      sections: ["Introduction", "Related Work", "Method", "Experiments", "Results", "Conclusion"],
+      texPath: "paper/main.tex",
+      pdfPath: "paper/main.pdf",
+      compiled: true,
+      artifacts: [
+        { path: "paper/main.pdf", caption: "Compiled paper", kind: "pdf", bytes: 240000 },
+        { path: "analysis/fig1.png", caption: "Accuracy vs depth", kind: "figure", bytes: 30000 }
+      ],
+      summary: "A submittable workshop-grade draft.",
+      citations: [
+        {
+          sourceType: "paper",
+          title: "Source",
+          url: "https://arxiv.org/abs/2501.00001",
+          sourceId: "2501.00001",
+          claim: "Foundational",
+          confidence: 0.9
+        }
+      ]
+    };
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_paper",
+            id: "paper-job-1",
+            input: {
+              jobId: "paper-job-1",
+              userId: "user-1",
+              researchProjectId: "proj-1",
+              idea: {
+                id: "i1", title: "T", summary: "S",
+                expandedExplanation: "E", trajectory: "Tr", smallestSprint: "SS"
+              },
+              paper: {
+                id: "p1", arxivId: "2501.00001", title: "Source", abstract: "A",
+                url: "https://arxiv.org/abs/2501.00001",
+                authors: ["Ada"], categories: ["cs.LG"],
+                publishedAt: "2026-06-25T00:00:00.000Z"
+              },
+              plan: {
+                relationToSourcePaper: "Extends.",
+                hypotheses: ["H1"],
+                successCriteria: ["beats baseline"],
+                metrics: ["acc"],
+                baselines: ["ResNet"],
+                experimentalDesign: "ablation"
+              },
+              literature: { positioning: "We close the Z gap.", gaps: ["no open benchmark"] },
+              experiment: { summary: "Ran full study.", verdict: "success", findings: ["X improves Y"] },
+              analysis: {
+                summary: "Supports hypotheses.", verdict: "supports_hypotheses",
+                keyFindings: ["+4% acc"], comparisonToBaselines: "Beats ResNet."
+              },
+              citations: [{
+                sourceType: "paper", title: "Source",
+                url: "https://arxiv.org/abs/2501.00001", sourceId: "2501.00001",
+                claim: "Foundational", confidence: 0.9
+              }],
+              feedback: "Prior critic: tighten the abstract."
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(codexOutput);
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token",
+        codexCommand: "codex-test"
+      },
+      { runCodexAgentic, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(runCodexAgentic).toHaveBeenCalledTimes(1);
+    expect(promptText.toLowerCase()).toContain("latex");
+    expect(promptText.toLowerCase()).toContain("tectonic");
+    expect(promptText).toContain("paper/main.tex");
+    expect(promptText).toContain("Prior critic: tighten the abstract.");
+    const completionBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(completionBody.type).toBe("research_paper");
+    expect(completionBody.output.compiled).toBe(true);
+  });
+
   it("plan prompt demands rigor, drops the 'smallest' framing, and injects prior feedback", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

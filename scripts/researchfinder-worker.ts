@@ -11,12 +11,14 @@ import {
   InboxGenerationJobInputSchema,
   LiteratureJobInputSchema,
   NoveltyScanJobInputSchema,
+  PaperJobInputSchema,
   ResearchPlanJobInputSchema,
   type AnalysisJobInput,
   type ExperimentJobInput,
   type InboxGenerationJobInput,
   type LiteratureJobInput,
   type NoveltyScanJobInput,
+  type PaperJobInput,
   type ResearchPlanJobInput
 } from "@/lib/v2/schemas";
 import { buildNoveltyQueries } from "@/lib/novelty/query-builder";
@@ -257,11 +259,20 @@ export async function runResearchFinderWorkerOnce(
     return true;
   }
 
+  if (payload.job.type === "research_paper") {
+    const result = await runPaperJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
   if (
     payload.job.type === "research_plan_critic" ||
     payload.job.type === "research_literature_critic" ||
     payload.job.type === "research_experiment_critic" ||
-    payload.job.type === "research_analysis_critic"
+    payload.job.type === "research_analysis_critic" ||
+    payload.job.type === "research_paper_critic"
   ) {
     const result = await runStageCriticJob(payload.job, config, options);
     await completeWorkerJob(config, payload.job, result.output);
@@ -823,6 +834,101 @@ async function runAnalysisJob(
 
     try {
       return { output: parseResearchStageOutput("analysis", rawOutput) };
+    } catch (error) {
+      return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
+    }
+  } finally {
+    clearInterval(heartbeat);
+    await rm(promptDir, { force: true, recursive: true });
+  }
+}
+
+function paperWorkspaceDirs(researchProjectId: string) {
+  const root =
+    process.env.RESEARCHFINDER_EXPERIMENT_WORKSPACE_ROOT ??
+    join(process.cwd(), ".research-workspaces");
+  const projectRoot = join(root, researchProjectId);
+  return { projectRoot, paperDir: join(projectRoot, "paper") };
+}
+
+function parsePaperJobInput(value: unknown) {
+  try {
+    return PaperJobInputSchema.parse(value);
+  } catch (error) {
+    throw new FatalWorkerError(`Paper job input failed validation: ${formatErrorMessage(error)}`);
+  }
+}
+
+function buildPaperPrompt(input: PaperJobInput) {
+  return [
+    "You are assembling a COMPLETE, submittable academic paper in your current working directory.",
+    "The experiment and analysis raw outputs are in the experiment/ and analysis/ subdirectories",
+    "(figures and tables the analysis produced are under analysis/). The full task input (idea, source",
+    "paper, plan, literature, experiment + analysis results) is in paper/INPUT.json — read it first.",
+    "Write the paper as LaTeX to paper/main.tex with the standard structure: Title, Abstract, Introduction,",
+    "Related Work, Method, Experiments, Results, Discussion, Limitations, Conclusion, References. Embed the",
+    "analysis figures/tables (reference the files under analysis/). State the novel contribution explicitly",
+    "relative to the source paper.",
+    "Then COMPILE it to a PDF locally: run `tectonic paper/main.tex` (preferred) or `pdflatex` in paper/.",
+    "Every empirical claim and number MUST come from the analysis results — do not invent numbers. Every",
+    "citation must be a real, resolvable reference, and you MUST cite the source paper.",
+    "When finished, output ONLY valid JSON matching the PaperResult schema as your final message. Do not wrap it in Markdown.",
+    `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
+    "Required keys: researchProjectId, relationToSourcePaper, title, abstract, noveltyStatement,",
+    "sections (>=1, the section headings you included), texPath (e.g. \"paper/main.tex\"), pdfPath (e.g. \"paper/main.pdf\"),",
+    "compiled (true only if the PDF actually built), artifacts (each {path, caption, kind: figure|table|pdf|tex, bytes}),",
+    "summary, citations (>=1).",
+    "If the PDF genuinely cannot be compiled (no LaTeX toolchain), set compiled=false and explain in summary —",
+    "do NOT fabricate a PDF.",
+    "Ground in the source paper: relationToSourcePaper must explain how this paper relates to it,",
+    'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.',
+    ...buildPriorFeedbackSection(input.feedback)
+  ].join("\n");
+}
+
+async function runPaperJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parsePaperJobInput(job.input);
+  const { paperDir } = paperWorkspaceDirs(input.researchProjectId);
+  await mkdir(paperDir, { recursive: true });
+  await writeFile(join(paperDir, "INPUT.json"), JSON.stringify(input, null, 2), "utf8");
+
+  const { projectRoot } = paperWorkspaceDirs(input.researchProjectId);
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-paper-"));
+  const promptFile = join(promptDir, `${job.id}.prompt.md`);
+  await writeFile(promptFile, buildPaperPrompt(input), "utf8");
+
+  const controller = new AbortController();
+  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const heartbeat = setInterval(() => {
+    void sendWorkerHeartbeat(config, job.id)
+      .then((result) => {
+        if (result?.aborted) controller.abort();
+      })
+      .catch((error) => {
+        console.warn(`Heartbeat failed (continuing): ${formatErrorMessage(error)}`);
+      });
+  }, heartbeatMs);
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodexAgentic ?? defaultRunCodexAgentic)(promptFile, {
+        workspaceDir: projectRoot,
+        codexCommand: config.codexCommand,
+        signal: controller.signal
+      });
+    } catch (error) {
+      const message = controller.signal.aborted ? "Paper aborted by user" : formatErrorMessage(error);
+      await failWorkerJob(config, job, new Error(message));
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseResearchStageOutput("paper", rawOutput) };
     } catch (error) {
       return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
     }
