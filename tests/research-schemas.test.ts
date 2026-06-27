@@ -46,6 +46,22 @@ describe("ResearchPlanSchema", () => {
   it("rejects unknown keys", () => {
     expect(ResearchPlanSchema.safeParse({ ...validPlan, extra: 1 }).success).toBe(false);
   });
+
+  it("coerces object-valued content fields to strings (model formatting variance)", () => {
+    const withObjects = {
+      ...validPlan,
+      hypotheses: [{ statement: "X improves Y.", rationale: "because Z" }],
+      metrics: [{ name: "accuracy", definition: "top-1" }],
+      experimentalDesign: { design: "ablation", arms: 3 }
+    };
+    const parsed = ResearchPlanSchema.parse(withObjects);
+    expect(typeof parsed.experimentalDesign).toBe("string");
+    expect(parsed.hypotheses.every((h) => typeof h === "string")).toBe(true);
+    expect(parsed.metrics.every((m) => typeof m === "string")).toBe(true);
+    expect(parsed.hypotheses[0]).toContain("X improves Y.");
+    // empty arrays still fail min(1) after coercion
+    expect(ResearchPlanSchema.safeParse({ ...withObjects, hypotheses: [] }).success).toBe(false);
+  });
 });
 
 const validJobInput = {

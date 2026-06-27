@@ -7,3 +7,5 @@ tsconfig.tsbuildinfo
 prisma/dev.db
 prisma/dev.db-journal
 .research-workspaces/
+.worker.json
+.launcher.json
