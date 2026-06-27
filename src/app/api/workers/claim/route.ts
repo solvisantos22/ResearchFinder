@@ -26,7 +26,10 @@ import {
   type ExperimentJobInput,
   ExperimentResultSchema,
   AnalysisJobInputSchema,
-  type AnalysisJobInput
+  type AnalysisJobInput,
+  AnalysisResultSchema,
+  PaperJobInputSchema,
+  type PaperJobInput
 } from "@/lib/v2/schemas";
 
 export async function POST(request: Request) {
@@ -144,10 +147,12 @@ export async function POST(request: Request) {
     laneClaimsJobType(lane, "research_literature") ||
     laneClaimsJobType(lane, "research_experiment") ||
     laneClaimsJobType(lane, "research_analysis") ||
+    laneClaimsJobType(lane, "research_paper") ||
     laneClaimsJobType(lane, "research_plan_critic") ||
     laneClaimsJobType(lane, "research_literature_critic") ||
     laneClaimsJobType(lane, "research_experiment_critic") ||
-    laneClaimsJobType(lane, "research_analysis_critic")
+    laneClaimsJobType(lane, "research_analysis_critic") ||
+    laneClaimsJobType(lane, "research_paper_critic")
   ) {
     const stageJob = await claimNextResearchStageJob({
       userId: worker.userId,
@@ -164,13 +169,15 @@ export async function POST(request: Request) {
         }
 
         const input =
-          stageJob.stageType === "analysis"
-            ? await buildAnalysisJobInput(stageJob)
-            : stageJob.stageType === "experiment"
-              ? await buildExperimentJobInput(stageJob)
-              : stageJob.stageType === "literature"
-                ? await buildLiteratureJobInput(stageJob)
-                : await buildResearchPlanJobInput(stageJob);
+          stageJob.stageType === "paper"
+            ? await buildPaperJobInput(stageJob)
+            : stageJob.stageType === "analysis"
+              ? await buildAnalysisJobInput(stageJob)
+              : stageJob.stageType === "experiment"
+                ? await buildExperimentJobInput(stageJob)
+                : stageJob.stageType === "literature"
+                  ? await buildLiteratureJobInput(stageJob)
+                  : await buildResearchPlanJobInput(stageJob);
         return NextResponse.json({
           job: { type: `research_${stageJob.stageType}`, id: stageJob.id, input }
         });
@@ -460,6 +467,59 @@ async function buildAnalysisJobInput(job: ClaimedResearchStageJob): Promise<Anal
       summary: experiment.summary
     },
     viability,
+    citations: idea.citations.map((citation) => ({
+      sourceType: citation.sourceType, title: citation.title, url: citation.url,
+      sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
+    })),
+    feedback: job.feedback ?? undefined
+  });
+}
+
+async function buildPaperJobInput(job: ClaimedResearchStageJob): Promise<PaperJobInput> {
+  const idea = job.researchProject.generatedIdea;
+  const paper = idea.paper;
+
+  const planArtifact = findLiveArtifact(job, "plan");
+  const litArtifact = findLiveArtifact(job, "literature");
+  const expArtifact = findLiveArtifact(job, "experiment");
+  const analysisArtifact = findLiveArtifact(job, "analysis");
+  if (!planArtifact || !litArtifact || !expArtifact || !analysisArtifact) {
+    throw new Error("Paper stage requires completed plan, literature, experiment, and analysis artifacts");
+  }
+  const plan = ResearchPlanSchema.parse(JSON.parse(planArtifact.artifactJson));
+  const literature = LiteratureReviewSchema.parse(JSON.parse(litArtifact.artifactJson));
+  const experiment = ExperimentResultSchema.parse(JSON.parse(expArtifact.artifactJson));
+  const analysis = AnalysisResultSchema.parse(JSON.parse(analysisArtifact.artifactJson));
+
+  return PaperJobInputSchema.parse({
+    jobId: job.id,
+    userId: job.userId,
+    researchProjectId: job.researchProjectId,
+    idea: {
+      id: idea.id, title: idea.title, summary: idea.summary,
+      expandedExplanation: idea.expandedExplanation, trajectory: idea.trajectory,
+      smallestSprint: idea.smallestSprint
+    },
+    paper: {
+      id: paper.id, arxivId: paper.arxivId, title: paper.title, abstract: paper.abstract, url: paper.url,
+      authors: parseJsonArray(paper.authorsJson, "authorsJson"),
+      categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
+      publishedAt: paper.publishedAt.toISOString()
+    },
+    plan: {
+      relationToSourcePaper: plan.relationToSourcePaper,
+      hypotheses: plan.hypotheses,
+      successCriteria: plan.successCriteria,
+      metrics: plan.metrics,
+      baselines: plan.baselines,
+      experimentalDesign: plan.experimentalDesign
+    },
+    literature: { positioning: literature.positioning, gaps: literature.gaps },
+    experiment: { summary: experiment.summary, verdict: experiment.verdict, findings: experiment.findings },
+    analysis: {
+      summary: analysis.summary, verdict: analysis.verdict, keyFindings: analysis.keyFindings,
+      comparisonToBaselines: analysis.comparisonToBaselines
+    },
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence

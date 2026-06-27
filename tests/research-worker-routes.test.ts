@@ -876,6 +876,207 @@ describe("backtrack regression: literature producer picks live plan artifact", (
   });
 });
 
+async function seedProjectWithPaperJob(client: PrismaClient) {
+  const user = await client.user.create({ data: { email: "worker-routes-paper@example.com" } });
+  const worker = await client.workerRegistration.create({
+    data: { userId: user.id, label: "w-paper", tokenHash: "h-paper", status: "active" }
+  });
+  const paper = await client.paper.create({
+    data: {
+      arxivId: "2502.00010",
+      title: "Paper Src",
+      abstract: "F",
+      url: "https://arxiv.org/abs/2502.00010",
+      publishedAt: new Date(),
+      arxivUpdatedAt: new Date(),
+      authorsJson: '["Author One"]',
+      categoriesJson: '["cs.LG"]'
+    }
+  });
+  const idea = await client.generatedIdea.create({
+    data: {
+      userId: user.id,
+      paperId: paper.id,
+      inboxDate: "2026-06-25",
+      title: "Paper Idea",
+      summary: "S",
+      expandedExplanation: "E",
+      trajectory: "Tr",
+      recommended: true,
+      noveltyStatus: "not_checked",
+      relevanceScore: 0.8,
+      significanceScore: 0.8,
+      originalityScore: 0.8,
+      feasibilityScore: 0.8,
+      overallScore: 0.8,
+      scoreExplanationsJson: "{}",
+      risksJson: "[]",
+      smallestSprint: "SS",
+      generatedBy: "codex"
+    }
+  });
+  const project = await client.researchProject.create({
+    data: {
+      userId: user.id,
+      generatedIdeaId: idea.id,
+      status: "running",
+      currentStage: "paper"
+    }
+  });
+  // Seed plan artifact
+  const planArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Builds on source paper",
+    hypotheses: ["Hypothesis A", "Hypothesis B"],
+    experimentalDesign: "Run experiments",
+    protocolSteps: ["Step 1", "Step 2"],
+    datasets: [],
+    baselines: ["ResNet"],
+    metrics: ["Accuracy"],
+    successCriteria: ["Beats baseline"],
+    computeEstimate: "1 GPU day",
+    risks: [],
+    citations: [
+      {
+        sourceType: "paper",
+        title: "Source Paper",
+        url: "https://arxiv.org/abs/2502.00010",
+        sourceId: "2502.00010",
+        claim: "Foundational work",
+        confidence: 0.9
+      }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "plan",
+      artifactJson: JSON.stringify(planArtifact)
+    }
+  });
+  // Seed literature artifact
+  const literatureArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Extends the source paper with a literature survey",
+    relatedWorks: [
+      {
+        title: "Related Work A",
+        summary: "Explores a similar approach",
+        relationToProposed: "Complementary method"
+      }
+    ],
+    themes: ["Machine learning", "Efficiency"],
+    gaps: ["Lack of large-scale evaluation"],
+    positioning: "This work fills the gap by providing large-scale experiments",
+    citations: [
+      {
+        sourceType: "paper",
+        title: "Source Paper",
+        url: "https://arxiv.org/abs/2502.00010",
+        sourceId: "2502.00010",
+        claim: "Foundational source paper",
+        confidence: 0.95
+      }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "literature",
+      artifactJson: JSON.stringify(literatureArtifact)
+    }
+  });
+  // Seed experiment artifact
+  const experimentArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Implements and tests the source paper's method.",
+    implementationSummary: "Built a minimal training loop.",
+    environment: "python 3.11",
+    hypothesisOutcomes: [{ hypothesis: "Hypothesis A", outcome: "supported", evidence: "Accuracy improved." }],
+    metrics: [{ name: "accuracy", value: "0.84", baseline: "0.80" }],
+    findings: ["Beats the baseline on the small split."],
+    limitations: ["Single seed."],
+    artifacts: [{ path: "experiment/train.py", description: "training script", bytes: 1200 }],
+    logsExcerpt: "epoch 1 ... done",
+    reproductionSteps: ["uv run python train.py"],
+    verdict: "success",
+    summary: "Hypothesis supported.",
+    citations: [
+      { sourceType: "paper", title: "Source Paper", url: "https://arxiv.org/abs/2502.00010", sourceId: "2502.00010", claim: "Foundational", confidence: 0.9 }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "experiment",
+      artifactJson: JSON.stringify(experimentArtifact)
+    }
+  });
+  // Seed analysis artifact (valid AnalysisResult shape)
+  const analysisArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Analyzes results extending the source paper.",
+    successCriteriaAssessment: [
+      { criterion: "Beats baseline", status: "met", evidence: "Accuracy +4%." }
+    ],
+    statisticalFindings: [
+      { description: "Accuracy delta", method: "t-test", value: "p=0.03", interpretation: "Significant." }
+    ],
+    keyFindings: ["Beats the baseline."],
+    artifacts: [{ path: "analysis/accuracy.png", caption: "Accuracy", kind: "figure", bytes: 2048 }],
+    comparisonToBaselines: "Outperforms vanilla ResNet.",
+    threatsToValidity: ["Single dataset."],
+    recommendedNextSteps: ["Scale up."],
+    verdict: "supports_hypotheses",
+    summary: "Hypotheses supported.",
+    citations: [
+      { sourceType: "paper", title: "Source Paper", url: "https://arxiv.org/abs/2502.00010", sourceId: "2502.00010", claim: "Foundational", confidence: 0.9 }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "analysis",
+      artifactJson: JSON.stringify(analysisArtifact)
+    }
+  });
+  // Seed the queued paper producer job with feedback
+  await client.researchStageJob.create({
+    data: {
+      researchProjectId: project.id,
+      userId: user.id,
+      stageType: "paper",
+      kind: "producer",
+      status: "queued",
+      feedback: "Prior critic: tighten the abstract.",
+      inputJson: JSON.stringify({ researchProjectId: project.id })
+    }
+  });
+  return { user, worker, paper, project };
+}
+
+describe("research_paper worker routes", () => {
+  it("claims a research_paper job and returns input with plan, literature, experiment, analysis + feedback", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker } = await seedProjectWithPaperJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+      const response = await POST(new Request("http://localhost/api/workers/claim", { method: "POST", headers: { authorization: "Bearer t" } }));
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        job: { type: string; input: { plan: unknown; literature: unknown; experiment: unknown; analysis: unknown; feedback?: string } };
+      };
+      expect(payload.job.type).toBe("research_paper");
+      expect(payload.job.input.plan).toBeTruthy();
+      expect(payload.job.input.literature).toBeTruthy();
+      expect(payload.job.input.experiment).toBeTruthy();
+      expect(payload.job.input.analysis).toBeTruthy();
+      expect(payload.job.input.feedback).toBe("Prior critic: tighten the abstract.");
+    });
+  });
+});
+
 describe("research_analysis worker routes", () => {
   it("claims a research_analysis job and returns input with plan, literature and experiment", async () => {
     const { POST } = await import("@/app/api/workers/claim/route");
