@@ -1137,6 +1137,55 @@ describe("researchfinder local worker", () => {
     expect(completionBody.type).toBe("novelty_scan");
     expect(completionBody.output.scans[0].label).toBe("unclear");
   });
+
+  it("plan prompt demands rigor, drops the 'smallest' framing, and injects prior feedback", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_plan",
+            id: "plan-redo-1",
+            input: {
+              jobId: "plan-redo-1", userId: "u1", researchProjectId: "proj-1",
+              idea: { id: "i1", title: "T", summary: "S", expandedExplanation: "E", trajectory: "Tr", smallestSprint: "SS" },
+              paper: {
+                id: "p1", arxivId: "2401.00001", title: "Src", abstract: "A.",
+                url: "https://arxiv.org/abs/2401.00001", authors: [], categories: [],
+                publishedAt: "2024-01-01T00:00:00.000Z"
+              },
+              viability: null,
+              citations: [{ sourceType: "paper", title: "Src", url: "https://arxiv.org/abs/2401.00001", sourceId: "2401.00001", claim: "Foundational", confidence: 0.9 }],
+              feedback: "Add multiple seeds and an ablation over depth."
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodex = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify({
+        researchProjectId: "proj-1", relationToSourcePaper: "Extends src.",
+        hypotheses: ["H1"], experimentalDesign: "D", protocolSteps: ["S1"], datasets: ["CIFAR-10"],
+        baselines: ["ResNet-18"], metrics: ["acc"], successCriteria: ["beats baseline"], computeEstimate: "1 GPU-day",
+        risks: ["r"], citations: [{ sourceType: "paper", title: "Src", url: "https://arxiv.org/abs/2401.00001", sourceId: "2401.00001", claim: "Foundational", confidence: 0.9 }]
+      });
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      { appUrl: "https://research.example.com", workerToken: "worker-token", codexCommand: "codex-test" },
+      { runCodex, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(promptText).not.toContain("smallest credible experiment");
+    expect(promptText.toLowerCase()).toContain("real");
+    expect(promptText.toLowerCase()).toContain("ablation");
+    expect(promptText).toContain("Add multiple seeds and an ablation over depth.");
+  });
 });
 
 function createInboxGenerationJob(id: string) {

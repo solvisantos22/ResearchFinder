@@ -554,9 +554,21 @@ async function writeResearchPlanPrompt(jobId: string, input: ResearchPlanJobInpu
   return { dir: promptDir, file: promptFile };
 }
 
+function buildPriorFeedbackSection(feedback?: string | null): string[] {
+  if (!feedback) return [];
+  return [
+    "",
+    "A prior critic REJECTED an earlier attempt at this stage. You MUST directly and specifically",
+    "address this feedback in your new output:",
+    feedback,
+    ""
+  ];
+}
+
 function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
   return [
-    "You are turning a viability-checked research idea into a concrete, executable research plan.",
+    "You are turning a viability-checked research idea into a concrete, FEASIBLE, RIGOROUS research plan",
+    "for a publishable study — not a demo.",
     "Return only valid JSON matching the ResearchPlan schema exactly. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
     "Required keys: researchProjectId, relationToSourcePaper, hypotheses (>=1), experimentalDesign,",
@@ -565,10 +577,18 @@ function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
     "hypotheses, protocolSteps, datasets, baselines, metrics, successCriteria, and risks are arrays of",
     "PLAIN STRINGS (one concise sentence per item, NOT objects). experimentalDesign, computeEstimate,",
     "and relationToSourcePaper are single plain strings. Example: \"hypotheses\": [\"X improves Y.\", \"...\"].",
+    "Design the FULL study, not the smallest version:",
+    "- Name REAL, publicly available datasets/benchmarks and how to obtain them — never invent toy data.",
+    "- Specify concrete baselines, MULTIPLE seeds/repetitions, and ablations.",
+    "- Include a concrete statistical-analysis plan (which tests, effect sizes, multiple-comparison handling).",
+    "- successCriteria must be quantitative, decidable thresholds tied to the metrics.",
+    "Every step must be executable HERE: a Codex agent with web access + local CPU/GPU + PUBLIC data/code,",
+    "with NO paid LLM API keys and NO proprietary data. If the most ambitious version is not feasible here,",
+    "scope DOWN to what is genuinely runnable — but keep it rigorous (real data, seeds, ablations, statistics).",
+    "Do NOT propose a toy or a single one-shot run.",
     "Ground the plan in the source paper: relationToSourcePaper must explain how this work extends it,",
     "and citations MUST include the source paper as sourceType \"paper\" with its exact url and sourceId.",
-    "Keep the plan to the smallest credible experiment that tests the core hypothesis.",
-    "",
+    ...buildPriorFeedbackSection(input.feedback),
     "Claimed job input:",
     JSON.stringify(input, null, 2)
   ].join("\n");
