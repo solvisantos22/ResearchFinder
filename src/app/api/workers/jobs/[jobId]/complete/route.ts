@@ -16,7 +16,11 @@ type WorkerJobType =
   | "research_plan"
   | "research_literature"
   | "research_experiment"
-  | "research_analysis";
+  | "research_analysis"
+  | "research_plan_critic"
+  | "research_literature_critic"
+  | "research_experiment_critic"
+  | "research_analysis_critic";
 
 export async function POST(
   request: Request,
@@ -144,7 +148,11 @@ async function markWorkerJobFailed(input: {
     input.jobType === "research_plan" ||
     input.jobType === "research_literature" ||
     input.jobType === "research_experiment" ||
-    input.jobType === "research_analysis"
+    input.jobType === "research_analysis" ||
+    input.jobType === "research_plan_critic" ||
+    input.jobType === "research_literature_critic" ||
+    input.jobType === "research_experiment_critic" ||
+    input.jobType === "research_analysis_critic"
   ) {
     await failResearchStageJob({ jobId: input.jobId, errorMessage: input.errorMessage });
   } else {
@@ -172,7 +180,11 @@ async function resolveJobType(input: {
     input.requestedType === "research_plan" ||
     input.requestedType === "research_literature" ||
     input.requestedType === "research_experiment" ||
-    input.requestedType === "research_analysis"
+    input.requestedType === "research_analysis" ||
+    input.requestedType === "research_plan_critic" ||
+    input.requestedType === "research_literature_critic" ||
+    input.requestedType === "research_experiment_critic" ||
+    input.requestedType === "research_analysis_critic"
       ? input.requestedType
       : null;
 
@@ -217,11 +229,15 @@ async function resolveJobType(input: {
 
   const stageJob = await prisma.researchStageJob.findFirst({
     where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
-    select: { stageType: true }
+    select: { stageType: true, kind: true }
   });
 
   if (!stageJob) return null;
-  const stageJobType = `research_${stageJob.stageType}` as WorkerJobType;
+  const stageJobType = (
+    stageJob.kind === "critic"
+      ? `research_${stageJob.stageType}_critic`
+      : `research_${stageJob.stageType}`
+  ) as WorkerJobType;
   return requestedType && requestedType !== stageJobType ? null : stageJobType;
 }
 
