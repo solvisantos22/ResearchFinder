@@ -239,6 +239,12 @@ function buildNoveltyScanJobInput(job: ClaimedNoveltyScanJob): NoveltyScanJobInp
 
 type ClaimedResearchStageJob = NonNullable<Awaited<ReturnType<typeof claimNextResearchStageJob>>>;
 
+function findLiveArtifact(job: ClaimedResearchStageJob, stage: string) {
+  return job.researchProject.stageArtifacts
+    .filter((a) => a.stageType === stage && a.supersededAt === null)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+}
+
 async function buildResearchPlanJobInput(job: ClaimedResearchStageJob): Promise<ResearchPlanJobInput> {
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
@@ -281,7 +287,7 @@ async function buildLiteratureJobInput(job: ClaimedResearchStageJob): Promise<Li
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
 
-  const planArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "plan");
+  const planArtifact = findLiveArtifact(job, "plan");
   if (!planArtifact) {
     throw new Error("Literature stage requires a completed plan artifact");
   }
@@ -319,11 +325,11 @@ async function buildExperimentJobInput(job: ClaimedResearchStageJob): Promise<Ex
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
 
-  const planArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "plan");
+  const planArtifact = findLiveArtifact(job, "plan");
   if (!planArtifact) {
     throw new Error("Experiment stage requires a completed plan artifact");
   }
-  const litArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "literature");
+  const litArtifact = findLiveArtifact(job, "literature");
   if (!litArtifact) {
     throw new Error("Experiment stage requires a completed literature artifact");
   }
@@ -382,15 +388,15 @@ async function buildAnalysisJobInput(job: ClaimedResearchStageJob): Promise<Anal
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
 
-  const planArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "plan");
+  const planArtifact = findLiveArtifact(job, "plan");
   if (!planArtifact) {
     throw new Error("Analysis stage requires a completed plan artifact");
   }
-  const litArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "literature");
+  const litArtifact = findLiveArtifact(job, "literature");
   if (!litArtifact) {
     throw new Error("Analysis stage requires a completed literature artifact");
   }
-  const expArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "experiment");
+  const expArtifact = findLiveArtifact(job, "experiment");
   if (!expArtifact) {
     throw new Error("Analysis stage requires a completed experiment artifact");
   }
@@ -461,9 +467,7 @@ function buildStageCriticJobInput(job: ClaimedResearchStageJob) {
   const paper = idea.paper;
   const stage = job.stageType;
 
-  const liveArtifact = job.researchProject.stageArtifacts
-    .filter((a) => a.stageType === stage && a.supersededAt === null)
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  const liveArtifact = findLiveArtifact(job, stage);
   if (!liveArtifact) {
     throw new Error(`Critic stage requires a live ${stage} artifact to judge`);
   }

@@ -609,6 +609,141 @@ describe("research critic worker routes", () => {
   });
 });
 
+describe("backtrack regression: literature producer picks live plan artifact", () => {
+  it("uses the non-superseded plan artifact when multiple plan artifacts exist", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+
+      // Seed user/worker/paper/idea
+      const user = await client.user.create({ data: { email: "worker-routes-backtrack@example.com" } });
+      const worker = await client.workerRegistration.create({
+        data: { userId: user.id, label: "w-backtrack", tokenHash: "h-backtrack", status: "active" }
+      });
+      const paper = await client.paper.create({
+        data: {
+          arxivId: "2502.00099",
+          title: "Backtrack Src",
+          abstract: "Z",
+          url: "https://arxiv.org/abs/2502.00099",
+          publishedAt: new Date(),
+          arxivUpdatedAt: new Date(),
+          authorsJson: "[]",
+          categoriesJson: "[]"
+        }
+      });
+      const idea = await client.generatedIdea.create({
+        data: {
+          userId: user.id,
+          paperId: paper.id,
+          inboxDate: "2026-06-25",
+          title: "Backtrack Idea",
+          summary: "S",
+          expandedExplanation: "E",
+          trajectory: "Tr",
+          recommended: true,
+          noveltyStatus: "not_checked",
+          relevanceScore: 0.8,
+          significanceScore: 0.8,
+          originalityScore: 0.8,
+          feasibilityScore: 0.8,
+          overallScore: 0.8,
+          scoreExplanationsJson: "{}",
+          risksJson: "[]",
+          smallestSprint: "SS",
+          generatedBy: "codex"
+        }
+      });
+      const project = await client.researchProject.create({
+        data: {
+          userId: user.id,
+          generatedIdeaId: idea.id,
+          status: "running",
+          currentStage: "literature"
+        }
+      });
+
+      // Common artifact shape (ResearchPlanSchema)
+      const basePlanArtifact = {
+        researchProjectId: project.id,
+        hypotheses: ["Hypothesis A"],
+        experimentalDesign: "Run experiments",
+        protocolSteps: ["Step 1"],
+        datasets: [],
+        baselines: [],
+        metrics: ["Accuracy"],
+        successCriteria: ["Beats baseline"],
+        computeEstimate: "1 GPU day",
+        risks: [],
+        citations: [
+          {
+            sourceType: "paper",
+            title: "Source Paper",
+            url: "https://arxiv.org/abs/2502.00099",
+            sourceId: "2502.00099",
+            claim: "Foundational work",
+            confidence: 0.9
+          }
+        ]
+      };
+
+      // Create the STALE artifact first (older createdAt) with supersededAt set
+      const staleCreatedAt = new Date("2026-06-01T10:00:00Z");
+      await client.researchStageArtifact.create({
+        data: {
+          researchProjectId: project.id,
+          stageType: "plan",
+          artifactJson: JSON.stringify({ ...basePlanArtifact, relationToSourcePaper: "STALE PLAN — should not be used" }),
+          supersededAt: new Date("2026-06-02T10:00:00Z"),
+          createdAt: staleCreatedAt
+        }
+      });
+
+      // Create the FRESH artifact (newer createdAt) with supersededAt null
+      const freshCreatedAt = new Date("2026-06-03T10:00:00Z");
+      await client.researchStageArtifact.create({
+        data: {
+          researchProjectId: project.id,
+          stageType: "plan",
+          artifactJson: JSON.stringify({ ...basePlanArtifact, relationToSourcePaper: "FRESH PLAN — the live one" }),
+          supersededAt: null,
+          createdAt: freshCreatedAt
+        }
+      });
+
+      // Seed a queued literature producer job
+      await client.researchStageJob.create({
+        data: {
+          researchProjectId: project.id,
+          userId: user.id,
+          stageType: "literature",
+          status: "queued",
+          inputJson: JSON.stringify({ researchProjectId: project.id })
+        }
+      });
+
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      const response = await POST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST",
+          headers: { authorization: "Bearer t" }
+        })
+      );
+      const payload = (await response.json()) as {
+        job: {
+          type: string;
+          input: {
+            plan: { relationToSourcePaper: string };
+          };
+        };
+      };
+      expect(payload.job.type).toBe("research_literature");
+      expect(payload.job.input.plan.relationToSourcePaper).toBe("FRESH PLAN — the live one");
+    });
+  });
+});
+
 describe("research_analysis worker routes", () => {
   it("claims a research_analysis job and returns input with plan, literature and experiment", async () => {
     const { POST } = await import("@/app/api/workers/claim/route");
