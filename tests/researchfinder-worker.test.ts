@@ -779,7 +779,7 @@ describe("researchfinder local worker", () => {
       )
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
     let promptText = "";
-    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+    const runCodexAgentic = vi.fn(async (promptPath: string, _options?: { workspaceDir?: string }) => {
       promptText = await readFile(promptPath, "utf8");
       return JSON.stringify(codexOutput);
     });
@@ -888,7 +888,7 @@ describe("researchfinder local worker", () => {
       )
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
     let promptText = "";
-    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+    const runCodexAgentic = vi.fn(async (promptPath: string, _options?: { workspaceDir?: string }) => {
       promptText = await readFile(promptPath, "utf8");
       return JSON.stringify(codexOutput);
     });
