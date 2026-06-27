@@ -30,3 +30,25 @@ export function nextExecutableStage(after: ResearchStage): ResearchStage | null 
   }
   return null;
 }
+
+// Executable stages strictly after `stage`, in pipeline order. Used to supersede
+// downstream artifacts on BACKTRACK and to find the next producer on PASS.
+export function stagesAfter(stage: ResearchStage): ExecutableStage[] {
+  const startIndex = RESEARCH_STAGES.indexOf(stage);
+  const after: ExecutableStage[] = [];
+  for (let i = startIndex + 1; i < RESEARCH_STAGES.length; i++) {
+    const next = RESEARCH_STAGES[i];
+    if ((EXECUTABLE_STAGES as readonly ResearchStage[]).includes(next)) {
+      after.push(next as ExecutableStage);
+    }
+  }
+  return after;
+}
+
+export function producerJobType(stage: ResearchStage): string {
+  return `research_${stage}`;
+}
+
+export function criticJobType(stage: ResearchStage): string {
+  return `research_${stage}_critic`;
+}
