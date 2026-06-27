@@ -6,11 +6,13 @@ import { pathToFileURL } from "node:url";
 
 import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
 import {
+  AnalysisJobInputSchema,
   ExperimentJobInputSchema,
   InboxGenerationJobInputSchema,
   LiteratureJobInputSchema,
   NoveltyScanJobInputSchema,
   ResearchPlanJobInputSchema,
+  type AnalysisJobInput,
   type ExperimentJobInput,
   type InboxGenerationJobInput,
   type LiteratureJobInput,
@@ -246,6 +248,14 @@ export async function runResearchFinderWorkerOnce(
     return true;
   }
 
+  if (payload.job.type === "research_analysis") {
+    const result = await runAnalysisJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
   throw new FatalWorkerError(
     `No local executor is registered for ${payload.job.type} in this worker slice`
   );
@@ -367,7 +377,8 @@ function parseClaimPayload(value: unknown): { job: null | ClaimedWorkerJob } {
     job.type !== "viability_check" &&
     job.type !== "research_plan" &&
     job.type !== "research_literature" &&
-    job.type !== "research_experiment"
+    job.type !== "research_experiment" &&
+    job.type !== "research_analysis"
   ) {
     throw new FatalWorkerError(`Unsupported worker job type: ${String(job.type)}`);
   }
@@ -670,6 +681,97 @@ async function runExperimentJob(
 
     try {
       return { output: parseResearchStageOutput("experiment", rawOutput) };
+    } catch (error) {
+      return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
+    }
+  } finally {
+    clearInterval(heartbeat);
+    await rm(promptDir, { force: true, recursive: true });
+  }
+}
+
+function analysisWorkspaceDirs(researchProjectId: string) {
+  const root =
+    process.env.RESEARCHFINDER_EXPERIMENT_WORKSPACE_ROOT ??
+    join(process.cwd(), ".research-workspaces");
+  const projectRoot = join(root, researchProjectId);
+  return { projectRoot, analysisDir: join(projectRoot, "analysis") };
+}
+
+function parseAnalysisJobInput(value: unknown) {
+  try {
+    return AnalysisJobInputSchema.parse(value);
+  } catch (error) {
+    throw new FatalWorkerError(`Analysis job input failed validation: ${formatErrorMessage(error)}`);
+  }
+}
+
+function buildAnalysisPrompt(input: AnalysisJobInput) {
+  return [
+    "You are analyzing the results of a completed research experiment in your current working directory.",
+    "The experiment's raw outputs (code, data, logs, artifacts) are in the experiment/ subdirectory.",
+    "The full task input (idea, source paper, plan success criteria, literature positioning, and the",
+    "experiment's reported results) is in analysis/INPUT.json — read it first.",
+    "Do REAL analysis on the experiment's raw outputs: compute the relevant statistics and significance,",
+    "judge the results against the plan's successCriteria, and generate paper-ready figures and tables.",
+    "Write every figure/table/data file you produce into the analysis/ subdirectory.",
+    "When finished, output ONLY valid JSON matching the AnalysisResult schema as your final message. Do not wrap it in Markdown.",
+    `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
+    "Required keys: researchProjectId, relationToSourcePaper,",
+    "successCriteriaAssessment (>=1, each {criterion, status: met|partially_met|not_met|inconclusive, evidence}),",
+    "statisticalFindings (each {description, method?, value?, interpretation}), keyFindings (>=1),",
+    "artifacts (each {path, caption, kind: figure|table|data, bytes}) referencing the files you wrote under analysis/,",
+    "comparisonToBaselines, threatsToValidity, recommendedNextSteps,",
+    "verdict (supports_hypotheses|mixed|refutes_hypotheses|inconclusive), summary, citations (>=1).",
+    "Ground in the source paper: relationToSourcePaper must explain how this analysis relates to it,",
+    'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.'
+  ].join("\n");
+}
+
+async function runAnalysisJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parseAnalysisJobInput(job.input);
+  const { projectRoot, analysisDir } = analysisWorkspaceDirs(input.researchProjectId);
+  await mkdir(analysisDir, { recursive: true });
+  await writeFile(join(analysisDir, "INPUT.json"), JSON.stringify(input, null, 2), "utf8");
+
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-analysis-"));
+  const promptFile = join(promptDir, `${job.id}.prompt.md`);
+  await writeFile(promptFile, buildAnalysisPrompt(input), "utf8");
+
+  const controller = new AbortController();
+  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const heartbeat = setInterval(() => {
+    void sendWorkerHeartbeat(config, job.id)
+      .then((result) => {
+        if (result?.aborted) controller.abort();
+      })
+      .catch((error) => {
+        console.warn(`Heartbeat failed (continuing): ${formatErrorMessage(error)}`);
+      });
+  }, heartbeatMs);
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodexAgentic ?? defaultRunCodexAgentic)(promptFile, {
+        workspaceDir: projectRoot,
+        codexCommand: config.codexCommand,
+        signal: controller.signal
+      });
+    } catch (error) {
+      const message = controller.signal.aborted
+        ? "Analysis aborted by user"
+        : formatErrorMessage(error);
+      await failWorkerJob(config, job, new Error(message));
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseResearchStageOutput("analysis", rawOutput) };
     } catch (error) {
       return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
     }
