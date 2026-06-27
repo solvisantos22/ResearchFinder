@@ -13,6 +13,15 @@ function strictObject<Shape extends z.ZodRawShape>(shape: Shape) {
 }
 
 const NonEmptyTrimmedStringSchema = z.string().trim().min(1);
+
+// Agentic stage outputs are free-form model JSON: the same field that should be a plain string
+// is sometimes emitted as a structured object (e.g. a hypothesis as { statement, rationale }).
+// Coerce any non-string value to a JSON string so structured-output validation never hard-fails on
+// this formatting variance; genuine strings pass through untouched. Used for content fields of the
+// stage OUTPUT schemas only (ids, enums, citations and numbers stay strict).
+const coerceToString = (value: unknown) =>
+  typeof value === "string" || value === null || value === undefined ? value : JSON.stringify(value);
+const CoercibleString = z.preprocess(coerceToString, NonEmptyTrimmedStringSchema);
 const RequiredUrlSchema = z
   .string()
   .trim()
@@ -278,16 +287,16 @@ export const ViabilityResultSchema = strictObject({
 
 export const ResearchPlanSchema = strictObject({
   researchProjectId: NonEmptyTrimmedStringSchema,
-  relationToSourcePaper: NonEmptyTrimmedStringSchema,
-  hypotheses: z.array(NonEmptyTrimmedStringSchema).min(1),
-  experimentalDesign: NonEmptyTrimmedStringSchema,
-  protocolSteps: z.array(NonEmptyTrimmedStringSchema).min(1),
-  datasets: z.array(NonEmptyTrimmedStringSchema),
-  baselines: z.array(NonEmptyTrimmedStringSchema),
-  metrics: z.array(NonEmptyTrimmedStringSchema),
-  successCriteria: z.array(NonEmptyTrimmedStringSchema).min(1),
-  computeEstimate: NonEmptyTrimmedStringSchema,
-  risks: z.array(NonEmptyTrimmedStringSchema),
+  relationToSourcePaper: CoercibleString,
+  hypotheses: z.array(CoercibleString).min(1),
+  experimentalDesign: CoercibleString,
+  protocolSteps: z.array(CoercibleString).min(1),
+  datasets: z.array(CoercibleString),
+  baselines: z.array(CoercibleString),
+  metrics: z.array(CoercibleString),
+  successCriteria: z.array(CoercibleString).min(1),
+  computeEstimate: CoercibleString,
+  risks: z.array(CoercibleString),
   citations: z.array(CitationSchema).min(1)
 });
 
@@ -326,19 +335,19 @@ export const ResearchPlanJobInputSchema = strictObject({
 
 export const LiteratureReviewSchema = strictObject({
   researchProjectId: NonEmptyTrimmedStringSchema,
-  relationToSourcePaper: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: CoercibleString,
   relatedWorks: z
     .array(
       strictObject({
-        title: NonEmptyTrimmedStringSchema,
-        summary: NonEmptyTrimmedStringSchema,
-        relationToProposed: NonEmptyTrimmedStringSchema
+        title: CoercibleString,
+        summary: CoercibleString,
+        relationToProposed: CoercibleString
       })
     )
     .min(1),
-  themes: z.array(NonEmptyTrimmedStringSchema).min(1),
-  gaps: z.array(NonEmptyTrimmedStringSchema).min(1),
-  positioning: NonEmptyTrimmedStringSchema,
+  themes: z.array(CoercibleString).min(1),
+  gaps: z.array(CoercibleString).min(1),
+  positioning: CoercibleString,
   citations: z.array(CitationSchema).min(1)
 });
 
@@ -375,39 +384,39 @@ export const LiteratureJobInputSchema = strictObject({
 
 export const ExperimentResultSchema = strictObject({
   researchProjectId: NonEmptyTrimmedStringSchema,
-  relationToSourcePaper: NonEmptyTrimmedStringSchema,
-  implementationSummary: NonEmptyTrimmedStringSchema,
-  environment: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: CoercibleString,
+  implementationSummary: CoercibleString,
+  environment: CoercibleString,
   hypothesisOutcomes: z
     .array(
       strictObject({
-        hypothesis: NonEmptyTrimmedStringSchema,
+        hypothesis: CoercibleString,
         outcome: z.enum(["supported", "refuted", "inconclusive"]),
-        evidence: NonEmptyTrimmedStringSchema
+        evidence: CoercibleString
       })
     )
     .min(1),
   metrics: z.array(
     strictObject({
-      name: NonEmptyTrimmedStringSchema,
-      value: NonEmptyTrimmedStringSchema,
-      unit: NonEmptyTrimmedStringSchema.optional(),
-      baseline: NonEmptyTrimmedStringSchema.optional()
+      name: CoercibleString,
+      value: CoercibleString,
+      unit: CoercibleString.optional(),
+      baseline: CoercibleString.optional()
     })
   ),
-  findings: z.array(NonEmptyTrimmedStringSchema).min(1),
-  limitations: z.array(NonEmptyTrimmedStringSchema),
+  findings: z.array(CoercibleString).min(1),
+  limitations: z.array(CoercibleString),
   artifacts: z.array(
     strictObject({
-      path: NonEmptyTrimmedStringSchema,
-      description: NonEmptyTrimmedStringSchema.optional(),
+      path: CoercibleString,
+      description: CoercibleString.optional(),
       bytes: z.number().int().nonnegative()
     })
   ),
-  logsExcerpt: NonEmptyTrimmedStringSchema,
-  reproductionSteps: z.array(NonEmptyTrimmedStringSchema).min(1),
+  logsExcerpt: CoercibleString,
+  reproductionSteps: z.array(CoercibleString).min(1),
   verdict: z.enum(["success", "partial", "failed"]),
-  summary: NonEmptyTrimmedStringSchema,
+  summary: CoercibleString,
   citations: z.array(CitationSchema).min(1)
 });
 
@@ -460,38 +469,38 @@ export const ExperimentJobInputSchema = strictObject({
 
 export const AnalysisResultSchema = strictObject({
   researchProjectId: NonEmptyTrimmedStringSchema,
-  relationToSourcePaper: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: CoercibleString,
   successCriteriaAssessment: z
     .array(
       strictObject({
-        criterion: NonEmptyTrimmedStringSchema,
+        criterion: CoercibleString,
         status: z.enum(["met", "partially_met", "not_met", "inconclusive"]),
-        evidence: NonEmptyTrimmedStringSchema
+        evidence: CoercibleString
       })
     )
     .min(1),
   statisticalFindings: z.array(
     strictObject({
-      description: NonEmptyTrimmedStringSchema,
-      method: NonEmptyTrimmedStringSchema.optional(),
-      value: NonEmptyTrimmedStringSchema.optional(),
-      interpretation: NonEmptyTrimmedStringSchema
+      description: CoercibleString,
+      method: CoercibleString.optional(),
+      value: CoercibleString.optional(),
+      interpretation: CoercibleString
     })
   ),
-  keyFindings: z.array(NonEmptyTrimmedStringSchema).min(1),
+  keyFindings: z.array(CoercibleString).min(1),
   artifacts: z.array(
     strictObject({
-      path: NonEmptyTrimmedStringSchema,
-      caption: NonEmptyTrimmedStringSchema,
+      path: CoercibleString,
+      caption: CoercibleString,
       kind: z.enum(["figure", "table", "data"]),
       bytes: z.number().int().nonnegative()
     })
   ),
-  comparisonToBaselines: NonEmptyTrimmedStringSchema,
-  threatsToValidity: z.array(NonEmptyTrimmedStringSchema),
-  recommendedNextSteps: z.array(NonEmptyTrimmedStringSchema),
+  comparisonToBaselines: CoercibleString,
+  threatsToValidity: z.array(CoercibleString),
+  recommendedNextSteps: z.array(CoercibleString),
   verdict: z.enum(["supports_hypotheses", "mixed", "refutes_hypotheses", "inconclusive"]),
-  summary: NonEmptyTrimmedStringSchema,
+  summary: CoercibleString,
   citations: z.array(CitationSchema).min(1)
 });
 
