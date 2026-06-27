@@ -65,6 +65,7 @@ export const RESEARCH_PROJECT_STATUSES = [
   "plan_ready",
   "literature_ready",
   "experiment_ready",
+  "analysis_ready",
   "aborted",
   "failed"
 ] as const;

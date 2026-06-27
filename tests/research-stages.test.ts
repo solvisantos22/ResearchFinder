@@ -5,15 +5,15 @@ import {
   nextExecutableStage,
   STAGE_REGISTRY
 } from "@/lib/research/stages";
-import { LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
+import { AnalysisResultSchema, LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
 
 describe("research stage registry", () => {
   it("lists stages in pipeline order", () => {
     expect(RESEARCH_STAGES).toEqual(["plan", "literature", "experiment", "analysis", "paper"]);
   });
 
-  it("plan, literature, and experiment have executors today", () => {
-    expect(EXECUTABLE_STAGES).toEqual(["plan", "literature", "experiment"]);
+  it("lists the executable stages in order", () => {
+    expect(EXECUTABLE_STAGES).toEqual(["plan", "literature", "experiment", "analysis"]);
   });
 
   it("advances plan -> literature", () => {
@@ -23,8 +23,11 @@ describe("research stage registry", () => {
   it("includes experiment as an executable stage after literature", () => {
     expect(EXECUTABLE_STAGES).toContain("experiment");
     expect(nextExecutableStage("literature")).toBe("experiment");
-    expect(nextExecutableStage("experiment")).toBeNull();
+    expect(EXECUTABLE_STAGES).toContain("analysis");
+    expect(nextExecutableStage("experiment")).toBe("analysis");
+    expect(nextExecutableStage("analysis")).toBeNull();
     expect(STAGE_REGISTRY.experiment.requiresSourcePaperCitation).toBe(true);
+    expect(STAGE_REGISTRY.analysis.requiresSourcePaperCitation).toBe(true);
   });
 
   it("maps each executable stage to its output schema and grounding requirement", () => {
@@ -32,5 +35,6 @@ describe("research stage registry", () => {
     expect(STAGE_REGISTRY.literature.outputSchema).toBe(LiteratureReviewSchema);
     expect(STAGE_REGISTRY.plan.requiresSourcePaperCitation).toBe(true);
     expect(STAGE_REGISTRY.literature.requiresSourcePaperCitation).toBe(true);
+    expect(STAGE_REGISTRY.analysis.outputSchema).toBe(AnalysisResultSchema);
   });
 });
