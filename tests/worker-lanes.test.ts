@@ -27,9 +27,9 @@ describe("laneClaimsJobType", () => {
     expect(laneClaimsJobType("garbage", "research_plan")).toBe(true);
   });
 
-  it("LANE_JOB_TYPES.both lists all five job types", () => {
+  it("LANE_JOB_TYPES.both lists all six job types", () => {
     expect([...LANE_JOB_TYPES.both].sort()).toEqual(
-      ["inbox_generation", "novelty_scan", "research_literature", "research_plan", "viability_check"]
+      ["inbox_generation", "novelty_scan", "research_experiment", "research_literature", "research_plan", "viability_check"]
     );
   });
 });
@@ -42,5 +42,15 @@ describe("research_literature lane mapping", () => {
     expect(laneClaimsJobType("research", "research_literature")).toBe(true);
     expect(laneClaimsJobType("both", "research_literature")).toBe(true);
     expect(laneClaimsJobType("inbox", "research_literature")).toBe(false);
+  });
+});
+
+describe("research_experiment lane mapping", () => {
+  it("routes research_experiment to the research and both lanes", () => {
+    expect(WORKER_JOB_TYPES).toContain("research_experiment");
+    expect(laneClaimsJobType("research", "research_experiment")).toBe(true);
+    expect(laneClaimsJobType("both", "research_experiment")).toBe(true);
+    expect(laneClaimsJobType("inbox", "research_experiment")).toBe(false);
+    expect(LANE_JOB_TYPES.research).toContain("research_experiment");
   });
 });

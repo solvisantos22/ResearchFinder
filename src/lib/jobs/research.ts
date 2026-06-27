@@ -1,7 +1,7 @@
 import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
-import { EXECUTABLE_STAGES, STAGE_REGISTRY, nextExecutableStage, type ResearchStage } from "@/lib/research/stages";
+import { EXECUTABLE_STAGES, STAGE_REGISTRY, nextExecutableStage, type ExecutableStage, type ResearchStage } from "@/lib/research/stages";
 import { type Citation, ViabilityResultSchema } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
@@ -65,11 +65,12 @@ export async function claimNextResearchStageJob(input: { userId: string; workerI
     const job = await prisma.researchStageJob.findFirst({
       where: {
         userId: input.userId,
-        stageType: { in: EXECUTABLE_STAGES },
+        stageType: { in: [...EXECUTABLE_STAGES] },
         researchProject: { status: { not: "aborted" } },
         OR: [
           { status: "queued" },
-          { status: "running", startedAt: { lte: staleStartedBefore } }
+          { status: "running", heartbeatAt: { lte: staleStartedBefore } },
+          { status: "running", heartbeatAt: null, startedAt: { lte: staleStartedBefore } }
         ]
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }]
@@ -83,7 +84,8 @@ export async function claimNextResearchStageJob(input: { userId: string; workerI
         userId: input.userId,
         OR: [
           { status: "queued" },
-          { status: "running", startedAt: { lte: staleStartedBefore } }
+          { status: "running", heartbeatAt: { lte: staleStartedBefore } },
+          { status: "running", heartbeatAt: null, startedAt: { lte: staleStartedBefore } }
         ]
       },
       data: {
@@ -131,7 +133,7 @@ export async function completeResearchStageJob(input: {
     }
 
     const stage = job.stageType as ResearchStage;
-    const definition = STAGE_REGISTRY[stage as "plan" | "literature"];
+    const definition = STAGE_REGISTRY[stage as ExecutableStage];
     if (!definition) {
       throw new Error(`No registry entry for research stage "${job.stageType}"`);
     }
@@ -214,6 +216,25 @@ export async function failResearchStageJob(input: { jobId: string; errorMessage:
       data: { status: "failed" }
     });
   });
+}
+
+export async function recordResearchStageHeartbeat(input: {
+  jobId: string;
+  workerId: string;
+}): Promise<{ aborted: boolean } | null> {
+  const job = await prisma.researchStageJob.findFirst({
+    where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
+    select: { researchProject: { select: { status: true } } }
+  });
+
+  if (!job) return null;
+
+  await prisma.researchStageJob.updateMany({
+    where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
+    data: { heartbeatAt: new Date() }
+  });
+
+  return { aborted: job.researchProject.status === "aborted" };
 }
 
 export async function abortResearchProject(input: {

@@ -18,7 +18,10 @@ import {
   type ResearchPlanJobInput,
   LiteratureJobInputSchema,
   type LiteratureJobInput,
-  ResearchPlanSchema
+  ResearchPlanSchema,
+  LiteratureReviewSchema,
+  ExperimentJobInputSchema,
+  type ExperimentJobInput
 } from "@/lib/v2/schemas";
 
 export async function POST(request: Request) {
@@ -131,7 +134,11 @@ export async function POST(request: Request) {
     }
   }
 
-  if (laneClaimsJobType(lane, "research_plan") || laneClaimsJobType(lane, "research_literature")) {
+  if (
+    laneClaimsJobType(lane, "research_plan") ||
+    laneClaimsJobType(lane, "research_literature") ||
+    laneClaimsJobType(lane, "research_experiment")
+  ) {
     const stageJob = await claimNextResearchStageJob({
       userId: worker.userId,
       workerId: worker.id
@@ -140,9 +147,11 @@ export async function POST(request: Request) {
     if (stageJob) {
       try {
         const input =
-          stageJob.stageType === "literature"
-            ? await buildLiteratureJobInput(stageJob)
-            : await buildResearchPlanJobInput(stageJob);
+          stageJob.stageType === "experiment"
+            ? await buildExperimentJobInput(stageJob)
+            : stageJob.stageType === "literature"
+              ? await buildLiteratureJobInput(stageJob)
+              : await buildResearchPlanJobInput(stageJob);
         return NextResponse.json({
           job: { type: `research_${stageJob.stageType}`, id: stageJob.id, input }
         });
@@ -282,6 +291,69 @@ async function buildLiteratureJobInput(job: ClaimedResearchStageJob): Promise<Li
       experimentalDesign: plan.experimentalDesign,
       metrics: plan.metrics
     },
+    citations: idea.citations.map((citation) => ({
+      sourceType: citation.sourceType, title: citation.title, url: citation.url,
+      sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
+    }))
+  });
+}
+
+async function buildExperimentJobInput(job: ClaimedResearchStageJob): Promise<ExperimentJobInput> {
+  const idea = job.researchProject.generatedIdea;
+  const paper = idea.paper;
+
+  const planArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "plan");
+  if (!planArtifact) {
+    throw new Error("Experiment stage requires a completed plan artifact");
+  }
+  const litArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "literature");
+  if (!litArtifact) {
+    throw new Error("Experiment stage requires a completed literature artifact");
+  }
+  const plan = ResearchPlanSchema.parse(JSON.parse(planArtifact.artifactJson));
+  const literature = LiteratureReviewSchema.parse(JSON.parse(litArtifact.artifactJson));
+
+  let viability: ExperimentJobInput["viability"] = null;
+  if (job.researchProject.sourceViabilityJobId) {
+    const artifact = await prisma.artifact.findFirst({
+      where: { jobId: job.researchProject.sourceViabilityJobId, kind: "viability-report" },
+      orderBy: { createdAt: "desc" }
+    });
+    if (artifact) {
+      viability = buildViabilityContextFromArtifactContent(artifact.content);
+    }
+  }
+
+  return ExperimentJobInputSchema.parse({
+    jobId: job.id,
+    userId: job.userId,
+    researchProjectId: job.researchProjectId,
+    idea: {
+      id: idea.id, title: idea.title, summary: idea.summary,
+      expandedExplanation: idea.expandedExplanation, trajectory: idea.trajectory,
+      smallestSprint: idea.smallestSprint
+    },
+    paper: {
+      id: paper.id, arxivId: paper.arxivId, title: paper.title, abstract: paper.abstract, url: paper.url,
+      authors: parseJsonArray(paper.authorsJson, "authorsJson"),
+      categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
+      publishedAt: paper.publishedAt.toISOString()
+    },
+    plan: {
+      relationToSourcePaper: plan.relationToSourcePaper,
+      hypotheses: plan.hypotheses,
+      experimentalDesign: plan.experimentalDesign,
+      protocolSteps: plan.protocolSteps,
+      datasets: plan.datasets,
+      baselines: plan.baselines,
+      metrics: plan.metrics,
+      successCriteria: plan.successCriteria
+    },
+    literature: {
+      positioning: literature.positioning,
+      gaps: literature.gaps
+    },
+    viability,
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence

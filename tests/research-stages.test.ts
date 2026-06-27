@@ -12,13 +12,19 @@ describe("research stage registry", () => {
     expect(RESEARCH_STAGES).toEqual(["plan", "literature", "experiment", "analysis", "paper"]);
   });
 
-  it("only plan and literature have executors today", () => {
-    expect(EXECUTABLE_STAGES).toEqual(["plan", "literature"]);
+  it("plan, literature, and experiment have executors today", () => {
+    expect(EXECUTABLE_STAGES).toEqual(["plan", "literature", "experiment"]);
   });
 
-  it("advances plan -> literature, and literature is terminal-for-now", () => {
+  it("advances plan -> literature", () => {
     expect(nextExecutableStage("plan")).toBe("literature");
-    expect(nextExecutableStage("literature")).toBeNull();
+  });
+
+  it("includes experiment as an executable stage after literature", () => {
+    expect(EXECUTABLE_STAGES).toContain("experiment");
+    expect(nextExecutableStage("literature")).toBe("experiment");
+    expect(nextExecutableStage("experiment")).toBeNull();
+    expect(STAGE_REGISTRY.experiment.requiresSourcePaperCitation).toBe(true);
   });
 
   it("maps each executable stage to its output schema and grounding requirement", () => {

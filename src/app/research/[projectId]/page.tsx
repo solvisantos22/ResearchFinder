@@ -5,7 +5,7 @@ import { PageShell } from "@/components/PageShell";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { abortResearchProjectAction } from "@/app/research/actions";
 import { getResearchProjectDetail } from "@/lib/jobs/research";
-import { LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
+import { ExperimentResultSchema, LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
 import { RESEARCH_STAGES } from "@/lib/research/stages";
 
 function StatusBadge({ status }: { status: string }) {
@@ -42,6 +42,14 @@ export default async function ResearchProjectPage({
   const literature = litArtifact
     ? (() => {
         const r = LiteratureReviewSchema.safeParse(JSON.parse(litArtifact.artifactJson));
+        return r.success ? r.data : null;
+      })()
+    : null;
+
+  const expArtifact = artifactByStage.get("experiment");
+  const experiment = expArtifact
+    ? (() => {
+        const r = ExperimentResultSchema.safeParse(JSON.parse(expArtifact.artifactJson));
         return r.success ? r.data : null;
       })()
     : null;
@@ -181,7 +189,80 @@ export default async function ResearchProjectPage({
           </section>
         ) : null}
 
-        {!plan && !literature ? (
+        {experiment ? (
+          <section className="mt-4 grid gap-4 rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
+            <div>
+              <h2 className="text-lg font-semibold text-rf-white">Experiment</h2>
+              <p className="mt-1">
+                <StatusBadge status={experiment.verdict} /> {experiment.summary}
+              </p>
+              <p className="mt-1">{experiment.relationToSourcePaper}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-rf-white">Implementation</h3>
+              <p className="mt-1">{experiment.implementationSummary}</p>
+              <p className="mt-1 text-rf-muted">Environment: {experiment.environment}</p>
+            </div>
+            <div>
+              <h3 className="font-semibold text-rf-white">Hypothesis outcomes</h3>
+              <ul className="mt-1 grid gap-2">
+                {experiment.hypothesisOutcomes.map((outcome, index) => (
+                  <li key={`${outcome.hypothesis}-${index}`}>
+                    <span className="text-rf-white">{outcome.hypothesis}</span> —{" "}
+                    <span className="uppercase">{outcome.outcome}</span>: {outcome.evidence}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {experiment.metrics.length > 0 ? (
+              <div>
+                <h3 className="font-semibold text-rf-white">Metrics</h3>
+                <ul className="mt-1 grid gap-1">
+                  {experiment.metrics.map((metric, index) => (
+                    <li key={`${metric.name}-${index}`}>
+                      <span className="text-rf-white">{metric.name}</span>: {metric.value}
+                      {metric.unit ? ` ${metric.unit}` : ""}
+                      {metric.baseline ? ` (baseline ${metric.baseline})` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <PlanList title="Findings" items={experiment.findings} />
+            <PlanList title="Limitations" items={experiment.limitations} />
+            <PlanList title="Reproduction steps" items={experiment.reproductionSteps} ordered />
+            {experiment.artifacts.length > 0 ? (
+              <div>
+                <h3 className="font-semibold text-rf-white">Artifacts</h3>
+                <ul className="mt-1 grid gap-1">
+                  {experiment.artifacts.map((artifact, index) => (
+                    <li key={`${artifact.path}-${index}`}>
+                      <span className="text-rf-white">{artifact.path}</span>
+                      {artifact.description ? ` — ${artifact.description}` : ""}{" "}
+                      <span className="text-rf-muted">({artifact.bytes} bytes)</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div>
+              <h3 className="font-semibold text-rf-white">Citations</h3>
+              <ul className="mt-1 grid gap-1">
+                {experiment.citations.map((citation, index) => (
+                  <li key={`${citation.title}-${index}`}>
+                    {citation.url ? (
+                      <a className="text-rf-violetSoft" href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a>
+                    ) : (
+                      <span className="text-rf-white">{citation.title}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        ) : null}
+
+        {!plan && !literature && !experiment ? (
           <section className="rounded-md border border-rf-border bg-rf-panel p-5 text-sm text-rf-muted">
             {project.status === "failed"
               ? `Stage failed${jobByStage.get(project.currentStage)?.errorMessage ? `: ${jobByStage.get(project.currentStage)?.errorMessage}` : "."}`

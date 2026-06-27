@@ -14,7 +14,8 @@ type WorkerJobType =
   | "novelty_scan"
   | "viability_check"
   | "research_plan"
-  | "research_literature";
+  | "research_literature"
+  | "research_experiment";
 
 export async function POST(
   request: Request,
@@ -138,7 +139,7 @@ async function markWorkerJobFailed(input: {
     await prisma.inboxGenerationJob.updateMany({ where, data });
   } else if (input.jobType === "novelty_scan") {
     await prisma.inboxNoveltyScanJob.updateMany({ where, data });
-  } else if (input.jobType === "research_plan" || input.jobType === "research_literature") {
+  } else if (input.jobType === "research_plan" || input.jobType === "research_literature" || input.jobType === "research_experiment") {
     await failResearchStageJob({ jobId: input.jobId, errorMessage: input.errorMessage });
   } else {
     await prisma.viabilityJob.updateMany({ where, data });
@@ -163,7 +164,8 @@ async function resolveJobType(input: {
     input.requestedType === "novelty_scan" ||
     input.requestedType === "viability_check" ||
     input.requestedType === "research_plan" ||
-    input.requestedType === "research_literature"
+    input.requestedType === "research_literature" ||
+    input.requestedType === "research_experiment"
       ? input.requestedType
       : null;
 
