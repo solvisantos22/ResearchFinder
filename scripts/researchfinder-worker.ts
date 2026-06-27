@@ -18,8 +18,10 @@ import {
   type ResearchPlanJobInput
 } from "@/lib/v2/schemas";
 import { buildNoveltyQueries } from "@/lib/novelty/query-builder";
-import { runCodex as defaultRunCodex } from "@/worker/codex-runner";
-import { runCodexAgentic as defaultRunCodexAgentic } from "@/worker/codex-runner";
+import {
+  runCodex as defaultRunCodex,
+  runCodexAgentic as defaultRunCodexAgentic
+} from "@/worker/codex-runner";
 import { gatherNoveltySourceEvidence as defaultGatherNoveltySourceEvidence } from "@/worker/novelty-sources";
 import {
   parseInboxGenerationOutput,

@@ -97,6 +97,45 @@ function literatureOutput(researchProjectId: string, paper: { arxivId: string; u
   };
 }
 
+function experimentOutput(researchProjectId: string, paper: { arxivId: string; url: string }) {
+  return {
+    researchProjectId,
+    relationToSourcePaper: "Implements and tests the source paper's method.",
+    implementationSummary: "Built a minimal training loop.",
+    environment: "python 3.11",
+    hypothesisOutcomes: [{ hypothesis: "H1.", outcome: "supported" as const, evidence: "Accuracy improved." }],
+    metrics: [{ name: "accuracy", value: "0.84", baseline: "0.80" }],
+    findings: ["Beats the baseline on the small split."],
+    limitations: ["Single seed."],
+    artifacts: [{ path: "train.py", description: "training script", bytes: 1200 }],
+    logsExcerpt: "epoch 1 ... done",
+    reproductionSteps: ["uv run python train.py"],
+    verdict: "success" as const,
+    summary: "Hypothesis supported.",
+    citations: [
+      { sourceType: "paper" as const, url: paper.url, sourceId: paper.arxivId, title: "Source paper", claim: "Original method.", confidence: 0.9 }
+    ]
+  };
+}
+
+async function advanceToExperimentClaim(
+  db: PrismaClient,
+  ids: { user: { id: string }; idea: { id: string }; paper: { arxivId: string; url: string } }
+) {
+  await developIdea({ currentUserId: ids.user.id, generatedIdeaId: ids.idea.id });
+  const plan = await claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+  await completeResearchStageJob({
+    jobId: plan!.id, workerId: "w",
+    output: planOutput(plan!.researchProjectId, ids.paper)
+  });
+  const lit = await claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+  await completeResearchStageJob({
+    jobId: lit!.id, workerId: "w",
+    output: literatureOutput(lit!.researchProjectId, ids.paper)
+  });
+  return claimNextResearchStageJob({ userId: ids.user.id, workerId: "w" });
+}
+
 describe("developIdea (generic stage model)", () => {
   it("creates a project and a queued plan stage job", async () => {
     await withPostgresTestDatabase(async (db) => {
@@ -242,6 +281,50 @@ describe("completeResearchStageJob advance", () => {
       expect(project).toMatchObject({ currentStage: "experiment", status: "running" });
       const experimentJob = await db.researchStageJob.findFirst({ where: { researchProjectId: project.id, stageType: "experiment" } });
       expect(experimentJob?.status).toBe("queued");
+    });
+  });
+
+  it("experiment completion sets the project experiment_ready and persists the artifact", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      const exp = await advanceToExperimentClaim(db, {
+        user, idea, paper: { arxivId: paper.arxivId, url: paper.url }
+      });
+      expect(exp?.stageType).toBe("experiment");
+      await completeResearchStageJob({
+        jobId: exp!.id, workerId: "w",
+        output: experimentOutput(exp!.researchProjectId, { arxivId: paper.arxivId, url: paper.url })
+      });
+      const project = await db.researchProject.findUniqueOrThrow({ where: { id: exp!.researchProjectId } });
+      expect(project.status).toBe("experiment_ready");
+      const experimentArtifact = await db.researchStageArtifact.findFirst({
+        where: { researchProjectId: project.id, stageType: "experiment" }
+      });
+      expect(experimentArtifact).not.toBeNull();
+      const analysisJob = await db.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "analysis" }
+      });
+      expect(analysisJob).toBeNull();
+    });
+  });
+
+  it("rejects an experiment output that omits the source-paper citation", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const { user, idea, paper } = await seedIdea(db);
+      const exp = await advanceToExperimentClaim(db, {
+        user, idea, paper: { arxivId: paper.arxivId, url: paper.url }
+      });
+      const bad = experimentOutput(exp!.researchProjectId, { arxivId: paper.arxivId, url: paper.url });
+      bad.citations = bad.citations.map((c) => ({ ...c, sourceType: "generated_analysis" as const, url: "" })) as unknown as typeof bad.citations;
+      await expect(
+        completeResearchStageJob({ jobId: exp!.id, workerId: "w", output: bad })
+      ).rejects.toThrow();
+      const artifact = await db.researchStageArtifact.findFirst({
+        where: { researchProjectId: exp!.researchProjectId, stageType: "experiment" }
+      });
+      expect(artifact).toBeNull();
     });
   });
 
