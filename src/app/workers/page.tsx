@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { PageShell } from "@/components/PageShell";
 import { WorkerSetupContent } from "@/components/WorkerSetupContent";
 import { LauncherPanel } from "@/components/LauncherPanel";
-import { getWorkersOverview, registerWorker, getLauncherOverview, registerLauncher, setLaneDesiredAction } from "@/app/workers/actions";
+import { getWorkersOverview, registerWorker, getLauncherOverview, registerLauncher, setLaneDesiredAction, restartLauncherAction } from "@/app/workers/actions";
 import { getWorkersOverviewForUser } from "@/lib/workers/overview";
 import { requireCurrentUser } from "@/lib/auth/session";
 import { resolveWorkerSetupAppUrl } from "@/lib/jobs/worker-setup-url";
@@ -32,6 +32,7 @@ export default async function WorkersPage() {
           initialDesired={launcherOverview.desired}
           registerLauncherAction={registerLauncher}
           setLaneDesiredAction={setLaneDesiredAction}
+          restartLauncherAction={restartLauncherAction}
         />
       </div>
       <WorkerSetupContent

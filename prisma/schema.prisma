@@ -491,15 +491,16 @@ model ResearchStageArtifact {
 }
 
 model LauncherRegistration {
-  id         String    @id @default(cuid())
-  userId     String
-  label      String
-  tokenHash  String
-  status     String    @default("active")
-  lastSeenAt DateTime?
-  createdAt  DateTime  @default(now())
-  revokedAt  DateTime?
-  user       User      @relation(fields: [userId], references: [id])
+  id                 String    @id @default(cuid())
+  userId             String
+  label              String
+  tokenHash          String
+  status             String    @default("active")
+  lastSeenAt         DateTime?
+  restartRequestedAt DateTime?
+  createdAt          DateTime  @default(now())
+  revokedAt          DateTime?
+  user               User      @relation(fields: [userId], references: [id])
 
   @@index([userId])
 }
