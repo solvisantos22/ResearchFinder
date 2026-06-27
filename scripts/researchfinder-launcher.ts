@@ -40,13 +40,22 @@ export async function runResearchFinderLauncher(config: LauncherConfig, options:
         headers: { authorization: `Bearer ${config.launcherToken}` }
       });
       if (!stateRes.ok) throw new Error(`launcher state failed: ${stateRes.status}`);
-      const body = (await stateRes.json()) as { inbox?: unknown; research?: unknown };
+      const body = (await stateRes.json()) as { inbox?: unknown; research?: unknown; restartRequested?: unknown };
       if (typeof body.inbox !== "boolean" || typeof body.research !== "boolean") {
         // A malformed 200 (empty body, proxy error page) must NOT be read as "both lanes off"
         // and tear down running workers. Treat it like a transient failure and skip the tick.
         throw new Error("launcher state returned a malformed body");
       }
       const desired = { inbox: body.inbox, research: body.research };
+
+      // A restart request bounces every running worker so they reload from disk (e.g. after a
+      // deploy). Kill before reconcile so this same tick respawns the still-desired lanes fresh.
+      if (body.restartRequested === true) {
+        for (const [lane, h] of [...running]) {
+          killWorker(h);
+          running.delete(lane);
+        }
+      }
 
       const plan = computeReconcilePlan(desired, [...running.keys()]);
       for (const lane of plan.toKill) {

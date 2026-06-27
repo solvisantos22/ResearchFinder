@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withPostgresTestDatabase } from "./helpers/postgres";
-import { registerLauncher, setLaneDesiredAction, getLauncherOverview } from "@/app/workers/actions";
+import { registerLauncher, setLaneDesiredAction, getLauncherOverview, restartLauncherAction } from "@/app/workers/actions";
 import { getDesiredLanes } from "@/lib/launcher/desired-state";
 
 const mocked = vi.hoisted(() => ({
@@ -57,6 +57,22 @@ describe("launcher actions", () => {
 
       const confirmed = await getDesiredLanes(u.id);
       expect(confirmed).toEqual({ inbox: true, research: false });
+    });
+  });
+
+  it("restartLauncherAction() sets restartRequestedAt on the current user's active launcher", async () => {
+    await withPostgresTestDatabase(async (db) => {
+      mocked.prisma = db;
+      const u = await db.user.create({ data: { email: "restart-action@example.com" } });
+      mocked.requireCurrentUser.mockResolvedValue({ id: u.id });
+      const launcher = await db.launcherRegistration.create({
+        data: { userId: u.id, label: "L", tokenHash: "h", status: "active" }
+      });
+
+      await restartLauncherAction();
+
+      const row = await db.launcherRegistration.findUniqueOrThrow({ where: { id: launcher.id } });
+      expect(row.restartRequestedAt).not.toBeNull();
     });
   });
 

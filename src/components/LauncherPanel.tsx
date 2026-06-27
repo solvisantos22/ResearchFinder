@@ -8,6 +8,7 @@ type LauncherPanelProps = {
   initialDesired: { inbox: boolean; research: boolean };
   registerLauncherAction: () => Promise<{ token: string }>;
   setLaneDesiredAction: (lane: "inbox" | "research", enabled: boolean) => Promise<{ inbox: boolean; research: boolean }>;
+  restartLauncherAction: () => Promise<void>;
 };
 
 function quotePowerShellLiteral(value: string) {
@@ -19,10 +20,12 @@ export function LauncherPanel({
   initialStatus,
   initialDesired,
   registerLauncherAction,
-  setLaneDesiredAction
+  setLaneDesiredAction,
+  restartLauncherAction
 }: LauncherPanelProps) {
   const [token, setToken] = React.useState<string | null>(null);
   const [desired, setDesired] = React.useState(initialDesired);
+  const [restartNotice, setRestartNotice] = React.useState<string | null>(null);
   const [isPending, startTransition] = React.useTransition();
 
   function handleRegister() {
@@ -36,6 +39,13 @@ export function LauncherPanel({
     startTransition(async () => {
       const next = await setLaneDesiredAction(lane, nextEnabled);
       setDesired(next);
+    });
+  }
+
+  function handleRestart() {
+    startTransition(async () => {
+      await restartLauncherAction();
+      setRestartNotice("Restart requested — workers bounce within ~20s.");
     });
   }
 
@@ -100,6 +110,20 @@ export function LauncherPanel({
           </label>
         </div>
         <p className="mt-2 text-xs text-rf-muted">Changes apply within ~20s.</p>
+      </div>
+
+      <div className="mt-5 border-t border-rf-border pt-4">
+        <button
+          type="button"
+          onClick={handleRestart}
+          disabled={isPending}
+          className="rounded-md border border-rf-border px-4 py-2 text-sm font-semibold text-rf-white transition-colors hover:bg-rf-surface disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Restart workers
+        </button>
+        <p className="mt-2 text-xs text-rf-muted">
+          {restartNotice ?? "Reloads worker code (e.g. after a deploy). Applies within ~20s."}
+        </p>
       </div>
     </section>
   );

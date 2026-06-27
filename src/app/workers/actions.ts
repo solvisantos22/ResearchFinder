@@ -5,6 +5,7 @@ import { requireCurrentUser } from "@/lib/auth/session";
 import { registerLauncherForUser } from "@/lib/jobs/launcher-registration";
 import { registerWorkerForUser } from "@/lib/jobs/worker-registration";
 import { getDesiredLanes, setLaneDesired } from "@/lib/launcher/desired-state";
+import { requestLauncherRestart } from "@/lib/launcher/restart";
 import { resolveLauncherStatusForUser, type LauncherStatus } from "@/lib/launcher/status";
 import { WORKER_LANES, type WorkerLane, type LauncherLane } from "@/lib/v2/domain";
 import { getWorkersOverviewForUser, type WorkerOverviewRow } from "@/lib/workers/overview";
@@ -52,6 +53,11 @@ export async function setLaneDesiredAction(lane: LauncherLane, enabled: boolean)
   const currentUser = await requireCurrentUser();
   await setLaneDesired(currentUser.id, lane, enabled);
   return getDesiredLanes(currentUser.id);
+}
+
+export async function restartLauncherAction(): Promise<void> {
+  const currentUser = await requireCurrentUser();
+  await requestLauncherRestart(currentUser.id);
 }
 
 export async function getLauncherOverview(): Promise<{ status: LauncherStatus; desired: { inbox: boolean; research: boolean } }> {

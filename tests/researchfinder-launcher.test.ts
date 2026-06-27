@@ -29,7 +29,7 @@ describe("runResearchFinderLauncher", () => {
   });
 
   it("does not spawn a lane that is already running", async () => {
-    let alive = true;
+    const alive = true;
     const handle = { lane: "inbox" as const, child: {} as never, isAlive: () => alive };
     const spawnWorker = vi.fn(() => handle);
     const killWorker = vi.fn();
@@ -119,5 +119,29 @@ describe("runResearchFinderLauncher", () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("launcher state failed: 503"));
     expect(spawnWorker).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  it("bounces running workers when state requests a restart", async () => {
+    const spawnWorker = vi.fn((lane: "inbox" | "research") => ({ lane, child: {} as never, isAlive: () => true }));
+    const killWorker = vi.fn();
+    let tick = 0;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith("/api/launcher/state")) {
+        tick += 1;
+        return tick === 1
+          ? { ok: true, json: async () => ({ inbox: true, research: false }) }
+          : { ok: true, json: async () => ({ inbox: true, research: false, restartRequested: true }) };
+      }
+      if (url.includes("/token")) return { ok: true, json: async () => ({ token: "t" }) };
+      throw new Error(`unexpected ${url}`);
+    });
+    await runResearchFinderLauncher(
+      { appUrl: "https://x", launcherToken: "L" },
+      { fetchImpl: fetchImpl as unknown as typeof fetch, spawnWorker, killWorker, sleep: async () => {}, maxIterations: 2 }
+    );
+    // Tick 1 spawns inbox; tick 2's restart kills it and the same tick respawns it fresh.
+    expect(killWorker).toHaveBeenCalledTimes(1);
+    expect(spawnWorker).toHaveBeenCalledTimes(2);
+    expect(spawnWorker).toHaveBeenLastCalledWith("inbox", "t");
   });
 });
