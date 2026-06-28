@@ -25,6 +25,14 @@ describe("CRITIC_CRITERIA registry", () => {
     expect(CRITIC_CRITERIA.analysis.routingGuidance.toLowerCase()).toContain("backtrack to experiment");
   });
 
+  it("accepts a rigorous, honest partial/negative/inconclusive result at experiment, analysis, and paper", () => {
+    for (const stage of ["experiment", "analysis", "paper"] as const) {
+      const entry = CRITIC_CRITERIA[stage];
+      const text = [entry.criteria.join(" "), entry.routingGuidance].join(" ").toLowerCase();
+      expect(/partial|inconclusive|negative/.test(text)).toBe(true);
+    }
+  });
+
   it("makes the plan critic REDO-only (no upstream stage to backtrack to in the current order)", () => {
     expect(CRITIC_CRITERIA.plan.routingGuidance.toLowerCase()).toContain("redo");
     expect(CRITIC_CRITERIA.plan.routingGuidance.toLowerCase()).not.toContain("backtrack to");
