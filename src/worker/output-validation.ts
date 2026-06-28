@@ -38,12 +38,34 @@ const VALID_CITATION_SOURCE_TYPES = new Set([
   "generated_analysis"
 ]);
 
-// Codex sometimes labels a citation with a sourceType outside the schema's
-// 4-value union (e.g. "dataset", "preprint", "code"). Failing an entire stage —
-// and discarding hours of real work — over a label is wrong, so we coerce
-// unknown values to "generated_analysis", mirroring the inbox input path
-// (researchfinder-worker.ts). The critic still judges citation quality.
-function normalizeCitationSourceTypes<T>(parsed: T): T {
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function looksLikeUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clampUnitScore(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.min(1, value));
+  }
+  return 0.5;
+}
+
+// Codex's free-form citations frequently violate the schema's strict CitationSchema
+// in ways that 400 the entire stage and discard hours of real work: an out-of-union
+// sourceType (e.g. "dataset"/"preprint"), a missing claim/confidence/title, a
+// non-url "url", or extra keys (CitationSchema is a strictObject). Rebuild each
+// citation to exactly the allowed, valid shape so one sloppy citation can't sink
+// the stage. The critic still judges citation quality/substance.
+function normalizeCitations<T>(parsed: T): T {
   if (parsed === null || typeof parsed !== "object") return parsed;
   const citations = (parsed as { citations?: unknown }).citations;
   if (!Array.isArray(citations)) return parsed;
@@ -51,11 +73,29 @@ function normalizeCitationSourceTypes<T>(parsed: T): T {
     ...(parsed as Record<string, unknown>),
     citations: citations.map((citation) => {
       if (citation === null || typeof citation !== "object") return citation;
-      const sourceType = (citation as { sourceType?: unknown }).sourceType;
-      if (typeof sourceType === "string" && VALID_CITATION_SOURCE_TYPES.has(sourceType)) {
-        return citation;
+      const record = citation as Record<string, unknown>;
+
+      const url = looksLikeUrl(record.url) ? record.url : "";
+      let sourceType =
+        typeof record.sourceType === "string" && VALID_CITATION_SOURCE_TYPES.has(record.sourceType)
+          ? record.sourceType
+          : "generated_analysis";
+      // Only "generated_analysis" may carry an empty url; demote url-less citations.
+      if (url === "" && sourceType !== "generated_analysis") {
+        sourceType = "generated_analysis";
       }
-      return { ...(citation as Record<string, unknown>), sourceType: "generated_analysis" };
+
+      const normalized: Record<string, unknown> = {
+        sourceType,
+        url,
+        title: isNonEmptyString(record.title) ? record.title : "Untitled source",
+        claim: isNonEmptyString(record.claim) ? record.claim : "Cited in the research output.",
+        confidence: clampUnitScore(record.confidence)
+      };
+      if (isNonEmptyString(record.sourceId)) {
+        normalized.sourceId = record.sourceId;
+      }
+      return normalized;
     })
   } as T;
 }
@@ -125,7 +165,7 @@ export function parseResearchStageOutput(
   if (!schema) {
     throw new Error(`No worker output schema for research stage "${stageType}"`);
   }
-  let value = normalizeCitationSourceTypes(JSON.parse(raw));
+  let value = normalizeCitations(JSON.parse(raw));
   if (sourcePaper) {
     value = groundCitationsToSourcePaper(value, sourcePaper);
   }

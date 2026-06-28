@@ -266,6 +266,26 @@ describe("worker output validation", () => {
     expect(paperCitations[0].sourceId).toBe(SOURCE_PAPER.arxivId);
   });
 
+  it("defaults missing citation fields (claim/confidence/title) instead of rejecting the stage", () => {
+    // Codex omitted claim+confidence on citation 0 and used out-of-union types on
+    // the rest. Previously the missing fields threw, the worker fell back to the
+    // raw output, and the server 400'd on everything. Rebuild must fix all of it.
+    const plan = createPlan([
+      { sourceType: "paper", url: "https://arxiv.org/abs/2606.00001", sourceId: "2606.00001", title: "Src" },
+      { sourceType: "dataset", url: "https://example.com/data", title: "Dataset", claim: "Used.", confidence: 0.8 },
+      { sourceType: "code", url: "not-a-url", title: "Repo", claim: "Reused.", confidence: 0.7 }
+    ]);
+
+    const parsed = parseResearchStageOutput("plan", JSON.stringify(plan), SOURCE_PAPER);
+
+    expect(parsed.citations[0].claim.length).toBeGreaterThan(0);
+    expect(parsed.citations[0].confidence).toBe(0.5);
+    expect(parsed.citations[1].sourceType).toBe("generated_analysis");
+    // citation 2 had a non-url "url", so it must end up url-less generated_analysis.
+    expect(parsed.citations[2].sourceType).toBe("generated_analysis");
+    expect(parsed.citations[2].url).toBe("");
+  });
+
   it("parses novelty scan output", () => {
     const output = parseNoveltyScanOutput(
       JSON.stringify({
