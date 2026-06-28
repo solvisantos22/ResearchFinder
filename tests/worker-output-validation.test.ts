@@ -117,6 +117,30 @@ function createViabilityOutput(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createPlan(citations: unknown[]) {
+  return {
+    researchProjectId: "proj-1",
+    relationToSourcePaper: "Extends the source paper's method to a new regime.",
+    hypotheses: ["The method improves accuracy."],
+    experimentalDesign: "Controlled comparison across seeds and baselines.",
+    protocolSteps: ["Obtain the dataset.", "Train baselines.", "Run ablations."],
+    datasets: ["CIFAR-10"],
+    baselines: ["ResNet-18"],
+    metrics: ["accuracy"],
+    successCriteria: ["Beats the baseline by >=2 points (p<0.05)."],
+    computeEstimate: "A few GPU-hours.",
+    risks: ["Dataset access may be rate-limited."],
+    citations
+  };
+}
+
+const SOURCE_PAPER = {
+  id: "paper-db-id",
+  arxivId: "2606.00001",
+  url: "https://arxiv.org/abs/2606.00001",
+  title: "Source paper title"
+};
+
 describe("worker output validation", () => {
   it("parses generated inbox json through the v2 schema", () => {
     const parsed = parseInboxGenerationOutput(JSON.stringify(createInboxOutput()));
@@ -200,6 +224,46 @@ describe("worker output validation", () => {
     expect(parsed.citations[0].sourceType).toBe("paper");
     expect(parsed.citations[1].sourceType).toBe("generated_analysis");
     expect(parsed.citations[2].sourceType).toBe("generated_analysis");
+  });
+
+  it("pins the source-paper citation and demotes other 'paper' citations to related_work", () => {
+    const plan = createPlan([
+      // Source paper cited with a versioned url and no sourceId — must still be
+      // recognized and pinned to the project's exact url + arxivId.
+      createCitation({ url: "https://arxiv.org/abs/2606.00001v2", sourceId: undefined, title: "Source" }),
+      // A different paper mislabeled "paper" — must be demoted to related_work.
+      createCitation({
+        sourceType: "paper",
+        url: "https://arxiv.org/abs/2511.99999",
+        sourceId: "2511.99999",
+        title: "Other paper"
+      })
+    ]);
+
+    const parsed = parseResearchStageOutput("plan", JSON.stringify(plan), SOURCE_PAPER);
+
+    const paperCitations = parsed.citations.filter((c) => c.sourceType === "paper");
+    expect(paperCitations).toHaveLength(1);
+    expect(paperCitations[0].url).toBe(SOURCE_PAPER.url);
+    expect(paperCitations[0].sourceId).toBe(SOURCE_PAPER.arxivId);
+    expect(
+      parsed.citations.some(
+        (c) => c.sourceType === "related_work" && c.url === "https://arxiv.org/abs/2511.99999"
+      )
+    ).toBe(true);
+  });
+
+  it("injects the source-paper citation when the stage output omits it", () => {
+    const plan = createPlan([
+      createCitation({ sourceType: "web", url: "https://example.com/post", sourceId: undefined, title: "Blog" })
+    ]);
+
+    const parsed = parseResearchStageOutput("plan", JSON.stringify(plan), SOURCE_PAPER);
+
+    const paperCitations = parsed.citations.filter((c) => c.sourceType === "paper");
+    expect(paperCitations).toHaveLength(1);
+    expect(paperCitations[0].url).toBe(SOURCE_PAPER.url);
+    expect(paperCitations[0].sourceId).toBe(SOURCE_PAPER.arxivId);
   });
 
   it("parses novelty scan output", () => {
