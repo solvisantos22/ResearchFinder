@@ -518,6 +518,15 @@ async function runViabilityJob(
   }
 }
 
+function sourcePaperRefFromInput(paper: {
+  id: string;
+  arxivId: string;
+  url: string;
+  title: string;
+}) {
+  return { id: paper.id, arxivId: paper.arxivId, url: paper.url, title: paper.title };
+}
+
 async function runResearchPlanJob(
   job: ClaimedWorkerJob,
   config: WorkerConfig,
@@ -538,7 +547,9 @@ async function runResearchPlanJob(
     }
 
     try {
-      return { output: parseResearchStageOutput("plan", rawOutput) };
+      return {
+        output: parseResearchStageOutput("plan", rawOutput, sourcePaperRefFromInput(input.paper))
+      };
     } catch (error) {
       return {
         output: parseRawCodexOutputForCompletion(rawOutput),
@@ -638,7 +649,9 @@ async function runLiteratureJob(
     }
 
     try {
-      return { output: parseResearchStageOutput("literature", rawOutput) };
+      return {
+        output: parseResearchStageOutput("literature", rawOutput, sourcePaperRefFromInput(input.paper))
+      };
     } catch (error) {
       return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
     }
@@ -739,7 +752,9 @@ async function runExperimentJob(
     }
 
     try {
-      return { output: parseResearchStageOutput("experiment", rawOutput) };
+      return {
+        output: parseResearchStageOutput("experiment", rawOutput, sourcePaperRefFromInput(input.paper))
+      };
     } catch (error) {
       return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
     }
@@ -833,7 +848,9 @@ async function runAnalysisJob(
     }
 
     try {
-      return { output: parseResearchStageOutput("analysis", rawOutput) };
+      return {
+        output: parseResearchStageOutput("analysis", rawOutput, sourcePaperRefFromInput(input.paper))
+      };
     } catch (error) {
       return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
     }
@@ -928,7 +945,9 @@ async function runPaperJob(
     }
 
     try {
-      return { output: parseResearchStageOutput("paper", rawOutput) };
+      return {
+        output: parseResearchStageOutput("paper", rawOutput, sourcePaperRefFromInput(input.paper))
+      };
     } catch (error) {
       return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
     }

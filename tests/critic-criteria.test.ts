@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { CRITIC_CRITERIA, renderCriticCriteria } from "@/lib/research/critic-criteria";
+import {
+  ACCEPT_HONEST_PARTIAL_RESULTS,
+  CRITIC_CRITERIA,
+  renderCriticCriteria
+} from "@/lib/research/critic-criteria";
 import { EXECUTABLE_STAGES } from "@/lib/research/stages";
 
 describe("CRITIC_CRITERIA registry", () => {
@@ -23,6 +27,16 @@ describe("CRITIC_CRITERIA registry", () => {
 
   it("routes analysis backtracks to the experiment stage", () => {
     expect(CRITIC_CRITERIA.analysis.routingGuidance.toLowerCase()).toContain("backtrack to experiment");
+  });
+
+  it("tolerates honest partials at experiment/analysis/paper iff ACCEPT_HONEST_PARTIAL_RESULTS is set", () => {
+    // The single switch between "validate the pipeline" mode (accept honest partials)
+    // and "publishable results only" mode (reject them). "do not reject" only appears
+    // in the lenient routing, so it tracks the flag exactly.
+    for (const stage of ["experiment", "analysis", "paper"] as const) {
+      const routing = CRITIC_CRITERIA[stage].routingGuidance.toLowerCase();
+      expect(routing.includes("do not reject")).toBe(ACCEPT_HONEST_PARTIAL_RESULTS);
+    }
   });
 
   it("makes the plan critic REDO-only (no upstream stage to backtrack to in the current order)", () => {

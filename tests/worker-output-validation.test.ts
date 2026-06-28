@@ -4,6 +4,7 @@ import { MAX_DAILY_IDEAS } from "@/lib/v2/domain";
 import {
   parseInboxGenerationOutput,
   parseNoveltyScanOutput,
+  parseResearchStageOutput,
   parseViabilityOutput
 } from "@/worker/output-validation";
 
@@ -116,6 +117,30 @@ function createViabilityOutput(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createPlan(citations: unknown[]) {
+  return {
+    researchProjectId: "proj-1",
+    relationToSourcePaper: "Extends the source paper's method to a new regime.",
+    hypotheses: ["The method improves accuracy."],
+    experimentalDesign: "Controlled comparison across seeds and baselines.",
+    protocolSteps: ["Obtain the dataset.", "Train baselines.", "Run ablations."],
+    datasets: ["CIFAR-10"],
+    baselines: ["ResNet-18"],
+    metrics: ["accuracy"],
+    successCriteria: ["Beats the baseline by >=2 points (p<0.05)."],
+    computeEstimate: "A few GPU-hours.",
+    risks: ["Dataset access may be rate-limited."],
+    citations
+  };
+}
+
+const SOURCE_PAPER = {
+  id: "paper-db-id",
+  arxivId: "2606.00001",
+  url: "https://arxiv.org/abs/2606.00001",
+  title: "Source paper title"
+};
+
 describe("worker output validation", () => {
   it("parses generated inbox json through the v2 schema", () => {
     const parsed = parseInboxGenerationOutput(JSON.stringify(createInboxOutput()));
@@ -170,6 +195,175 @@ describe("worker output validation", () => {
         )
       )
     ).toThrow();
+  });
+
+  it("coerces unknown research-stage citation sourceTypes instead of rejecting the stage", () => {
+    // Codex labeled citations 2 and 3 with types outside the 4-value union. The
+    // strict schema would 400 the whole plan; the worker must coerce them.
+    const plan = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper's method to a new regime.",
+      hypotheses: ["The method improves accuracy."],
+      experimentalDesign: "Controlled comparison across seeds and baselines.",
+      protocolSteps: ["Obtain the dataset.", "Train baselines.", "Run ablations."],
+      datasets: ["CIFAR-10"],
+      baselines: ["ResNet-18"],
+      metrics: ["accuracy"],
+      successCriteria: ["Beats the baseline by >=2 points (p<0.05)."],
+      computeEstimate: "A few GPU-hours.",
+      risks: ["Dataset access may be rate-limited."],
+      citations: [
+        createCitation(),
+        createCitation({ sourceType: "dataset", title: "CIFAR-10 dataset" }),
+        createCitation({ sourceType: "preprint", title: "A related preprint" })
+      ]
+    };
+
+    const parsed = parseResearchStageOutput("plan", JSON.stringify(plan));
+
+    expect(parsed.citations[0].sourceType).toBe("paper");
+    expect(parsed.citations[1].sourceType).toBe("generated_analysis");
+    expect(parsed.citations[2].sourceType).toBe("generated_analysis");
+  });
+
+  it("pins the source-paper citation and demotes other 'paper' citations to related_work", () => {
+    const plan = createPlan([
+      // Source paper cited with a versioned url and no sourceId — must still be
+      // recognized and pinned to the project's exact url + arxivId.
+      createCitation({ url: "https://arxiv.org/abs/2606.00001v2", sourceId: undefined, title: "Source" }),
+      // A different paper mislabeled "paper" — must be demoted to related_work.
+      createCitation({
+        sourceType: "paper",
+        url: "https://arxiv.org/abs/2511.99999",
+        sourceId: "2511.99999",
+        title: "Other paper"
+      })
+    ]);
+
+    const parsed = parseResearchStageOutput("plan", JSON.stringify(plan), SOURCE_PAPER);
+
+    const paperCitations = parsed.citations.filter((c) => c.sourceType === "paper");
+    expect(paperCitations).toHaveLength(1);
+    expect(paperCitations[0].url).toBe(SOURCE_PAPER.url);
+    expect(paperCitations[0].sourceId).toBe(SOURCE_PAPER.arxivId);
+    expect(
+      parsed.citations.some(
+        (c) => c.sourceType === "related_work" && c.url === "https://arxiv.org/abs/2511.99999"
+      )
+    ).toBe(true);
+  });
+
+  it("injects the source-paper citation when the stage output omits it", () => {
+    const plan = createPlan([
+      createCitation({ sourceType: "web", url: "https://example.com/post", sourceId: undefined, title: "Blog" })
+    ]);
+
+    const parsed = parseResearchStageOutput("plan", JSON.stringify(plan), SOURCE_PAPER);
+
+    const paperCitations = parsed.citations.filter((c) => c.sourceType === "paper");
+    expect(paperCitations).toHaveLength(1);
+    expect(paperCitations[0].url).toBe(SOURCE_PAPER.url);
+    expect(paperCitations[0].sourceId).toBe(SOURCE_PAPER.arxivId);
+  });
+
+  it("defaults missing citation fields (claim/confidence/title) instead of rejecting the stage", () => {
+    // Codex omitted claim+confidence on citation 0 and used out-of-union types on
+    // the rest. Previously the missing fields threw, the worker fell back to the
+    // raw output, and the server 400'd on everything. Rebuild must fix all of it.
+    const plan = createPlan([
+      { sourceType: "paper", url: "https://arxiv.org/abs/2606.00001", sourceId: "2606.00001", title: "Src" },
+      { sourceType: "dataset", url: "https://example.com/data", title: "Dataset", claim: "Used.", confidence: 0.8 },
+      { sourceType: "code", url: "not-a-url", title: "Repo", claim: "Reused.", confidence: 0.7 }
+    ]);
+
+    const parsed = parseResearchStageOutput("plan", JSON.stringify(plan), SOURCE_PAPER);
+
+    expect(parsed.citations[0].claim.length).toBeGreaterThan(0);
+    expect(parsed.citations[0].confidence).toBe(0.5);
+    expect(parsed.citations[1].sourceType).toBe("generated_analysis");
+    // citation 2 had a non-url "url", so it must end up url-less generated_analysis.
+    expect(parsed.citations[2].sourceType).toBe("generated_analysis");
+    expect(parsed.citations[2].url).toBe("");
+  });
+
+  it("strips null optional fields so a null metric baseline doesn't sink the experiment stage", () => {
+    // Codex set baseline:null on a metric (optional accepts undefined, not null)
+    // and used out-of-union citation sourceTypes. The null made schema.parse throw,
+    // the worker fell back to raw, and the server 400'd on both. Both must be fixed.
+    const experiment = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper.",
+      implementationSummary: "Implemented and ran the full study.",
+      environment: "Python 3.11, 1x GPU.",
+      hypothesisOutcomes: [{ hypothesis: "H1.", outcome: "supported", evidence: "Beats baseline." }],
+      metrics: [
+        { name: "accuracy", value: "0.91", unit: "ratio", baseline: null },
+        { name: "f1", value: "0.88", baseline: "0.80" }
+      ],
+      findings: ["The method improves accuracy."],
+      limitations: ["Single dataset."],
+      artifacts: [{ path: "experiment/results.csv", bytes: 2048 }],
+      logsExcerpt: "epoch 1 ... done",
+      reproductionSteps: ["Run train.py."],
+      verdict: "success",
+      summary: "The method works.",
+      citations: [
+        { sourceType: "paper", url: "https://arxiv.org/abs/2606.00001", sourceId: "2606.00001", title: "Src", claim: "Basis.", confidence: 0.9 },
+        { sourceType: "dataset", url: "https://example.com/data", title: "Data", claim: "Used.", confidence: 0.8 }
+      ]
+    };
+
+    const parsed = parseResearchStageOutput(
+      "experiment",
+      JSON.stringify(experiment),
+      SOURCE_PAPER
+    ) as { metrics: { baseline?: string }[]; citations: { sourceType: string }[] };
+
+    expect(parsed.metrics[0].baseline).toBeUndefined();
+    expect(parsed.metrics[1].baseline).toBe("0.80");
+    expect(parsed.citations.every((c) =>
+      ["paper", "related_work", "web", "generated_analysis"].includes(c.sourceType)
+    )).toBe(true);
+  });
+
+  it("prunes unrecognized keys on nested objects instead of rejecting the stage", () => {
+    // Codex added an extra "partialScienceWorldDirection" key to hypothesisOutcomes
+    // (strictObject rejects it) and used out-of-union citation sourceTypes. The extra
+    // key made schema.parse throw → raw fallback → server 400 on everything.
+    const experiment = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper.",
+      implementationSummary: "Ran the full study.",
+      environment: "Python 3.11.",
+      hypothesisOutcomes: [
+        { hypothesis: "H1.", outcome: "supported", evidence: "Beats baseline.", partialScienceWorldDirection: "extra" },
+        { hypothesis: "H2.", outcome: "inconclusive", evidence: "Noisy.", partialScienceWorldDirection: "extra" }
+      ],
+      metrics: [{ name: "accuracy", value: "0.91" }],
+      findings: ["It works."],
+      limitations: ["One dataset."],
+      artifacts: [{ path: "experiment/out.csv", bytes: 10 }],
+      logsExcerpt: "ok",
+      reproductionSteps: ["Run."],
+      verdict: "success",
+      summary: "Works.",
+      citations: [
+        { sourceType: "paper", url: "https://arxiv.org/abs/2606.00001", sourceId: "2606.00001", title: "Src", claim: "Basis.", confidence: 0.9 },
+        { sourceType: "dataset", url: "https://example.com/data", title: "Data", claim: "Used.", confidence: 0.8 }
+      ]
+    };
+
+    const parsed = parseResearchStageOutput(
+      "experiment",
+      JSON.stringify(experiment),
+      SOURCE_PAPER
+    ) as { hypothesisOutcomes: Record<string, unknown>[]; citations: { sourceType: string }[] };
+
+    expect(parsed.hypothesisOutcomes[0].partialScienceWorldDirection).toBeUndefined();
+    expect(parsed.hypothesisOutcomes[0].hypothesis).toBe("H1.");
+    expect(parsed.citations.every((c) =>
+      ["paper", "related_work", "web", "generated_analysis"].includes(c.sourceType)
+    )).toBe(true);
   });
 
   it("parses novelty scan output", () => {
