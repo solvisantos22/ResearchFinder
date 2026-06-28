@@ -1,8 +1,17 @@
+import { Prisma } from "@prisma/client";
+
 import { canDispatchIdeaForProfile } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 import { staleRunningJobStartedBefore } from "@/lib/jobs/lifecycle";
-import { EXECUTABLE_STAGES, STAGE_REGISTRY, nextExecutableStage, type ExecutableStage, type ResearchStage } from "@/lib/research/stages";
-import { type Citation, ViabilityResultSchema } from "@/lib/v2/schemas";
+import {
+  EXECUTABLE_STAGES,
+  STAGE_REGISTRY,
+  stagesAfter,
+  type ExecutableStage,
+  type ResearchStage
+} from "@/lib/research/stages";
+import { routeAfterCritic } from "@/lib/research/router";
+import { type Citation, CriticVerdictSchema, ViabilityResultSchema } from "@/lib/v2/schemas";
 
 const MAX_CLAIM_ATTEMPTS = 3;
 
@@ -115,84 +124,203 @@ export async function claimNextResearchStageJob(input: { userId: string; workerI
   return null;
 }
 
+async function loadStageJobForCompletion(
+  tx: Prisma.TransactionClient,
+  jobId: string,
+  workerId: string
+) {
+  return tx.researchStageJob.findFirst({
+    where: { id: jobId, claimedByWorkerId: workerId, status: "running" },
+    include: { researchProject: { include: { generatedIdea: { include: { paper: true } } } } }
+  });
+}
+
+type LoadedStageJob = NonNullable<Awaited<ReturnType<typeof loadStageJobForCompletion>>>;
+
 export async function completeResearchStageJob(input: {
   jobId: string;
   workerId: string;
   output: unknown;
 }) {
   await prisma.$transaction(async (tx) => {
-    const job = await tx.researchStageJob.findFirst({
-      where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
-      include: {
-        researchProject: { include: { generatedIdea: { include: { paper: true } } } }
-      }
-    });
+    const job = await loadStageJobForCompletion(tx, input.jobId, input.workerId);
 
     if (!job) {
       throw new Error("Research stage job is no longer running");
     }
 
-    const stage = job.stageType as ResearchStage;
-    const definition = STAGE_REGISTRY[stage as ExecutableStage];
-    if (!definition) {
-      throw new Error(`No registry entry for research stage "${job.stageType}"`);
-    }
-
-    const parsed = definition.outputSchema.parse(input.output) as {
-      researchProjectId: string;
-      citations: Citation[];
-    };
-
-    if (parsed.researchProjectId !== job.researchProjectId) {
-      throw new Error("Research stage output does not match the claimed project");
-    }
-
-    if (definition.requiresSourcePaperCitation) {
-      const sourcePaper = job.researchProject.generatedIdea.paper;
-      assertCitesSourcePaper(parsed.citations, {
-        id: sourcePaper.id,
-        arxivId: sourcePaper.arxivId,
-        url: sourcePaper.url
-      });
-    }
-
-    const completion = await tx.researchStageJob.updateMany({
-      where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
-      data: { status: "completed", outputJson: JSON.stringify(parsed), completedAt: new Date() }
-    });
-
-    if (completion.count !== 1) {
-      throw new Error("Research stage job is no longer running");
-    }
-
-    // Harness advance, abort-safe: gate on the project's CURRENT status via conditional
-    // updateMany so an abort committing concurrently is never resurrected.
-    const next = nextExecutableStage(stage);
-    const advance = await tx.researchProject.updateMany({
-      where: { id: job.researchProjectId, status: { not: "aborted" } },
-      data: next ? { currentStage: next, status: "running" } : { status: `${stage}_ready` }
-    });
-
-    // Project was aborted between claim and completion: job recorded completed, but no
-    // artifact persisted and no next stage enqueued.
-    if (advance.count !== 1) {
+    if (job.kind === "critic") {
+      await completeCriticJob(tx, job, input);
       return;
     }
 
-    await tx.researchStageArtifact.create({
-      data: { researchProjectId: job.researchProjectId, stageType: stage, artifactJson: JSON.stringify(parsed) }
-    });
+    await completeProducerJob(tx, job, input);
+  });
+}
 
-    if (next) {
-      await tx.researchStageJob.create({
-        data: {
-          researchProjectId: job.researchProjectId,
-          userId: job.userId,
-          stageType: next,
-          status: "queued",
-          inputJson: JSON.stringify({ researchProjectId: job.researchProjectId })
-        }
-      });
+async function completeProducerJob(
+  tx: Prisma.TransactionClient,
+  job: LoadedStageJob,
+  input: { jobId: string; workerId: string; output: unknown }
+) {
+  const stage = job.stageType as ResearchStage;
+  const definition = STAGE_REGISTRY[stage as ExecutableStage];
+  if (!definition) {
+    throw new Error(`No registry entry for research stage "${job.stageType}"`);
+  }
+
+  const parsed = definition.outputSchema.parse(input.output) as {
+    researchProjectId: string;
+    citations: Citation[];
+  };
+
+  if (parsed.researchProjectId !== job.researchProjectId) {
+    throw new Error("Research stage output does not match the claimed project");
+  }
+
+  if (definition.requiresSourcePaperCitation) {
+    const sourcePaper = job.researchProject.generatedIdea.paper;
+    assertCitesSourcePaper(parsed.citations, {
+      id: sourcePaper.id,
+      arxivId: sourcePaper.arxivId,
+      url: sourcePaper.url
+    });
+  }
+
+  const completion = await tx.researchStageJob.updateMany({
+    where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
+    data: { status: "completed", outputJson: JSON.stringify(parsed), completedAt: new Date() }
+  });
+  if (completion.count !== 1) {
+    throw new Error("Research stage job is no longer running");
+  }
+
+  // Abort-safe: gate the critic enqueue on the project still being non-aborted.
+  const advance = await tx.researchProject.updateMany({
+    where: { id: job.researchProjectId, status: { not: "aborted" } },
+    data: { currentStage: stage, status: "running" }
+  });
+  if (advance.count !== 1) {
+    return; // aborted concurrently: record the completed job, but persist nothing further
+  }
+
+  // Supersede any prior live artifact for this stage, then persist the fresh one.
+  await tx.researchStageArtifact.updateMany({
+    where: { researchProjectId: job.researchProjectId, stageType: stage, supersededAt: null },
+    data: { supersededAt: new Date() }
+  });
+  await tx.researchStageArtifact.create({
+    data: { researchProjectId: job.researchProjectId, stageType: stage, artifactJson: JSON.stringify(parsed) }
+  });
+
+  // Enqueue the critic for this stage.
+  await tx.researchStageJob.create({
+    data: {
+      researchProjectId: job.researchProjectId,
+      userId: job.userId,
+      stageType: stage,
+      kind: "critic",
+      status: "queued",
+      inputJson: JSON.stringify({ researchProjectId: job.researchProjectId, stageType: stage })
+    }
+  });
+}
+
+async function completeCriticJob(
+  tx: Prisma.TransactionClient,
+  job: LoadedStageJob,
+  input: { jobId: string; workerId: string; output: unknown }
+) {
+  const verdict = CriticVerdictSchema.parse(input.output);
+  if (verdict.researchProjectId !== job.researchProjectId) {
+    throw new Error("Critic verdict does not match the claimed project");
+  }
+  if (verdict.stageType !== job.stageType) {
+    throw new Error("Critic verdict stage does not match the claimed critic job");
+  }
+
+  const completion = await tx.researchStageJob.updateMany({
+    where: { id: input.jobId, claimedByWorkerId: input.workerId, status: "running" },
+    data: { status: "completed", verdictJson: JSON.stringify(verdict), completedAt: new Date() }
+  });
+  if (completion.count !== 1) {
+    throw new Error("Research stage job is no longer running");
+  }
+
+  const action = routeAfterCritic(
+    verdict,
+    {
+      producerRunsUsed: job.researchProject.producerRunsUsed,
+      backtracksUsed: job.researchProject.backtracksUsed
+    },
+    { attempt: job.attempt }
+  );
+
+  if (action.type === "set_status") {
+    // Abort-safe: never resurrect an aborted project.
+    await tx.researchProject.updateMany({
+      where: { id: job.researchProjectId, status: { not: "aborted" } },
+      data: { status: action.status }
+    });
+    return;
+  }
+
+  if (action.type === "enqueue_producer") {
+    const advance = await tx.researchProject.updateMany({
+      where: { id: job.researchProjectId, status: { not: "aborted" } },
+      data: { currentStage: action.stage, status: "running", producerRunsUsed: { increment: 1 } }
+    });
+    if (advance.count !== 1) return;
+    await tx.researchStageJob.create({
+      data: {
+        researchProjectId: job.researchProjectId,
+        userId: job.userId,
+        stageType: action.stage,
+        kind: "producer",
+        attempt: action.attempt,
+        feedback: action.feedback,
+        status: "queued",
+        inputJson: JSON.stringify({ researchProjectId: job.researchProjectId })
+      }
+    });
+    return;
+  }
+
+  // action.type === "backtrack"
+  const advance = await tx.researchProject.updateMany({
+    where: { id: job.researchProjectId, status: { not: "aborted" } },
+    data: {
+      currentStage: action.targetStage,
+      status: "running",
+      producerRunsUsed: { increment: 1 },
+      backtracksUsed: { increment: 1 }
+    }
+  });
+  if (advance.count !== 1) return;
+
+  // Supersede every live artifact for stages strictly after the target.
+  const downstream = stagesAfter(action.supersedeAfter);
+  if (downstream.length > 0) {
+    await tx.researchStageArtifact.updateMany({
+      where: {
+        researchProjectId: job.researchProjectId,
+        stageType: { in: downstream },
+        supersededAt: null
+      },
+      data: { supersededAt: new Date() }
+    });
+  }
+
+  await tx.researchStageJob.create({
+    data: {
+      researchProjectId: job.researchProjectId,
+      userId: job.userId,
+      stageType: action.targetStage,
+      kind: "producer",
+      attempt: action.attempt,
+      feedback: action.feedback,
+      status: "queued",
+      inputJson: JSON.stringify({ researchProjectId: job.researchProjectId })
     }
   });
 }

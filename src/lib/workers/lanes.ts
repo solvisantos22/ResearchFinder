@@ -10,14 +10,46 @@ export const WORKER_JOB_TYPES = [
   "research_plan",
   "research_literature",
   "research_experiment",
-  "research_analysis"
+  "research_analysis",
+  "research_paper",
+  "research_plan_critic",
+  "research_literature_critic",
+  "research_experiment_critic",
+  "research_analysis_critic",
+  "research_paper_critic"
 ] as const;
 export type WorkerJobType = (typeof WORKER_JOB_TYPES)[number];
 
 export const LANE_JOB_TYPES: Record<WorkerLane, readonly WorkerJobType[]> = {
   inbox: ["inbox_generation", "novelty_scan"],
-  research: ["viability_check", "research_plan", "research_literature", "research_experiment", "research_analysis"],
-  both: ["inbox_generation", "novelty_scan", "viability_check", "research_plan", "research_literature", "research_experiment", "research_analysis"]
+  research: [
+    "viability_check",
+    "research_plan",
+    "research_literature",
+    "research_experiment",
+    "research_analysis",
+    "research_paper",
+    "research_plan_critic",
+    "research_literature_critic",
+    "research_experiment_critic",
+    "research_analysis_critic",
+    "research_paper_critic"
+  ],
+  both: [
+    "inbox_generation",
+    "novelty_scan",
+    "viability_check",
+    "research_plan",
+    "research_literature",
+    "research_experiment",
+    "research_analysis",
+    "research_paper",
+    "research_plan_critic",
+    "research_literature_critic",
+    "research_experiment_critic",
+    "research_analysis_critic",
+    "research_paper_critic"
+  ]
 };
 
 // `lane` is a free-form String column; an unrecognized value (e.g. a future

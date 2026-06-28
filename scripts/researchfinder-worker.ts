@@ -11,12 +11,14 @@ import {
   InboxGenerationJobInputSchema,
   LiteratureJobInputSchema,
   NoveltyScanJobInputSchema,
+  PaperJobInputSchema,
   ResearchPlanJobInputSchema,
   type AnalysisJobInput,
   type ExperimentJobInput,
   type InboxGenerationJobInput,
   type LiteratureJobInput,
   type NoveltyScanJobInput,
+  type PaperJobInput,
   type ResearchPlanJobInput
 } from "@/lib/v2/schemas";
 import { buildNoveltyQueries } from "@/lib/novelty/query-builder";
@@ -26,6 +28,7 @@ import {
 } from "@/worker/codex-runner";
 import { gatherNoveltySourceEvidence as defaultGatherNoveltySourceEvidence } from "@/worker/novelty-sources";
 import {
+  parseCriticVerdict,
   parseInboxGenerationOutput,
   parseNoveltyScanOutput,
   parseResearchStageOutput,
@@ -256,6 +259,28 @@ export async function runResearchFinderWorkerOnce(
     return true;
   }
 
+  if (payload.job.type === "research_paper") {
+    const result = await runPaperJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
+  if (
+    payload.job.type === "research_plan_critic" ||
+    payload.job.type === "research_literature_critic" ||
+    payload.job.type === "research_experiment_critic" ||
+    payload.job.type === "research_analysis_critic" ||
+    payload.job.type === "research_paper_critic"
+  ) {
+    const result = await runStageCriticJob(payload.job, config, options);
+    await completeWorkerJob(config, payload.job, result.output);
+    if (result.validationError) throw new ProcessedWorkerError(result.validationError);
+    console.log(`Completed ${payload.job.type} job ${payload.job.id}`);
+    return true;
+  }
+
   throw new FatalWorkerError(
     `No local executor is registered for ${payload.job.type} in this worker slice`
   );
@@ -378,7 +403,13 @@ function parseClaimPayload(value: unknown): { job: null | ClaimedWorkerJob } {
     job.type !== "research_plan" &&
     job.type !== "research_literature" &&
     job.type !== "research_experiment" &&
-    job.type !== "research_analysis"
+    job.type !== "research_analysis" &&
+    job.type !== "research_plan_critic" &&
+    job.type !== "research_literature_critic" &&
+    job.type !== "research_experiment_critic" &&
+    job.type !== "research_analysis_critic" &&
+    job.type !== "research_paper" &&
+    job.type !== "research_paper_critic"
   ) {
     throw new FatalWorkerError(`Unsupported worker job type: ${String(job.type)}`);
   }
@@ -536,9 +567,21 @@ async function writeResearchPlanPrompt(jobId: string, input: ResearchPlanJobInpu
   return { dir: promptDir, file: promptFile };
 }
 
+function buildPriorFeedbackSection(feedback?: string | null): string[] {
+  if (!feedback) return [];
+  return [
+    "",
+    "A prior critic REJECTED an earlier attempt at this stage. You MUST directly and specifically",
+    "address this feedback in your new output:",
+    feedback,
+    ""
+  ];
+}
+
 function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
   return [
-    "You are turning a viability-checked research idea into a concrete, executable research plan.",
+    "You are turning a viability-checked research idea into a concrete, FEASIBLE, RIGOROUS research plan",
+    "for a publishable study — not a demo.",
     "Return only valid JSON matching the ResearchPlan schema exactly. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
     "Required keys: researchProjectId, relationToSourcePaper, hypotheses (>=1), experimentalDesign,",
@@ -547,10 +590,18 @@ function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
     "hypotheses, protocolSteps, datasets, baselines, metrics, successCriteria, and risks are arrays of",
     "PLAIN STRINGS (one concise sentence per item, NOT objects). experimentalDesign, computeEstimate,",
     "and relationToSourcePaper are single plain strings. Example: \"hypotheses\": [\"X improves Y.\", \"...\"].",
+    "Design the FULL study, not the smallest version:",
+    "- Name REAL, publicly available datasets/benchmarks and how to obtain them — never invent toy data.",
+    "- Specify concrete baselines, MULTIPLE seeds/repetitions, and ablations.",
+    "- Include a concrete statistical-analysis plan (which tests, effect sizes, multiple-comparison handling).",
+    "- successCriteria must be quantitative, decidable thresholds tied to the metrics.",
+    "Every step must be executable HERE: a Codex agent with web access + local CPU/GPU + PUBLIC data/code,",
+    "with NO paid LLM API keys and NO proprietary data. If the most ambitious version is not feasible here,",
+    "scope DOWN to what is genuinely runnable — but keep it rigorous (real data, seeds, ablations, statistics).",
+    "Do NOT propose a toy or a single one-shot run.",
     "Ground the plan in the source paper: relationToSourcePaper must explain how this work extends it,",
     "and citations MUST include the source paper as sourceType \"paper\" with its exact url and sourceId.",
-    "Keep the plan to the smallest credible experiment that tests the core hypothesis.",
-    "",
+    ...buildPriorFeedbackSection(input.feedback),
     "Claimed job input:",
     JSON.stringify(input, null, 2)
   ].join("\n");
@@ -623,10 +674,15 @@ function experimentWorkspaceDir(researchProjectId: string) {
 
 function buildExperimentPrompt(input: ExperimentJobInput) {
   return [
-    "You are running a real, minimal research experiment in your current working directory.",
+    "You are running a REAL, COMPLETE research experiment in your current working directory.",
     "The full task input (idea, source paper, approved plan, literature positioning/gaps) is in INPUT.json in this directory — read it first.",
-    "Implement and ACTUALLY RUN the smallest credible experiment that tests the plan's hypotheses:",
-    "write code, install any dependencies you need, run it, and collect real metrics versus the baselines.",
+    "Obtain the REAL data the plan names: download it or build it from real public sources, and record its",
+    "provenance (source URLs + how you obtained it). Then implement the method and ACTUALLY RUN THE FULL STUDY —",
+    "all planned conditions, datasets, and baselines, with MULTIPLE seeds/repetitions. Save raw outputs and",
+    "artifacts to disk. Take as long as you need: there is no time limit, and thoroughness matters more than speed.",
+    "NEVER fabricate, synthesize, or stub the data, and never create toy/'_micro'/'_style'/dummy fixtures.",
+    "If you genuinely cannot obtain a required dataset or run a condition, say so honestly in limitations and",
+    "report verdict \"partial\" or \"failed\" — do NOT invent stand-in data to appear complete.",
     "When finished, output ONLY valid JSON matching the ExperimentResult schema as your final message. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
     "Required keys: researchProjectId, relationToSourcePaper, implementationSummary, environment,",
@@ -636,7 +692,7 @@ function buildExperimentPrompt(input: ExperimentJobInput) {
     "verdict (success|partial|failed), summary, citations (>=1).",
     "Ground in the source paper: relationToSourcePaper must explain how this work extends it,",
     'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.',
-    'If something fails, report it honestly with verdict "partial" or "failed" and explain in limitations.'
+    ...buildPriorFeedbackSection(input.feedback)
   ].join("\n");
 }
 
@@ -715,8 +771,10 @@ function buildAnalysisPrompt(input: AnalysisJobInput) {
     "The experiment's raw outputs (code, data, logs, artifacts) are in the experiment/ subdirectory.",
     "The full task input (idea, source paper, plan success criteria, literature positioning, and the",
     "experiment's reported results) is in analysis/INPUT.json — read it first.",
-    "Do REAL analysis on the experiment's raw outputs: compute the relevant statistics and significance,",
-    "judge the results against the plan's successCriteria, and generate paper-ready figures and tables.",
+    "Do RIGOROUS statistics on the experiment's RAW outputs: report significance tests, effect sizes,",
+    "confidence intervals, and multiple-comparison corrections appropriate to the design, plus robustness",
+    "checks. Do not report bare means. Judge the results HONESTLY against the plan's successCriteria, and",
+    "generate publication-quality figures and tables.",
     "Write every figure/table/data file you produce into the analysis/ subdirectory.",
     "When finished, output ONLY valid JSON matching the AnalysisResult schema as your final message. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
@@ -727,7 +785,8 @@ function buildAnalysisPrompt(input: AnalysisJobInput) {
     "comparisonToBaselines, threatsToValidity, recommendedNextSteps,",
     "verdict (supports_hypotheses|mixed|refutes_hypotheses|inconclusive), summary, citations (>=1).",
     "Ground in the source paper: relationToSourcePaper must explain how this analysis relates to it,",
-    'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.'
+    'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.',
+    ...buildPriorFeedbackSection(input.feedback)
   ].join("\n");
 }
 
@@ -784,6 +843,218 @@ async function runAnalysisJob(
   }
 }
 
+function paperWorkspaceDirs(researchProjectId: string) {
+  const root =
+    process.env.RESEARCHFINDER_EXPERIMENT_WORKSPACE_ROOT ??
+    join(process.cwd(), ".research-workspaces");
+  const projectRoot = join(root, researchProjectId);
+  return { projectRoot, paperDir: join(projectRoot, "paper") };
+}
+
+function parsePaperJobInput(value: unknown) {
+  try {
+    return PaperJobInputSchema.parse(value);
+  } catch (error) {
+    throw new FatalWorkerError(`Paper job input failed validation: ${formatErrorMessage(error)}`);
+  }
+}
+
+function buildPaperPrompt(input: PaperJobInput) {
+  return [
+    "You are assembling a COMPLETE, submittable academic paper in your current working directory.",
+    "The experiment and analysis raw outputs are in the experiment/ and analysis/ subdirectories",
+    "(figures and tables the analysis produced are under analysis/). The full task input (idea, source",
+    "paper, plan, literature, experiment + analysis results) is in paper/INPUT.json — read it first.",
+    "Write the paper as LaTeX to paper/main.tex with the standard structure: Title, Abstract, Introduction,",
+    "Related Work, Method, Experiments, Results, Discussion, Limitations, Conclusion, References. Embed the",
+    "analysis figures/tables (reference the files under analysis/). State the novel contribution explicitly",
+    "relative to the source paper.",
+    "Then COMPILE it to a PDF locally: run `tectonic paper/main.tex` (preferred) or `pdflatex` in paper/.",
+    "Every empirical claim and number MUST come from the analysis results — do not invent numbers. Every",
+    "citation must be a real, resolvable reference, and you MUST cite the source paper.",
+    "When finished, output ONLY valid JSON matching the PaperResult schema as your final message. Do not wrap it in Markdown.",
+    `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
+    "Required keys: researchProjectId, relationToSourcePaper, title, abstract, noveltyStatement,",
+    "sections (>=1, the section headings you included), texPath (e.g. \"paper/main.tex\"), pdfPath (e.g. \"paper/main.pdf\"),",
+    "compiled (true only if the PDF actually built), artifacts (each {path, caption, kind: figure|table|pdf|tex, bytes}),",
+    "summary, citations (>=1).",
+    "If the PDF genuinely cannot be compiled (no LaTeX toolchain), set compiled=false and explain in summary —",
+    "do NOT fabricate a PDF.",
+    "Ground in the source paper: relationToSourcePaper must explain how this paper relates to it,",
+    'and citations MUST include the source paper as sourceType "paper" with its exact url and sourceId.',
+    ...buildPriorFeedbackSection(input.feedback)
+  ].join("\n");
+}
+
+async function runPaperJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parsePaperJobInput(job.input);
+  const { paperDir } = paperWorkspaceDirs(input.researchProjectId);
+  await mkdir(paperDir, { recursive: true });
+  await writeFile(join(paperDir, "INPUT.json"), JSON.stringify(input, null, 2), "utf8");
+
+  const { projectRoot } = paperWorkspaceDirs(input.researchProjectId);
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-paper-"));
+  const promptFile = join(promptDir, `${job.id}.prompt.md`);
+  await writeFile(promptFile, buildPaperPrompt(input), "utf8");
+
+  const controller = new AbortController();
+  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const heartbeat = setInterval(() => {
+    void sendWorkerHeartbeat(config, job.id)
+      .then((result) => {
+        if (result?.aborted) controller.abort();
+      })
+      .catch((error) => {
+        console.warn(`Heartbeat failed (continuing): ${formatErrorMessage(error)}`);
+      });
+  }, heartbeatMs);
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodexAgentic ?? defaultRunCodexAgentic)(promptFile, {
+        workspaceDir: projectRoot,
+        codexCommand: config.codexCommand,
+        signal: controller.signal
+      });
+    } catch (error) {
+      const message = controller.signal.aborted ? "Paper aborted by user" : formatErrorMessage(error);
+      await failWorkerJob(config, job, new Error(message));
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseResearchStageOutput("paper", rawOutput) };
+    } catch (error) {
+      return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
+    }
+  } finally {
+    clearInterval(heartbeat);
+    await rm(promptDir, { force: true, recursive: true });
+  }
+}
+
+type StageCriticJobInput = {
+  researchProjectId: string;
+  stageType: string;
+  artifactToJudge: unknown;
+  upstreamArtifacts: { stageType: string; artifact: unknown }[];
+  sourcePaper: unknown;
+  criteria: string;
+};
+
+function parseStageCriticJobInput(value: unknown): StageCriticJobInput {
+  if (!isRecord(value)) {
+    throw new FatalWorkerError("Stage critic job input must be an object");
+  }
+  const rawUpstream = Array.isArray(value.upstreamArtifacts) ? value.upstreamArtifacts : [];
+  const upstreamArtifacts = rawUpstream
+    .filter((entry): entry is Record<string, unknown> => isRecord(entry) && typeof entry.stageType === "string")
+    .map((entry) => ({ stageType: entry.stageType as string, artifact: entry.artifact }));
+  return {
+    researchProjectId: readString(value.researchProjectId, "researchProjectId"),
+    stageType: readString(value.stageType, "stageType"),
+    artifactToJudge: value.artifactToJudge,
+    upstreamArtifacts,
+    sourcePaper: value.sourcePaper,
+    criteria: readString(value.criteria, "criteria")
+  };
+}
+
+function stageCriticWorkspaceDir(researchProjectId: string, stageType: string) {
+  const root =
+    process.env.RESEARCHFINDER_EXPERIMENT_WORKSPACE_ROOT ??
+    join(process.cwd(), ".research-workspaces");
+  return join(root, researchProjectId, `${stageType}-critic`);
+}
+
+function buildStageCriticPrompt(input: StageCriticJobInput) {
+  const upstreamFiles = input.upstreamArtifacts.map((u) => `UPSTREAM_${u.stageType}.json`);
+  const upstreamLine =
+    upstreamFiles.length > 0
+      ? `Upstream stage artifacts for cross-checking are in: ${upstreamFiles.join(", ")}.`
+      : "There are no upstream stage artifacts for this stage.";
+  return [
+    "You are an adversarial research critic. Judge the ARTIFACT.json in your current working",
+    "directory against the stated criteria and return a single CriticVerdict JSON as your final message.",
+    "Do not wrap it in Markdown. Default to rejection when genuinely unsure (anti-rubber-stamp).",
+    `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
+    `The JSON stageType must be exactly ${JSON.stringify(input.stageType)}.`,
+    "Required keys: researchProjectId, stageType, verdict (one of PASS|REDO|BACKTRACK),",
+    "scorecard (>=1, each {criterion, pass: boolean, note}).",
+    "If verdict is REDO or BACKTRACK, include feedback. If verdict is BACKTRACK, also include",
+    "targetStage — it must be a stage STRICTLY BEFORE this one (one of plan|literature|experiment|analysis).",
+    "Criteria for this stage:",
+    input.criteria,
+    "",
+    "The artifact to judge and the source paper are in ARTIFACT.json and SOURCE.json in this directory.",
+    upstreamLine
+  ].join("\n");
+}
+
+async function runStageCriticJob(
+  job: ClaimedWorkerJob,
+  config: WorkerConfig,
+  options: WorkerRunOptions
+): Promise<WorkerJobRunResult> {
+  const input = parseStageCriticJobInput(job.input);
+  const workspaceDir = stageCriticWorkspaceDir(input.researchProjectId, input.stageType);
+  await mkdir(workspaceDir, { recursive: true });
+  await writeFile(join(workspaceDir, "ARTIFACT.json"), JSON.stringify(input.artifactToJudge, null, 2), "utf8");
+  await writeFile(join(workspaceDir, "SOURCE.json"), JSON.stringify(input.sourcePaper, null, 2), "utf8");
+  for (const upstream of input.upstreamArtifacts) {
+    await writeFile(
+      join(workspaceDir, `UPSTREAM_${upstream.stageType}.json`),
+      JSON.stringify(upstream.artifact, null, 2),
+      "utf8"
+    );
+  }
+
+  const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-critic-"));
+  const promptFile = join(promptDir, `${job.id}.prompt.md`);
+  await writeFile(promptFile, buildStageCriticPrompt(input), "utf8");
+
+  const controller = new AbortController();
+  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const heartbeat = setInterval(() => {
+    void sendWorkerHeartbeat(config, job.id)
+      .then((result) => {
+        if (result?.aborted) controller.abort();
+      })
+      .catch((error) => {
+        console.warn(`Heartbeat failed (continuing): ${formatErrorMessage(error)}`);
+      });
+  }, heartbeatMs);
+
+  try {
+    let rawOutput: string;
+    try {
+      rawOutput = await (options.runCodexAgentic ?? defaultRunCodexAgentic)(promptFile, {
+        workspaceDir,
+        codexCommand: config.codexCommand,
+        signal: controller.signal
+      });
+    } catch (error) {
+      const message = controller.signal.aborted ? "Critic aborted by user" : formatErrorMessage(error);
+      await failWorkerJob(config, job, new Error(message));
+      throw new ProcessedWorkerError(error);
+    }
+
+    try {
+      return { output: parseCriticVerdict(rawOutput) };
+    } catch (error) {
+      return { output: parseRawCodexOutputForCompletion(rawOutput), validationError: error };
+    }
+  } finally {
+    clearInterval(heartbeat);
+    await rm(promptDir, { force: true, recursive: true });
+  }
+}
+
 async function sendWorkerHeartbeat(
   config: WorkerConfig,
   jobId: string
@@ -815,16 +1086,19 @@ async function writeLiteraturePrompt(
 
 function buildLiteraturePrompt(input: LiteratureJobInput, evidenceBundle: Record<string, unknown>) {
   return [
-    "You are writing a focused literature review for a viability-checked research project.",
+    "You are writing a RIGOROUS, VERIFIABLE literature review for a viability-checked research project.",
     "Return only valid JSON matching the LiteratureReview schema exactly. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
     "Required keys: researchProjectId, relationToSourcePaper, relatedWorks (>=1, each with",
-    "title/summary/relationToProposed), themes (>=1), gaps (>=1), positioning, citations (>=1).",
-    "Synthesize the gathered evidence; cite real retrieved works as sourceType \"related_work\".",
+    "title/summary/relationToProposed), themes (>=1), gaps (>=1), positioning, availableResources, citations (>=1).",
+    "Cite REAL retrieved works with resolvable URLs as sourceType \"related_work\" — never invent citations.",
+    "Identify a concrete, genuinely-open gap (not a truism).",
+    "availableResources: inventory the publicly available datasets/code/benchmarks relevant to this direction",
+    "(these feed experiment feasibility) — name each with how to obtain it.",
     "Ground in the source paper: relationToSourcePaper must explain how this work extends it,",
     "and citations MUST include the source paper as sourceType \"paper\" with its exact url and sourceId.",
     "If evidence is empty, still synthesize from the plan and the source paper.",
-    "",
+    ...buildPriorFeedbackSection(input.feedback),
     "Claimed job input (idea, source paper, and the approved plan):",
     JSON.stringify(input, null, 2),
     "",

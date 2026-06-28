@@ -9,6 +9,8 @@ import { readBearerToken } from "@/lib/jobs/worker-auth";
 import { claimNextResearchStageJob, failResearchStageJob, buildViabilityContextFromArtifactContent } from "@/lib/jobs/research";
 import { laneClaimsJobType } from "@/lib/workers/lanes";
 import { MAX_DAILY_IDEAS, MAX_IDEAS_PER_PAPER } from "@/lib/v2/domain";
+import { renderCriticCriteria } from "@/lib/research/critic-criteria";
+import { stagesBefore, type ExecutableStage } from "@/lib/research/stages";
 import {
   type InboxGenerationJobInput,
   InboxGenerationJobInputSchema,
@@ -24,7 +26,10 @@ import {
   type ExperimentJobInput,
   ExperimentResultSchema,
   AnalysisJobInputSchema,
-  type AnalysisJobInput
+  type AnalysisJobInput,
+  AnalysisResultSchema,
+  PaperJobInputSchema,
+  type PaperJobInput
 } from "@/lib/v2/schemas";
 
 export async function POST(request: Request) {
@@ -141,7 +146,13 @@ export async function POST(request: Request) {
     laneClaimsJobType(lane, "research_plan") ||
     laneClaimsJobType(lane, "research_literature") ||
     laneClaimsJobType(lane, "research_experiment") ||
-    laneClaimsJobType(lane, "research_analysis")
+    laneClaimsJobType(lane, "research_analysis") ||
+    laneClaimsJobType(lane, "research_paper") ||
+    laneClaimsJobType(lane, "research_plan_critic") ||
+    laneClaimsJobType(lane, "research_literature_critic") ||
+    laneClaimsJobType(lane, "research_experiment_critic") ||
+    laneClaimsJobType(lane, "research_analysis_critic") ||
+    laneClaimsJobType(lane, "research_paper_critic")
   ) {
     const stageJob = await claimNextResearchStageJob({
       userId: worker.userId,
@@ -150,14 +161,23 @@ export async function POST(request: Request) {
 
     if (stageJob) {
       try {
+        if (stageJob.kind === "critic") {
+          const input = buildStageCriticJobInput(stageJob);
+          return NextResponse.json({
+            job: { type: `research_${stageJob.stageType}_critic`, id: stageJob.id, input }
+          });
+        }
+
         const input =
-          stageJob.stageType === "analysis"
-            ? await buildAnalysisJobInput(stageJob)
-            : stageJob.stageType === "experiment"
-              ? await buildExperimentJobInput(stageJob)
-              : stageJob.stageType === "literature"
-                ? await buildLiteratureJobInput(stageJob)
-                : await buildResearchPlanJobInput(stageJob);
+          stageJob.stageType === "paper"
+            ? await buildPaperJobInput(stageJob)
+            : stageJob.stageType === "analysis"
+              ? await buildAnalysisJobInput(stageJob)
+              : stageJob.stageType === "experiment"
+                ? await buildExperimentJobInput(stageJob)
+                : stageJob.stageType === "literature"
+                  ? await buildLiteratureJobInput(stageJob)
+                  : await buildResearchPlanJobInput(stageJob);
         return NextResponse.json({
           job: { type: `research_${stageJob.stageType}`, id: stageJob.id, input }
         });
@@ -228,6 +248,12 @@ function buildNoveltyScanJobInput(job: ClaimedNoveltyScanJob): NoveltyScanJobInp
 
 type ClaimedResearchStageJob = NonNullable<Awaited<ReturnType<typeof claimNextResearchStageJob>>>;
 
+function findLiveArtifact(job: ClaimedResearchStageJob, stage: string) {
+  return job.researchProject.stageArtifacts
+    .filter((a) => a.stageType === stage && a.supersededAt === null)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+}
+
 async function buildResearchPlanJobInput(job: ClaimedResearchStageJob): Promise<ResearchPlanJobInput> {
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
@@ -262,7 +288,8 @@ async function buildResearchPlanJobInput(job: ClaimedResearchStageJob): Promise<
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
-    }))
+    })),
+    feedback: job.feedback ?? undefined
   });
 }
 
@@ -270,7 +297,7 @@ async function buildLiteratureJobInput(job: ClaimedResearchStageJob): Promise<Li
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
 
-  const planArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "plan");
+  const planArtifact = findLiveArtifact(job, "plan");
   if (!planArtifact) {
     throw new Error("Literature stage requires a completed plan artifact");
   }
@@ -300,7 +327,8 @@ async function buildLiteratureJobInput(job: ClaimedResearchStageJob): Promise<Li
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
-    }))
+    })),
+    feedback: job.feedback ?? undefined
   });
 }
 
@@ -308,11 +336,11 @@ async function buildExperimentJobInput(job: ClaimedResearchStageJob): Promise<Ex
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
 
-  const planArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "plan");
+  const planArtifact = findLiveArtifact(job, "plan");
   if (!planArtifact) {
     throw new Error("Experiment stage requires a completed plan artifact");
   }
-  const litArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "literature");
+  const litArtifact = findLiveArtifact(job, "literature");
   if (!litArtifact) {
     throw new Error("Experiment stage requires a completed literature artifact");
   }
@@ -363,7 +391,8 @@ async function buildExperimentJobInput(job: ClaimedResearchStageJob): Promise<Ex
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
-    }))
+    })),
+    feedback: job.feedback ?? undefined
   });
 }
 
@@ -371,15 +400,15 @@ async function buildAnalysisJobInput(job: ClaimedResearchStageJob): Promise<Anal
   const idea = job.researchProject.generatedIdea;
   const paper = idea.paper;
 
-  const planArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "plan");
+  const planArtifact = findLiveArtifact(job, "plan");
   if (!planArtifact) {
     throw new Error("Analysis stage requires a completed plan artifact");
   }
-  const litArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "literature");
+  const litArtifact = findLiveArtifact(job, "literature");
   if (!litArtifact) {
     throw new Error("Analysis stage requires a completed literature artifact");
   }
-  const expArtifact = job.researchProject.stageArtifacts.find((a) => a.stageType === "experiment");
+  const expArtifact = findLiveArtifact(job, "experiment");
   if (!expArtifact) {
     throw new Error("Analysis stage requires a completed experiment artifact");
   }
@@ -441,8 +470,99 @@ async function buildAnalysisJobInput(job: ClaimedResearchStageJob): Promise<Anal
     citations: idea.citations.map((citation) => ({
       sourceType: citation.sourceType, title: citation.title, url: citation.url,
       sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
-    }))
+    })),
+    feedback: job.feedback ?? undefined
   });
+}
+
+async function buildPaperJobInput(job: ClaimedResearchStageJob): Promise<PaperJobInput> {
+  const idea = job.researchProject.generatedIdea;
+  const paper = idea.paper;
+
+  const planArtifact = findLiveArtifact(job, "plan");
+  const litArtifact = findLiveArtifact(job, "literature");
+  const expArtifact = findLiveArtifact(job, "experiment");
+  const analysisArtifact = findLiveArtifact(job, "analysis");
+  if (!planArtifact || !litArtifact || !expArtifact || !analysisArtifact) {
+    throw new Error("Paper stage requires completed plan, literature, experiment, and analysis artifacts");
+  }
+  const plan = ResearchPlanSchema.parse(JSON.parse(planArtifact.artifactJson));
+  const literature = LiteratureReviewSchema.parse(JSON.parse(litArtifact.artifactJson));
+  const experiment = ExperimentResultSchema.parse(JSON.parse(expArtifact.artifactJson));
+  const analysis = AnalysisResultSchema.parse(JSON.parse(analysisArtifact.artifactJson));
+
+  return PaperJobInputSchema.parse({
+    jobId: job.id,
+    userId: job.userId,
+    researchProjectId: job.researchProjectId,
+    idea: {
+      id: idea.id, title: idea.title, summary: idea.summary,
+      expandedExplanation: idea.expandedExplanation, trajectory: idea.trajectory,
+      smallestSprint: idea.smallestSprint
+    },
+    paper: {
+      id: paper.id, arxivId: paper.arxivId, title: paper.title, abstract: paper.abstract, url: paper.url,
+      authors: parseJsonArray(paper.authorsJson, "authorsJson"),
+      categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
+      publishedAt: paper.publishedAt.toISOString()
+    },
+    plan: {
+      relationToSourcePaper: plan.relationToSourcePaper,
+      hypotheses: plan.hypotheses,
+      successCriteria: plan.successCriteria,
+      metrics: plan.metrics,
+      baselines: plan.baselines,
+      experimentalDesign: plan.experimentalDesign
+    },
+    literature: { positioning: literature.positioning, gaps: literature.gaps },
+    experiment: { summary: experiment.summary, verdict: experiment.verdict, findings: experiment.findings },
+    analysis: {
+      summary: analysis.summary, verdict: analysis.verdict, keyFindings: analysis.keyFindings,
+      comparisonToBaselines: analysis.comparisonToBaselines
+    },
+    citations: idea.citations.map((citation) => ({
+      sourceType: citation.sourceType, title: citation.title, url: citation.url,
+      sourceId: citation.sourceId ?? undefined, claim: citation.claim, confidence: citation.confidence
+    })),
+    feedback: job.feedback ?? undefined
+  });
+}
+
+function buildStageCriticJobInput(job: ClaimedResearchStageJob) {
+  const idea = job.researchProject.generatedIdea;
+  const paper = idea.paper;
+  const stage = job.stageType;
+
+  const liveArtifact = findLiveArtifact(job, stage);
+  if (!liveArtifact) {
+    throw new Error(`Critic stage requires a live ${stage} artifact to judge`);
+  }
+
+  const upstreamArtifacts = stagesBefore(stage as ExecutableStage)
+    .map((upstreamStage) => {
+      const artifact = findLiveArtifact(job, upstreamStage);
+      if (!artifact) return null;
+      return { stageType: upstreamStage, artifact: JSON.parse(artifact.artifactJson) as unknown };
+    })
+    .filter((entry): entry is { stageType: ExecutableStage; artifact: unknown } => entry !== null);
+
+  return {
+    researchProjectId: job.researchProjectId,
+    stageType: stage,
+    artifactToJudge: JSON.parse(liveArtifact.artifactJson) as unknown,
+    upstreamArtifacts,
+    sourcePaper: {
+      id: paper.id,
+      arxivId: paper.arxivId,
+      title: paper.title,
+      abstract: paper.abstract,
+      url: paper.url,
+      authors: parseJsonArray(paper.authorsJson, "authorsJson"),
+      categories: parseJsonArray(paper.categoriesJson, "categoriesJson"),
+      publishedAt: paper.publishedAt.toISOString()
+    },
+    criteria: renderCriticCriteria(stage as ExecutableStage)
+  };
 }
 
 type ClaimedViabilityJob = NonNullable<Awaited<ReturnType<typeof claimNextViabilityJob>>>;

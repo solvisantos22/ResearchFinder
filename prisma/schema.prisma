@@ -443,6 +443,8 @@ model ResearchProject {
   sourceViabilityJobId String?
   status               String
   currentStage         String
+  producerRunsUsed     Int       @default(0)
+  backtracksUsed       Int       @default(0)
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -459,7 +461,11 @@ model ResearchStageJob {
   researchProjectId String
   userId            String
   stageType         String
+  kind              String    @default("producer")
+  attempt           Int       @default(1)
   status            String
+  feedback          String?
+  verdictJson       String?
   claimedByWorkerId String?
   inputJson         String
   outputJson        String?
@@ -473,21 +479,21 @@ model ResearchStageJob {
   researchProject ResearchProject @relation(fields: [researchProjectId], references: [id], onDelete: Cascade)
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([researchProjectId, stageType])
   @@index([userId, status, createdAt, id])
   @@index([claimedByWorkerId, status])
 }
 
 model ResearchStageArtifact {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   researchProjectId String
   stageType         String
   artifactJson      String
-  createdAt         DateTime @default(now())
+  supersededAt      DateTime?
+  createdAt         DateTime  @default(now())
 
   researchProject ResearchProject @relation(fields: [researchProjectId], references: [id], onDelete: Cascade)
 
-  @@unique([researchProjectId, stageType])
+  @@index([researchProjectId, stageType])
 }
 
 model LauncherRegistration {

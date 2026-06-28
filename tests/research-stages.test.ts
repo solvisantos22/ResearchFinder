@@ -3,6 +3,8 @@ import {
   RESEARCH_STAGES,
   EXECUTABLE_STAGES,
   nextExecutableStage,
+  stagesAfter,
+  stagesBefore,
   STAGE_REGISTRY
 } from "@/lib/research/stages";
 import { AnalysisResultSchema, LiteratureReviewSchema, ResearchPlanSchema } from "@/lib/v2/schemas";
@@ -13,7 +15,7 @@ describe("research stage registry", () => {
   });
 
   it("lists the executable stages in order", () => {
-    expect(EXECUTABLE_STAGES).toEqual(["plan", "literature", "experiment", "analysis"]);
+    expect(EXECUTABLE_STAGES).toEqual(["plan", "literature", "experiment", "analysis", "paper"]);
   });
 
   it("advances plan -> literature", () => {
@@ -25,7 +27,8 @@ describe("research stage registry", () => {
     expect(nextExecutableStage("literature")).toBe("experiment");
     expect(EXECUTABLE_STAGES).toContain("analysis");
     expect(nextExecutableStage("experiment")).toBe("analysis");
-    expect(nextExecutableStage("analysis")).toBeNull();
+    expect(nextExecutableStage("analysis")).toBe("paper");
+    expect(nextExecutableStage("paper")).toBeNull();
     expect(STAGE_REGISTRY.experiment.requiresSourcePaperCitation).toBe(true);
     expect(STAGE_REGISTRY.analysis.requiresSourcePaperCitation).toBe(true);
   });
@@ -36,5 +39,20 @@ describe("research stage registry", () => {
     expect(STAGE_REGISTRY.plan.requiresSourcePaperCitation).toBe(true);
     expect(STAGE_REGISTRY.literature.requiresSourcePaperCitation).toBe(true);
     expect(STAGE_REGISTRY.analysis.outputSchema).toBe(AnalysisResultSchema);
+  });
+
+  it("stagesBefore returns the executable stages strictly before, in order", () => {
+    expect(stagesBefore("plan")).toEqual([]);
+    expect(stagesBefore("literature")).toEqual(["plan"]);
+    expect(stagesBefore("experiment")).toEqual(["plan", "literature"]);
+    expect(stagesBefore("analysis")).toEqual(["plan", "literature", "experiment"]);
+  });
+
+  it("includes paper as an executable stage with a registry entry", () => {
+    expect(EXECUTABLE_STAGES).toContain("paper");
+    expect(STAGE_REGISTRY.paper).toBeDefined();
+    expect(STAGE_REGISTRY.paper.requiresSourcePaperCitation).toBe(true);
+    expect(stagesAfter("analysis")).toEqual(["paper"]);
+    expect(stagesAfter("paper")).toEqual([]);
   });
 });

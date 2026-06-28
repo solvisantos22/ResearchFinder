@@ -666,13 +666,18 @@ describe("researchfinder local worker", () => {
                 experimentalDesign: "d",
                 metrics: ["m"]
               },
-              citations: []
+              citations: [],
+              feedback: "Prior critic: verify every citation URL."
             }
           }
         })
       )
       .mockResolvedValueOnce(createJsonResponse({ ok: true }));
-    const runCodex = vi.fn().mockResolvedValue(JSON.stringify(codexOutput));
+    let promptText = "";
+    const runCodex = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(codexOutput);
+    });
     const gatherNoveltySourceEvidence = vi.fn().mockResolvedValue({
       adaptersAttempted: [],
       adaptersFailed: [],
@@ -698,6 +703,9 @@ describe("researchfinder local worker", () => {
     const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
     expect(completionBody.type).toBe("research_literature");
     expect(completionBody.output.researchProjectId).toBe("proj-1");
+    expect(promptText.toLowerCase()).toContain("availableresources");
+    expect(promptText.toLowerCase()).toContain("never invent");
+    expect(promptText).toContain("Prior critic: verify every citation URL.");
   });
 
   it("completes claimed research_experiment jobs with an agentic run and validated output", async () => {
@@ -772,7 +780,8 @@ describe("researchfinder local worker", () => {
                 gaps: ["No small-scale ablation exists."]
               },
               viability: null,
-              citations: []
+              citations: [],
+              feedback: "Prior critic: use the full dataset, not a subset."
             }
           }
         })
@@ -797,10 +806,12 @@ describe("researchfinder local worker", () => {
 
     expect(processed).toBe(true);
     expect(runCodexAgentic).toHaveBeenCalledTimes(1);
-    expect(promptText).toContain(
-      "You are running a real, minimal research experiment in your current working directory."
-    );
+    expect(promptText).not.toContain("minimal research experiment");
+    expect(promptText).not.toContain("smallest credible experiment");
     expect(promptText).toContain("INPUT.json");
+    expect(promptText.toLowerCase()).toContain("real data");
+    expect(promptText.toLowerCase()).toContain("never fabricate");
+    expect(promptText).toContain("Prior critic: use the full dataset, not a subset.");
     const completionRequest = fetchMock.mock.calls[1];
     expect(completionRequest?.[0]).toBe(
       "https://research.example.com/api/workers/jobs/exp-1/complete"
@@ -881,7 +892,8 @@ describe("researchfinder local worker", () => {
                 summary: "Hypothesis supported."
               },
               viability: null,
-              citations: []
+              citations: [],
+              feedback: "Prior critic: report confidence intervals."
             }
           }
         })
@@ -912,6 +924,9 @@ describe("researchfinder local worker", () => {
     expect(analysisCall?.[1]?.workspaceDir).toMatch(/[\\/]proj-1$/);
     expect(promptText).toContain("INPUT.json");
     expect(promptText).toContain("analysis/");
+    expect(promptText.toLowerCase()).toContain("confidence interval");
+    expect(promptText.toLowerCase()).toContain("effect size");
+    expect(promptText).toContain("Prior critic: report confidence intervals.");
     const completionRequest = fetchMock.mock.calls[1];
     expect(completionRequest?.[0]).toBe(
       "https://research.example.com/api/workers/jobs/ana-1/complete"
@@ -919,6 +934,116 @@ describe("researchfinder local worker", () => {
     const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
     expect(completionBody.type).toBe("research_analysis");
     expect(completionBody.output).toEqual(codexOutput);
+  });
+
+  it("completes a claimed research critic job with an agentic stub run and validated verdict", async () => {
+    const verdictOutput = {
+      researchProjectId: "proj-1",
+      stageType: "plan",
+      verdict: "PASS",
+      scorecard: [{ criterion: "Phase-1 stub", pass: true, note: "Looks adequate for the spine." }]
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_plan_critic",
+            id: "plan-critic-1",
+            input: {
+              researchProjectId: "proj-1",
+              stageType: "plan",
+              artifactToJudge: { researchProjectId: "proj-1", hypotheses: ["H1"] },
+              sourcePaper: {
+                id: "p1", arxivId: "2401.00001", title: "Source Paper", abstract: "A.",
+                url: "https://arxiv.org/abs/2401.00001", authors: [], categories: [],
+                publishedAt: "2024-01-01T00:00:00.000Z"
+              },
+              criteria: "plan criteria placeholder — Phase 2 fills this in"
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(verdictOutput);
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      { appUrl: "https://research.example.com", workerToken: "worker-token", codexCommand: "codex-test" },
+      { runCodexAgentic, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(runCodexAgentic).toHaveBeenCalledTimes(1);
+    expect(promptText).toContain("CriticVerdict");
+    expect(promptText).toContain("PASS|REDO|BACKTRACK");
+    const completionRequest = fetchMock.mock.calls[1];
+    expect(completionRequest?.[0]).toBe(
+      "https://research.example.com/api/workers/jobs/plan-critic-1/complete"
+    );
+    const completionBody = JSON.parse(String(completionRequest?.[1]?.body));
+    expect(completionBody.type).toBe("research_plan_critic");
+    expect(completionBody.output).toEqual(verdictOutput);
+  });
+
+  it("writes upstream artifacts and references them in the critic prompt", async () => {
+    const verdictOutput = {
+      researchProjectId: "proj-1",
+      stageType: "experiment",
+      verdict: "PASS",
+      scorecard: [{ criterion: "Real data", pass: true, note: "Provenance traceable." }]
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_experiment_critic",
+            id: "exp-critic-1",
+            input: {
+              researchProjectId: "proj-1",
+              stageType: "experiment",
+              artifactToJudge: { researchProjectId: "proj-1", findings: ["f1"] },
+              upstreamArtifacts: [
+                { stageType: "plan", artifact: { researchProjectId: "proj-1", marker: "PLAN" } },
+                { stageType: "literature", artifact: { researchProjectId: "proj-1", marker: "LIT" } }
+              ],
+              sourcePaper: {
+                id: "p1", arxivId: "2401.00001", title: "Source Paper", abstract: "A.",
+                url: "https://arxiv.org/abs/2401.00001", authors: [], categories: [],
+                publishedAt: "2024-01-01T00:00:00.000Z"
+              },
+              criteria: "Evaluate the experiment artifact. 1. Real data with real provenance."
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(verdictOutput);
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      { appUrl: "https://research.example.com", workerToken: "worker-token", codexCommand: "codex-test" },
+      { runCodexAgentic, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(promptText).toContain("UPSTREAM_plan.json");
+    expect(promptText).toContain("UPSTREAM_literature.json");
+    expect(promptText).toContain("Real data with real provenance");
+    // The existing JSON-shape contract must still hold:
+    expect(promptText).toContain("CriticVerdict");
+    expect(promptText).toContain("PASS|REDO|BACKTRACK");
   });
 
   it("completes claimed novelty scan jobs with source evidence and validated Codex output", async () => {
@@ -1026,6 +1151,157 @@ describe("researchfinder local worker", () => {
     const completionBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(completionBody.type).toBe("novelty_scan");
     expect(completionBody.output.scans[0].label).toBe("unclear");
+  });
+
+  it("completes claimed research_paper jobs with an agentic run and validated output", async () => {
+    const codexOutput = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper's method to a new benchmark.",
+      title: "A Rigorous Study of X",
+      abstract: "We study X and find Y.",
+      noveltyStatement: "First to evaluate X on the public Z benchmark with ablations.",
+      sections: ["Introduction", "Related Work", "Method", "Experiments", "Results", "Conclusion"],
+      texPath: "paper/main.tex",
+      pdfPath: "paper/main.pdf",
+      compiled: true,
+      artifacts: [
+        { path: "paper/main.pdf", caption: "Compiled paper", kind: "pdf", bytes: 240000 },
+        { path: "analysis/fig1.png", caption: "Accuracy vs depth", kind: "figure", bytes: 30000 }
+      ],
+      summary: "A submittable workshop-grade draft.",
+      citations: [
+        {
+          sourceType: "paper",
+          title: "Source",
+          url: "https://arxiv.org/abs/2501.00001",
+          sourceId: "2501.00001",
+          claim: "Foundational",
+          confidence: 0.9
+        }
+      ]
+    };
+
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_paper",
+            id: "paper-job-1",
+            input: {
+              jobId: "paper-job-1",
+              userId: "user-1",
+              researchProjectId: "proj-1",
+              idea: {
+                id: "i1", title: "T", summary: "S",
+                expandedExplanation: "E", trajectory: "Tr", smallestSprint: "SS"
+              },
+              paper: {
+                id: "p1", arxivId: "2501.00001", title: "Source", abstract: "A",
+                url: "https://arxiv.org/abs/2501.00001",
+                authors: ["Ada"], categories: ["cs.LG"],
+                publishedAt: "2026-06-25T00:00:00.000Z"
+              },
+              plan: {
+                relationToSourcePaper: "Extends.",
+                hypotheses: ["H1"],
+                successCriteria: ["beats baseline"],
+                metrics: ["acc"],
+                baselines: ["ResNet"],
+                experimentalDesign: "ablation"
+              },
+              literature: { positioning: "We close the Z gap.", gaps: ["no open benchmark"] },
+              experiment: { summary: "Ran full study.", verdict: "success", findings: ["X improves Y"] },
+              analysis: {
+                summary: "Supports hypotheses.", verdict: "supports_hypotheses",
+                keyFindings: ["+4% acc"], comparisonToBaselines: "Beats ResNet."
+              },
+              citations: [{
+                sourceType: "paper", title: "Source",
+                url: "https://arxiv.org/abs/2501.00001", sourceId: "2501.00001",
+                claim: "Foundational", confidence: 0.9
+              }],
+              feedback: "Prior critic: tighten the abstract."
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodexAgentic = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify(codexOutput);
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      {
+        appUrl: "https://research.example.com",
+        workerToken: "worker-token",
+        codexCommand: "codex-test"
+      },
+      { runCodexAgentic, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(runCodexAgentic).toHaveBeenCalledTimes(1);
+    expect(promptText.toLowerCase()).toContain("latex");
+    expect(promptText.toLowerCase()).toContain("tectonic");
+    expect(promptText).toContain("paper/main.tex");
+    expect(promptText).toContain("Prior critic: tighten the abstract.");
+    const completionBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(completionBody.type).toBe("research_paper");
+    expect(completionBody.output.compiled).toBe(true);
+  });
+
+  it("plan prompt demands rigor, drops the 'smallest' framing, and injects prior feedback", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          job: {
+            type: "research_plan",
+            id: "plan-redo-1",
+            input: {
+              jobId: "plan-redo-1", userId: "u1", researchProjectId: "proj-1",
+              idea: { id: "i1", title: "T", summary: "S", expandedExplanation: "E", trajectory: "Tr", smallestSprint: "SS" },
+              paper: {
+                id: "p1", arxivId: "2401.00001", title: "Src", abstract: "A.",
+                url: "https://arxiv.org/abs/2401.00001", authors: [], categories: [],
+                publishedAt: "2024-01-01T00:00:00.000Z"
+              },
+              viability: null,
+              citations: [{ sourceType: "paper", title: "Src", url: "https://arxiv.org/abs/2401.00001", sourceId: "2401.00001", claim: "Foundational", confidence: 0.9 }],
+              feedback: "Add multiple seeds and an ablation over depth."
+            }
+          }
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ ok: true }));
+    let promptText = "";
+    const runCodex = vi.fn(async (promptPath: string) => {
+      promptText = await readFile(promptPath, "utf8");
+      return JSON.stringify({
+        researchProjectId: "proj-1", relationToSourcePaper: "Extends src.",
+        hypotheses: ["H1"], experimentalDesign: "D", protocolSteps: ["S1"], datasets: ["CIFAR-10"],
+        baselines: ["ResNet-18"], metrics: ["acc"], successCriteria: ["beats baseline"], computeEstimate: "1 GPU-day",
+        risks: ["r"], citations: [{ sourceType: "paper", title: "Src", url: "https://arxiv.org/abs/2401.00001", sourceId: "2401.00001", claim: "Foundational", confidence: 0.9 }]
+      });
+    });
+    globalThis.fetch = fetchMock;
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const processed = await runResearchFinderWorkerOnce(
+      { appUrl: "https://research.example.com", workerToken: "worker-token", codexCommand: "codex-test" },
+      { runCodex, maxIterations: 1 }
+    );
+
+    expect(processed).toBe(true);
+    expect(promptText).not.toContain("smallest credible experiment");
+    expect(promptText.toLowerCase()).toContain("real");
+    expect(promptText.toLowerCase()).toContain("ablation");
+    expect(promptText).toContain("Add multiple seeds and an ablation over depth.");
   });
 });
 

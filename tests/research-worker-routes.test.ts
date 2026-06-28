@@ -295,6 +295,39 @@ async function seedProjectWithExperimentJob(client: PrismaClient) {
   return { user, worker, paper, project };
 }
 
+async function seedProjectWithRedispatchedPlanJob(client: PrismaClient) {
+  const user = await client.user.create({ data: { email: "worker-routes-redispatch@example.com" } });
+  const worker = await client.workerRegistration.create({
+    data: { userId: user.id, label: "w-redispatch", tokenHash: "h-redispatch", status: "active" }
+  });
+  const paper = await client.paper.create({
+    data: {
+      arxivId: "2502.00008", title: "Redispatch Src", abstract: "E",
+      url: "https://arxiv.org/abs/2502.00008", publishedAt: new Date(), arxivUpdatedAt: new Date(),
+      authorsJson: "[]", categoriesJson: "[]"
+    }
+  });
+  const idea = await client.generatedIdea.create({
+    data: {
+      userId: user.id, paperId: paper.id, inboxDate: "2026-06-25", title: "Redispatch Idea", summary: "S",
+      expandedExplanation: "E", trajectory: "Tr", recommended: true, noveltyStatus: "not_checked",
+      relevanceScore: 0.8, significanceScore: 0.8, originalityScore: 0.8, feasibilityScore: 0.8,
+      overallScore: 0.8, scoreExplanationsJson: "{}", risksJson: "[]", smallestSprint: "SS", generatedBy: "codex"
+    }
+  });
+  const project = await client.researchProject.create({
+    data: { userId: user.id, generatedIdeaId: idea.id, status: "running", currentStage: "plan" }
+  });
+  const job = await client.researchStageJob.create({
+    data: {
+      researchProjectId: project.id, userId: user.id, stageType: "plan", kind: "producer",
+      attempt: 2, feedback: "Prior critic: add multiple seeds and an ablation.",
+      status: "queued", inputJson: JSON.stringify({ researchProjectId: project.id })
+    }
+  });
+  return { user, worker, paper, project, job };
+}
+
 describe("research_plan worker routes", () => {
   it("claims a research_plan job and returns a valid input", async () => {
     const { POST } = await import("@/app/api/workers/claim/route");
@@ -315,6 +348,24 @@ describe("research_plan worker routes", () => {
       expect(payload.job.type).toBe("research_plan");
       expect(payload.job.input.paper.arxivId).toBe("2502.00002");
       expect(typeof payload.job.input.researchProjectId).toBe("string");
+    });
+  });
+
+  it("ships the prior critic feedback to a re-dispatched plan producer", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker } = await seedProjectWithRedispatchedPlanJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+      const response = await POST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST", headers: { authorization: "Bearer t" }
+        })
+      );
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as { job: { type: string; input: { feedback?: string } } };
+      expect(payload.job.type).toBe("research_plan");
+      expect(payload.job.input.feedback).toBe("Prior critic: add multiple seeds and an ablation.");
     });
   });
 });
@@ -536,6 +587,496 @@ async function seedProjectWithAnalysisJob(client: PrismaClient) {
   return { user, worker, paper, project };
 }
 
+async function seedProjectWithPlanCriticJob(client: PrismaClient) {
+  const user = await client.user.create({ data: { email: "worker-routes-critic@example.com" } });
+  const worker = await client.workerRegistration.create({
+    data: { userId: user.id, label: "w-critic", tokenHash: "h-critic", status: "active" }
+  });
+  const paper = await client.paper.create({
+    data: {
+      arxivId: "2502.00006", title: "Critic Src", abstract: "E",
+      url: "https://arxiv.org/abs/2502.00006", publishedAt: new Date(), arxivUpdatedAt: new Date(),
+      authorsJson: "[]", categoriesJson: "[]"
+    }
+  });
+  const idea = await client.generatedIdea.create({
+    data: {
+      userId: user.id, paperId: paper.id, inboxDate: "2026-06-25", title: "Critic Idea", summary: "S",
+      expandedExplanation: "E", trajectory: "Tr", recommended: true, noveltyStatus: "not_checked",
+      relevanceScore: 0.8, significanceScore: 0.8, originalityScore: 0.8, feasibilityScore: 0.8,
+      overallScore: 0.8, scoreExplanationsJson: "{}", risksJson: "[]", smallestSprint: "SS", generatedBy: "codex"
+    }
+  });
+  const project = await client.researchProject.create({
+    data: { userId: user.id, generatedIdeaId: idea.id, status: "running", currentStage: "plan" }
+  });
+  const planArtifact = {
+    researchProjectId: project.id, relationToSourcePaper: "Builds on source paper",
+    hypotheses: ["Hypothesis A"], experimentalDesign: "Run experiments", protocolSteps: ["Step 1"],
+    datasets: [], baselines: [], metrics: ["Accuracy"], successCriteria: ["Beats baseline"],
+    computeEstimate: "1 GPU day", risks: [],
+    citations: [{ sourceType: "paper", title: "Source Paper", url: "https://arxiv.org/abs/2502.00006", sourceId: "2502.00006", claim: "Foundational", confidence: 0.9 }]
+  };
+  await client.researchStageArtifact.create({
+    data: { researchProjectId: project.id, stageType: "plan", artifactJson: JSON.stringify(planArtifact) }
+  });
+  await client.researchStageJob.create({
+    data: { researchProjectId: project.id, userId: user.id, stageType: "plan", kind: "critic", status: "queued", inputJson: JSON.stringify({ researchProjectId: project.id, stageType: "plan" }) }
+  });
+  return { user, worker, paper, project };
+}
+
+describe("research critic worker routes", () => {
+  it("claims a plan critic job and returns a critic input with the artifact to judge", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker } = await seedProjectWithPlanCriticJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      const response = await POST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST", headers: { authorization: "Bearer t" }
+        })
+      );
+      const payload = (await response.json()) as {
+        job: {
+          type: string;
+          input: {
+            researchProjectId: string;
+            stageType: string;
+            artifactToJudge: { hypotheses: string[] };
+            sourcePaper: { arxivId: string };
+            criteria: string;
+          };
+        };
+      };
+      expect(payload.job.type).toBe("research_plan_critic");
+      expect(payload.job.input.stageType).toBe("plan");
+      expect(payload.job.input.artifactToJudge.hypotheses.length).toBeGreaterThan(0);
+      expect(payload.job.input.sourcePaper.arxivId).toBe("2502.00006");
+      expect(payload.job.input.criteria).toContain("Feasibility");
+      expect(payload.job.input.criteria.toLowerCase()).toContain("one scorecard entry per criterion");
+    });
+  });
+});
+
+async function seedProjectWithExperimentCriticJob(client: PrismaClient) {
+  const user = await client.user.create({ data: { email: "worker-routes-exp-critic@example.com" } });
+  const worker = await client.workerRegistration.create({
+    data: { userId: user.id, label: "w-exp-critic", tokenHash: "h-exp-critic", status: "active" }
+  });
+  const paper = await client.paper.create({
+    data: {
+      arxivId: "2502.00007", title: "Exp Critic Src", abstract: "E",
+      url: "https://arxiv.org/abs/2502.00007", publishedAt: new Date(), arxivUpdatedAt: new Date(),
+      authorsJson: "[]", categoriesJson: "[]"
+    }
+  });
+  const idea = await client.generatedIdea.create({
+    data: {
+      userId: user.id, paperId: paper.id, inboxDate: "2026-06-25", title: "Exp Critic Idea", summary: "S",
+      expandedExplanation: "E", trajectory: "Tr", recommended: true, noveltyStatus: "not_checked",
+      relevanceScore: 0.8, significanceScore: 0.8, originalityScore: 0.8, feasibilityScore: 0.8,
+      overallScore: 0.8, scoreExplanationsJson: "{}", risksJson: "[]", smallestSprint: "SS", generatedBy: "codex"
+    }
+  });
+  const project = await client.researchProject.create({
+    data: { userId: user.id, generatedIdeaId: idea.id, status: "running", currentStage: "experiment" }
+  });
+  for (const [stageType, marker] of [
+    ["plan", "PLAN-ARTIFACT"],
+    ["literature", "LIT-ARTIFACT"],
+    ["experiment", "EXP-ARTIFACT"]
+  ] as const) {
+    await client.researchStageArtifact.create({
+      data: {
+        researchProjectId: project.id,
+        stageType,
+        artifactJson: JSON.stringify({ researchProjectId: project.id, marker })
+      }
+    });
+  }
+  const job = await client.researchStageJob.create({
+    data: {
+      researchProjectId: project.id, userId: user.id, stageType: "experiment", kind: "critic",
+      status: "queued", inputJson: JSON.stringify({ researchProjectId: project.id, stageType: "experiment" })
+    }
+  });
+  return { user, worker, paper, project, job };
+}
+
+describe("research experiment critic worker routes", () => {
+  it("attaches live upstream artifacts (plan + literature) and real criteria to an experiment critic", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker, job } = await seedProjectWithExperimentCriticJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      const response = await POST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST", headers: { authorization: "Bearer t" }
+        })
+      );
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        job: {
+          id: string;
+          type: string;
+          input: {
+            criteria: string;
+            upstreamArtifacts: { stageType: string; artifact: { marker: string } }[];
+          };
+        };
+      };
+      expect(payload.job.id).toBe(job.id);
+      expect(payload.job.type).toBe("research_experiment_critic");
+      expect(payload.job.input.criteria.toLowerCase()).toContain("real data");
+      expect(payload.job.input.upstreamArtifacts.map((u) => u.stageType)).toEqual(["plan", "literature"]);
+      expect(
+        payload.job.input.upstreamArtifacts.find((u) => u.stageType === "plan")?.artifact.marker
+      ).toBe("PLAN-ARTIFACT");
+    });
+  });
+});
+
+describe("backtrack regression: literature producer picks live plan artifact", () => {
+  it("uses the non-superseded plan artifact when multiple plan artifacts exist", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+
+      // Seed user/worker/paper/idea
+      const user = await client.user.create({ data: { email: "worker-routes-backtrack@example.com" } });
+      const worker = await client.workerRegistration.create({
+        data: { userId: user.id, label: "w-backtrack", tokenHash: "h-backtrack", status: "active" }
+      });
+      const paper = await client.paper.create({
+        data: {
+          arxivId: "2502.00099",
+          title: "Backtrack Src",
+          abstract: "Z",
+          url: "https://arxiv.org/abs/2502.00099",
+          publishedAt: new Date(),
+          arxivUpdatedAt: new Date(),
+          authorsJson: "[]",
+          categoriesJson: "[]"
+        }
+      });
+      const idea = await client.generatedIdea.create({
+        data: {
+          userId: user.id,
+          paperId: paper.id,
+          inboxDate: "2026-06-25",
+          title: "Backtrack Idea",
+          summary: "S",
+          expandedExplanation: "E",
+          trajectory: "Tr",
+          recommended: true,
+          noveltyStatus: "not_checked",
+          relevanceScore: 0.8,
+          significanceScore: 0.8,
+          originalityScore: 0.8,
+          feasibilityScore: 0.8,
+          overallScore: 0.8,
+          scoreExplanationsJson: "{}",
+          risksJson: "[]",
+          smallestSprint: "SS",
+          generatedBy: "codex"
+        }
+      });
+      const project = await client.researchProject.create({
+        data: {
+          userId: user.id,
+          generatedIdeaId: idea.id,
+          status: "running",
+          currentStage: "literature"
+        }
+      });
+
+      // Common artifact shape (ResearchPlanSchema)
+      const basePlanArtifact = {
+        researchProjectId: project.id,
+        hypotheses: ["Hypothesis A"],
+        experimentalDesign: "Run experiments",
+        protocolSteps: ["Step 1"],
+        datasets: [],
+        baselines: [],
+        metrics: ["Accuracy"],
+        successCriteria: ["Beats baseline"],
+        computeEstimate: "1 GPU day",
+        risks: [],
+        citations: [
+          {
+            sourceType: "paper",
+            title: "Source Paper",
+            url: "https://arxiv.org/abs/2502.00099",
+            sourceId: "2502.00099",
+            claim: "Foundational work",
+            confidence: 0.9
+          }
+        ]
+      };
+
+      // Create the STALE artifact first (older createdAt) with supersededAt set
+      const staleCreatedAt = new Date("2026-06-01T10:00:00Z");
+      await client.researchStageArtifact.create({
+        data: {
+          researchProjectId: project.id,
+          stageType: "plan",
+          artifactJson: JSON.stringify({ ...basePlanArtifact, relationToSourcePaper: "STALE PLAN — should not be used" }),
+          supersededAt: new Date("2026-06-02T10:00:00Z"),
+          createdAt: staleCreatedAt
+        }
+      });
+
+      // Create the FRESH artifact (newer createdAt) with supersededAt null
+      const freshCreatedAt = new Date("2026-06-03T10:00:00Z");
+      await client.researchStageArtifact.create({
+        data: {
+          researchProjectId: project.id,
+          stageType: "plan",
+          artifactJson: JSON.stringify({ ...basePlanArtifact, relationToSourcePaper: "FRESH PLAN — the live one" }),
+          supersededAt: null,
+          createdAt: freshCreatedAt
+        }
+      });
+
+      // Seed a queued literature producer job
+      await client.researchStageJob.create({
+        data: {
+          researchProjectId: project.id,
+          userId: user.id,
+          stageType: "literature",
+          status: "queued",
+          inputJson: JSON.stringify({ researchProjectId: project.id })
+        }
+      });
+
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+
+      const response = await POST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST",
+          headers: { authorization: "Bearer t" }
+        })
+      );
+      const payload = (await response.json()) as {
+        job: {
+          type: string;
+          input: {
+            plan: { relationToSourcePaper: string };
+          };
+        };
+      };
+      expect(payload.job.type).toBe("research_literature");
+      expect(payload.job.input.plan.relationToSourcePaper).toBe("FRESH PLAN — the live one");
+    });
+  });
+});
+
+async function seedProjectWithPaperJob(client: PrismaClient) {
+  const user = await client.user.create({ data: { email: "worker-routes-paper@example.com" } });
+  const worker = await client.workerRegistration.create({
+    data: { userId: user.id, label: "w-paper", tokenHash: "h-paper", status: "active" }
+  });
+  const paper = await client.paper.create({
+    data: {
+      arxivId: "2502.00010",
+      title: "Paper Src",
+      abstract: "F",
+      url: "https://arxiv.org/abs/2502.00010",
+      publishedAt: new Date(),
+      arxivUpdatedAt: new Date(),
+      authorsJson: '["Author One"]',
+      categoriesJson: '["cs.LG"]'
+    }
+  });
+  const idea = await client.generatedIdea.create({
+    data: {
+      userId: user.id,
+      paperId: paper.id,
+      inboxDate: "2026-06-25",
+      title: "Paper Idea",
+      summary: "S",
+      expandedExplanation: "E",
+      trajectory: "Tr",
+      recommended: true,
+      noveltyStatus: "not_checked",
+      relevanceScore: 0.8,
+      significanceScore: 0.8,
+      originalityScore: 0.8,
+      feasibilityScore: 0.8,
+      overallScore: 0.8,
+      scoreExplanationsJson: "{}",
+      risksJson: "[]",
+      smallestSprint: "SS",
+      generatedBy: "codex"
+    }
+  });
+  const project = await client.researchProject.create({
+    data: {
+      userId: user.id,
+      generatedIdeaId: idea.id,
+      status: "running",
+      currentStage: "paper"
+    }
+  });
+  // Seed plan artifact
+  const planArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Builds on source paper",
+    hypotheses: ["Hypothesis A", "Hypothesis B"],
+    experimentalDesign: "Run experiments",
+    protocolSteps: ["Step 1", "Step 2"],
+    datasets: [],
+    baselines: ["ResNet"],
+    metrics: ["Accuracy"],
+    successCriteria: ["Beats baseline"],
+    computeEstimate: "1 GPU day",
+    risks: [],
+    citations: [
+      {
+        sourceType: "paper",
+        title: "Source Paper",
+        url: "https://arxiv.org/abs/2502.00010",
+        sourceId: "2502.00010",
+        claim: "Foundational work",
+        confidence: 0.9
+      }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "plan",
+      artifactJson: JSON.stringify(planArtifact)
+    }
+  });
+  // Seed literature artifact
+  const literatureArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Extends the source paper with a literature survey",
+    relatedWorks: [
+      {
+        title: "Related Work A",
+        summary: "Explores a similar approach",
+        relationToProposed: "Complementary method"
+      }
+    ],
+    themes: ["Machine learning", "Efficiency"],
+    gaps: ["Lack of large-scale evaluation"],
+    positioning: "This work fills the gap by providing large-scale experiments",
+    citations: [
+      {
+        sourceType: "paper",
+        title: "Source Paper",
+        url: "https://arxiv.org/abs/2502.00010",
+        sourceId: "2502.00010",
+        claim: "Foundational source paper",
+        confidence: 0.95
+      }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "literature",
+      artifactJson: JSON.stringify(literatureArtifact)
+    }
+  });
+  // Seed experiment artifact
+  const experimentArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Implements and tests the source paper's method.",
+    implementationSummary: "Built a minimal training loop.",
+    environment: "python 3.11",
+    hypothesisOutcomes: [{ hypothesis: "Hypothesis A", outcome: "supported", evidence: "Accuracy improved." }],
+    metrics: [{ name: "accuracy", value: "0.84", baseline: "0.80" }],
+    findings: ["Beats the baseline on the small split."],
+    limitations: ["Single seed."],
+    artifacts: [{ path: "experiment/train.py", description: "training script", bytes: 1200 }],
+    logsExcerpt: "epoch 1 ... done",
+    reproductionSteps: ["uv run python train.py"],
+    verdict: "success",
+    summary: "Hypothesis supported.",
+    citations: [
+      { sourceType: "paper", title: "Source Paper", url: "https://arxiv.org/abs/2502.00010", sourceId: "2502.00010", claim: "Foundational", confidence: 0.9 }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "experiment",
+      artifactJson: JSON.stringify(experimentArtifact)
+    }
+  });
+  // Seed analysis artifact (valid AnalysisResult shape)
+  const analysisArtifact = {
+    researchProjectId: project.id,
+    relationToSourcePaper: "Analyzes results extending the source paper.",
+    successCriteriaAssessment: [
+      { criterion: "Beats baseline", status: "met", evidence: "Accuracy +4%." }
+    ],
+    statisticalFindings: [
+      { description: "Accuracy delta", method: "t-test", value: "p=0.03", interpretation: "Significant." }
+    ],
+    keyFindings: ["Beats the baseline."],
+    artifacts: [{ path: "analysis/accuracy.png", caption: "Accuracy", kind: "figure", bytes: 2048 }],
+    comparisonToBaselines: "Outperforms vanilla ResNet.",
+    threatsToValidity: ["Single dataset."],
+    recommendedNextSteps: ["Scale up."],
+    verdict: "supports_hypotheses",
+    summary: "Hypotheses supported.",
+    citations: [
+      { sourceType: "paper", title: "Source Paper", url: "https://arxiv.org/abs/2502.00010", sourceId: "2502.00010", claim: "Foundational", confidence: 0.9 }
+    ]
+  };
+  await client.researchStageArtifact.create({
+    data: {
+      researchProjectId: project.id,
+      stageType: "analysis",
+      artifactJson: JSON.stringify(analysisArtifact)
+    }
+  });
+  // Seed the queued paper producer job with feedback
+  await client.researchStageJob.create({
+    data: {
+      researchProjectId: project.id,
+      userId: user.id,
+      stageType: "paper",
+      kind: "producer",
+      status: "queued",
+      feedback: "Prior critic: tighten the abstract.",
+      inputJson: JSON.stringify({ researchProjectId: project.id })
+    }
+  });
+  return { user, worker, paper, project };
+}
+
+describe("research_paper worker routes", () => {
+  it("claims a research_paper job and returns input with plan, literature, experiment, analysis + feedback", async () => {
+    const { POST } = await import("@/app/api/workers/claim/route");
+    await withPostgresTestDatabase(async (client) => {
+      mocked.prisma = client;
+      const { worker } = await seedProjectWithPaperJob(client);
+      mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
+      const response = await POST(new Request("http://localhost/api/workers/claim", { method: "POST", headers: { authorization: "Bearer t" } }));
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        job: { type: string; input: { plan: unknown; literature: unknown; experiment: unknown; analysis: unknown; feedback?: string } };
+      };
+      expect(payload.job.type).toBe("research_paper");
+      expect(payload.job.input.plan).toBeTruthy();
+      expect(payload.job.input.literature).toBeTruthy();
+      expect(payload.job.input.experiment).toBeTruthy();
+      expect(payload.job.input.analysis).toBeTruthy();
+      expect(payload.job.input.feedback).toBe("Prior critic: tighten the abstract.");
+    });
+  });
+});
+
 describe("research_analysis worker routes", () => {
   it("claims a research_analysis job and returns input with plan, literature and experiment", async () => {
     const { POST } = await import("@/app/api/workers/claim/route");
@@ -570,7 +1111,7 @@ describe("research_analysis worker routes", () => {
 });
 
 describe("research stage completion routes", () => {
-  it("completing a running plan stage job advances project to literature stage", async () => {
+  it("completing a running plan producer enqueues a plan critic", async () => {
     const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
     const { POST: completePOST } = await import(
       "@/app/api/workers/jobs/[jobId]/complete/route"
@@ -630,28 +1171,34 @@ describe("research stage completion routes", () => {
       );
       expect(completeResponse.status).toBe(200);
 
-      // Project should advance to literature stage
+      // Project should stay on plan stage and keep running (critic not yet done)
       const updatedProject = await client.researchProject.findUniqueOrThrow({
         where: { id: project.id }
       });
-      expect(updatedProject.currentStage).toBe("literature");
+      expect(updatedProject.currentStage).toBe("plan");
       expect(updatedProject.status).toBe("running");
 
-      // A queued literature job should exist
-      const litJob = await client.researchStageJob.findFirst({
-        where: { researchProjectId: project.id, stageType: "literature", status: "queued" }
+      // A queued plan critic job should exist
+      const planCriticJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "plan", kind: "critic", status: "queued" }
       });
-      expect(litJob).not.toBeNull();
+      expect(planCriticJob).not.toBeNull();
 
-      // A plan artifact should exist
+      // NO queued literature producer job should exist
+      const litProducerJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "literature", kind: "producer", status: "queued" }
+      });
+      expect(litProducerJob).toBeNull();
+
+      // A live (non-superseded) plan artifact should exist
       const planArtifact = await client.researchStageArtifact.findFirst({
-        where: { researchProjectId: project.id, stageType: "plan" }
+        where: { researchProjectId: project.id, stageType: "plan", supersededAt: null }
       });
       expect(planArtifact).not.toBeNull();
     });
   });
 
-  it("completing a running literature stage job advances the project to experiment", async () => {
+  it("completing a running literature producer enqueues a literature critic", async () => {
     const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
     const { POST: completePOST } = await import(
       "@/app/api/workers/jobs/[jobId]/complete/route"
@@ -712,27 +1259,33 @@ describe("research stage completion routes", () => {
       );
       expect(completeResponse.status).toBe(200);
 
-      // Project should advance to the experiment stage and stay running
+      // Project should stay on literature stage and keep running (critic not yet done)
       const updatedProject = await client.researchProject.findUniqueOrThrow({
         where: { id: project.id }
       });
-      expect(updatedProject).toMatchObject({ currentStage: "experiment", status: "running" });
+      expect(updatedProject).toMatchObject({ currentStage: "literature", status: "running" });
 
-      // A queued experiment job should exist
-      const experimentJob = await client.researchStageJob.findFirst({
-        where: { researchProjectId: project.id, stageType: "experiment", status: "queued" }
+      // A queued literature critic job should exist
+      const litCriticJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "literature", kind: "critic", status: "queued" }
       });
-      expect(experimentJob).not.toBeNull();
+      expect(litCriticJob).not.toBeNull();
 
-      // A literature artifact should exist
+      // NO queued experiment producer job should exist
+      const experimentProducerJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "experiment", kind: "producer", status: "queued" }
+      });
+      expect(experimentProducerJob).toBeNull();
+
+      // A live (non-superseded) literature artifact should exist
       const litArtifact = await client.researchStageArtifact.findFirst({
-        where: { researchProjectId: project.id, stageType: "literature" }
+        where: { researchProjectId: project.id, stageType: "literature", supersededAt: null }
       });
       expect(litArtifact).not.toBeNull();
     });
   });
 
-  it("completes a research_analysis job and sets the project analysis_ready", async () => {
+  it("completes a research_analysis job and advances the project to the paper producer", async () => {
     const { POST: completePOST } = await import(
       "@/app/api/workers/jobs/[jobId]/complete/route"
     );
@@ -741,7 +1294,7 @@ describe("research stage completion routes", () => {
       const { worker, project } = await seedProjectWithAnalysisJob(client);
       mocked.worker = { id: worker.id, userId: worker.userId, lane: "both" };
 
-      // Claim it so it is "running" and owned by this worker.
+      // Claim the analysis producer job so it is "running" and owned by this worker.
       const { POST: claimPOST } = await import("@/app/api/workers/claim/route");
       const claimResponse = await claimPOST(
         new Request("http://localhost/api/workers/claim", {
@@ -750,9 +1303,10 @@ describe("research stage completion routes", () => {
         })
       );
       const { job } = (await claimResponse.json()) as { job: { id: string } };
-      const jobId = job.id;
+      const producerJobId = job.id;
 
-      const output = {
+      // (a) Complete the analysis producer
+      const analysisOutput = {
         researchProjectId: project.id,
         relationToSourcePaper: "Analyzes results extending the source paper.",
         successCriteriaAssessment: [
@@ -773,20 +1327,70 @@ describe("research stage completion routes", () => {
         ]
       };
 
-      const completeResponse = await completePOST(
-        new Request(`http://localhost/api/workers/jobs/${jobId}/complete`, {
+      const producerCompleteResponse = await completePOST(
+        new Request(`http://localhost/api/workers/jobs/${producerJobId}/complete`, {
           method: "POST",
-          headers: { authorization: "Bearer t" },
-          body: JSON.stringify({ type: "research_analysis", output })
+          headers: { authorization: "Bearer t", "content-type": "application/json" },
+          body: JSON.stringify({ type: "research_analysis", output: analysisOutput })
         }),
-        { params: Promise.resolve({ jobId }) }
+        { params: Promise.resolve({ jobId: producerJobId }) }
       );
-      expect(completeResponse.status).toBe(200);
+      expect(producerCompleteResponse.status).toBe(200);
 
+      // Project should still be running — critic has not passed yet
+      const afterProducer = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
+      expect(afterProducer.status).toBe("running");
+
+      // A queued analysis critic job should exist
+      const analysisCriticJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "analysis", kind: "critic", status: "queued" }
+      });
+      expect(analysisCriticJob).not.toBeNull();
+      const criticJobId = analysisCriticJob!.id;
+
+      // (b) Claim the critic job
+      const criticClaimResponse = await claimPOST(
+        new Request("http://localhost/api/workers/claim", {
+          method: "POST",
+          headers: { authorization: "Bearer t" }
+        })
+      );
+      expect(criticClaimResponse.status).toBe(200);
+      const criticClaimPayload = (await criticClaimResponse.json()) as { job: { id: string } };
+      expect(criticClaimPayload.job.id).toBe(criticJobId);
+
+      // Complete the critic job with a PASS CriticVerdict
+      const criticVerdict = {
+        researchProjectId: project.id,
+        stageType: "analysis",
+        verdict: "PASS",
+        scorecard: [
+          { criterion: "Clarity", pass: true, note: "Clear and well-structured." }
+        ]
+      };
+
+      const criticCompleteResponse = await completePOST(
+        new Request(`http://localhost/api/workers/jobs/${criticJobId}/complete`, {
+          method: "POST",
+          headers: { authorization: "Bearer t", "content-type": "application/json" },
+          body: JSON.stringify({ type: "research_analysis_critic", output: criticVerdict })
+        }),
+        { params: Promise.resolve({ jobId: criticJobId }) }
+      );
+      expect(criticCompleteResponse.status).toBe(200);
+
+      // (c) Analysis is no longer terminal: PASS advances to the paper producer.
       const updated = await client.researchProject.findUniqueOrThrow({ where: { id: project.id } });
-      expect(updated.status).toBe("analysis_ready");
+      expect(updated.status).toBe("running");
+      expect(updated.currentStage).toBe("paper");
+
+      const paperProducerJob = await client.researchStageJob.findFirst({
+        where: { researchProjectId: project.id, stageType: "paper", kind: "producer", status: "queued" }
+      });
+      expect(paperProducerJob).not.toBeNull();
+
       const artifact = await client.researchStageArtifact.findFirst({
-        where: { researchProjectId: project.id, stageType: "analysis" }
+        where: { researchProjectId: project.id, stageType: "analysis", supersededAt: null }
       });
       expect(artifact).not.toBeNull();
     });

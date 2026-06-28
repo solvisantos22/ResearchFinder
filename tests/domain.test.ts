@@ -6,6 +6,7 @@ import {
   computeOverallScore,
   sprintDepthConfig
 } from "@/lib/domain";
+import { RESEARCH_PROJECT_STATUSES } from "@/lib/v2/domain";
 
 describe("domain score helpers", () => {
   it("clamps scores into the 0..1 range", () => {
@@ -28,5 +29,11 @@ describe("domain score helpers", () => {
     expect(SPRINT_DEPTHS).toEqual(["fast", "default", "deep"]);
     expect(AUTONOMY_LEVELS).toEqual(["low", "medium", "high"]);
     expect(sprintDepthConfig.default.expectedDuration).toBe("1-3 hours");
+  });
+});
+
+describe("research project statuses", () => {
+  it("includes paper_ready as the new terminal status", () => {
+    expect(RESEARCH_PROJECT_STATUSES).toContain("paper_ready");
   });
 });

@@ -5,6 +5,7 @@ import {
   MAX_DAILY_IDEAS,
   MAX_IDEAS_PER_PAPER,
   NOVELTY_STATUSES,
+  RESEARCH_STAGES,
   VIABILITY_VERDICTS
 } from "@/lib/v2/domain";
 
@@ -330,7 +331,8 @@ export const ResearchPlanJobInputSchema = strictObject({
     minimumExperiment: NonEmptyTrimmedStringSchema,
     blockers: z.array(NonEmptyTrimmedStringSchema)
   }).nullable(),
-  citations: z.array(CitationSchema)
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
 });
 
 export const LiteratureReviewSchema = strictObject({
@@ -348,6 +350,7 @@ export const LiteratureReviewSchema = strictObject({
   themes: z.array(CoercibleString).min(1),
   gaps: z.array(CoercibleString).min(1),
   positioning: CoercibleString,
+  availableResources: z.array(CoercibleString).optional(),
   citations: z.array(CitationSchema).min(1)
 });
 
@@ -379,7 +382,8 @@ export const LiteratureJobInputSchema = strictObject({
     experimentalDesign: NonEmptyTrimmedStringSchema,
     metrics: z.array(NonEmptyTrimmedStringSchema)
   }),
-  citations: z.array(CitationSchema)
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
 });
 
 export const ExperimentResultSchema = strictObject({
@@ -464,7 +468,8 @@ export const ExperimentJobInputSchema = strictObject({
     minimumExperiment: NonEmptyTrimmedStringSchema,
     blockers: z.array(NonEmptyTrimmedStringSchema)
   }).nullable(),
-  citations: z.array(CitationSchema)
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
 });
 
 export const AnalysisResultSchema = strictObject({
@@ -579,7 +584,128 @@ export const AnalysisJobInputSchema = strictObject({
     minimumExperiment: NonEmptyTrimmedStringSchema,
     blockers: z.array(NonEmptyTrimmedStringSchema)
   }).nullable(),
-  citations: z.array(CitationSchema)
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
+});
+
+export const PaperResultSchema = strictObject({
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  relationToSourcePaper: CoercibleString,
+  title: CoercibleString,
+  abstract: CoercibleString,
+  noveltyStatement: CoercibleString,
+  sections: z.array(CoercibleString).min(1),
+  texPath: CoercibleString,
+  pdfPath: CoercibleString,
+  compiled: z.boolean(),
+  artifacts: z.array(
+    strictObject({
+      path: CoercibleString,
+      caption: CoercibleString,
+      kind: z.enum(["figure", "table", "pdf", "tex"]),
+      bytes: z.number().int().nonnegative()
+    })
+  ),
+  summary: CoercibleString,
+  citations: z.array(CitationSchema).min(1)
+});
+
+export const PaperJobInputSchema = strictObject({
+  jobId: NonEmptyTrimmedStringSchema,
+  userId: NonEmptyTrimmedStringSchema,
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  idea: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    summary: NonEmptyTrimmedStringSchema,
+    expandedExplanation: NonEmptyTrimmedStringSchema,
+    trajectory: NonEmptyTrimmedStringSchema,
+    smallestSprint: NonEmptyTrimmedStringSchema
+  }),
+  paper: strictObject({
+    id: NonEmptyTrimmedStringSchema,
+    arxivId: NonEmptyTrimmedStringSchema,
+    title: NonEmptyTrimmedStringSchema,
+    abstract: NonEmptyTrimmedStringSchema,
+    url: RequiredUrlSchema,
+    authors: z.array(NonEmptyTrimmedStringSchema),
+    categories: z.array(NonEmptyTrimmedStringSchema),
+    publishedAt: z.string().datetime()
+  }),
+  plan: strictObject({
+    relationToSourcePaper: NonEmptyTrimmedStringSchema,
+    hypotheses: z.array(NonEmptyTrimmedStringSchema).min(1),
+    successCriteria: z.array(NonEmptyTrimmedStringSchema).min(1),
+    metrics: z.array(NonEmptyTrimmedStringSchema),
+    baselines: z.array(NonEmptyTrimmedStringSchema),
+    experimentalDesign: NonEmptyTrimmedStringSchema
+  }),
+  literature: strictObject({
+    positioning: NonEmptyTrimmedStringSchema,
+    gaps: z.array(NonEmptyTrimmedStringSchema).min(1)
+  }),
+  experiment: strictObject({
+    summary: NonEmptyTrimmedStringSchema,
+    verdict: NonEmptyTrimmedStringSchema,
+    findings: z.array(NonEmptyTrimmedStringSchema).min(1)
+  }),
+  analysis: strictObject({
+    summary: NonEmptyTrimmedStringSchema,
+    verdict: NonEmptyTrimmedStringSchema,
+    keyFindings: z.array(NonEmptyTrimmedStringSchema).min(1),
+    comparisonToBaselines: NonEmptyTrimmedStringSchema
+  }),
+  citations: z.array(CitationSchema),
+  feedback: NonEmptyTrimmedStringSchema.optional()
+});
+
+const CriticScorecardEntrySchema = strictObject({
+  criterion: NonEmptyTrimmedStringSchema,
+  pass: z.boolean(),
+  note: NonEmptyTrimmedStringSchema
+});
+
+export const CriticVerdictSchema = strictObject({
+  researchProjectId: NonEmptyTrimmedStringSchema,
+  stageType: z.enum(RESEARCH_STAGES),
+  verdict: z.enum(["PASS", "REDO", "BACKTRACK"]),
+  scorecard: z.array(CriticScorecardEntrySchema).min(1),
+  targetStage: z.enum(RESEARCH_STAGES).optional(),
+  feedback: NonEmptyTrimmedStringSchema.optional()
+}).superRefine((value, ctx) => {
+  if (value.verdict === "BACKTRACK") {
+    if (!value.targetStage) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "BACKTRACK verdict requires targetStage",
+        path: ["targetStage"]
+      });
+    } else {
+      const stageIndex = RESEARCH_STAGES.indexOf(value.stageType);
+      const targetIndex = RESEARCH_STAGES.indexOf(value.targetStage);
+      if (targetIndex >= stageIndex) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "BACKTRACK targetStage must be a stage strictly before stageType",
+          path: ["targetStage"]
+        });
+      }
+    }
+  } else if (value.targetStage !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "targetStage is only allowed on a BACKTRACK verdict",
+      path: ["targetStage"]
+    });
+  }
+
+  if (value.verdict !== "PASS" && !value.feedback) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "REDO and BACKTRACK verdicts require feedback",
+      path: ["feedback"]
+    });
+  }
 });
 
 export type ResearchPlan = z.infer<typeof ResearchPlanSchema>;
@@ -590,6 +716,8 @@ export type ExperimentResult = z.infer<typeof ExperimentResultSchema>;
 export type ExperimentJobInput = z.infer<typeof ExperimentJobInputSchema>;
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 export type AnalysisJobInput = z.infer<typeof AnalysisJobInputSchema>;
+export type PaperResult = z.infer<typeof PaperResultSchema>;
+export type PaperJobInput = z.infer<typeof PaperJobInputSchema>;
 
 export type Citation = z.infer<typeof CitationSchema>;
 export type GeneratedInbox = z.infer<typeof GeneratedInboxSchema>;
@@ -599,3 +727,4 @@ export type InboxGenerationJobInput = z.infer<typeof InboxGenerationJobInputSche
 export type NoveltyScanResult = z.infer<typeof NoveltyScanResultSchema>;
 export type NoveltyScanJobInput = z.infer<typeof NoveltyScanJobInputSchema>;
 export type ViabilityResult = z.infer<typeof ViabilityResultSchema>;
+export type CriticVerdict = z.infer<typeof CriticVerdictSchema>;

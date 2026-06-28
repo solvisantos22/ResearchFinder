@@ -1,10 +1,12 @@
 import { clampGeneratedInboxIdeas } from "@/lib/v2/clamp-inbox";
 import {
   AnalysisResultSchema,
+  CriticVerdictSchema,
   ExperimentResultSchema,
   GeneratedInboxSchema,
   LiteratureReviewSchema,
   NoveltyScanResultSchema,
+  PaperResultSchema,
   ResearchPlanSchema,
   ViabilityResultSchema
 } from "@/lib/v2/schemas";
@@ -25,7 +27,8 @@ const RESEARCH_STAGE_SCHEMAS = {
   plan: ResearchPlanSchema,
   literature: LiteratureReviewSchema,
   experiment: ExperimentResultSchema,
-  analysis: AnalysisResultSchema
+  analysis: AnalysisResultSchema,
+  paper: PaperResultSchema
 } as const;
 
 export function parseResearchStageOutput(stageType: string, raw: string) {
@@ -34,4 +37,8 @@ export function parseResearchStageOutput(stageType: string, raw: string) {
     throw new Error(`No worker output schema for research stage "${stageType}"`);
   }
   return schema.parse(JSON.parse(raw));
+}
+
+export function parseCriticVerdict(raw: string) {
+  return CriticVerdictSchema.parse(JSON.parse(raw));
 }
