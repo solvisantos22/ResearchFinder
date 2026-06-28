@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { CRITIC_CRITERIA, renderCriticCriteria } from "@/lib/research/critic-criteria";
+import {
+  ACCEPT_HONEST_PARTIAL_RESULTS,
+  CRITIC_CRITERIA,
+  renderCriticCriteria
+} from "@/lib/research/critic-criteria";
 import { EXECUTABLE_STAGES } from "@/lib/research/stages";
 
 describe("CRITIC_CRITERIA registry", () => {
@@ -25,11 +29,13 @@ describe("CRITIC_CRITERIA registry", () => {
     expect(CRITIC_CRITERIA.analysis.routingGuidance.toLowerCase()).toContain("backtrack to experiment");
   });
 
-  it("accepts a rigorous, honest partial/negative/inconclusive result at experiment, analysis, and paper", () => {
+  it("tolerates honest partials at experiment/analysis/paper iff ACCEPT_HONEST_PARTIAL_RESULTS is set", () => {
+    // The single switch between "validate the pipeline" mode (accept honest partials)
+    // and "publishable results only" mode (reject them). "do not reject" only appears
+    // in the lenient routing, so it tracks the flag exactly.
     for (const stage of ["experiment", "analysis", "paper"] as const) {
-      const entry = CRITIC_CRITERIA[stage];
-      const text = [entry.criteria.join(" "), entry.routingGuidance].join(" ").toLowerCase();
-      expect(/partial|inconclusive|negative/.test(text)).toBe(true);
+      const routing = CRITIC_CRITERIA[stage].routingGuidance.toLowerCase();
+      expect(routing.includes("do not reject")).toBe(ACCEPT_HONEST_PARTIAL_RESULTS);
     }
   });
 
