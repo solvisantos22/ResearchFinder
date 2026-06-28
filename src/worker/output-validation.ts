@@ -195,7 +195,7 @@ function getAtPath(root: unknown, path: ReadonlyArray<string | number>): unknown
 // re-validate — schema-driven, works for any nested object on any stage, and the
 // worker submits the pruned output so the server's strict schema accepts it.
 function pruneUnrecognizedKeys(schema: z.ZodTypeAny, value: unknown): unknown {
-  let current = value;
+  const current = value;
   for (let pass = 0; pass < 8; pass++) {
     const result = schema.safeParse(current);
     if (result.success) return current;
