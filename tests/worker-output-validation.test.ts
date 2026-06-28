@@ -286,6 +286,46 @@ describe("worker output validation", () => {
     expect(parsed.citations[2].url).toBe("");
   });
 
+  it("strips null optional fields so a null metric baseline doesn't sink the experiment stage", () => {
+    // Codex set baseline:null on a metric (optional accepts undefined, not null)
+    // and used out-of-union citation sourceTypes. The null made schema.parse throw,
+    // the worker fell back to raw, and the server 400'd on both. Both must be fixed.
+    const experiment = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper.",
+      implementationSummary: "Implemented and ran the full study.",
+      environment: "Python 3.11, 1x GPU.",
+      hypothesisOutcomes: [{ hypothesis: "H1.", outcome: "supported", evidence: "Beats baseline." }],
+      metrics: [
+        { name: "accuracy", value: "0.91", unit: "ratio", baseline: null },
+        { name: "f1", value: "0.88", baseline: "0.80" }
+      ],
+      findings: ["The method improves accuracy."],
+      limitations: ["Single dataset."],
+      artifacts: [{ path: "experiment/results.csv", bytes: 2048 }],
+      logsExcerpt: "epoch 1 ... done",
+      reproductionSteps: ["Run train.py."],
+      verdict: "success",
+      summary: "The method works.",
+      citations: [
+        { sourceType: "paper", url: "https://arxiv.org/abs/2606.00001", sourceId: "2606.00001", title: "Src", claim: "Basis.", confidence: 0.9 },
+        { sourceType: "dataset", url: "https://example.com/data", title: "Data", claim: "Used.", confidence: 0.8 }
+      ]
+    };
+
+    const parsed = parseResearchStageOutput(
+      "experiment",
+      JSON.stringify(experiment),
+      SOURCE_PAPER
+    ) as { metrics: { baseline?: string }[]; citations: { sourceType: string }[] };
+
+    expect(parsed.metrics[0].baseline).toBeUndefined();
+    expect(parsed.metrics[1].baseline).toBe("0.80");
+    expect(parsed.citations.every((c) =>
+      ["paper", "related_work", "web", "generated_analysis"].includes(c.sourceType)
+    )).toBe(true);
+  });
+
   it("parses novelty scan output", () => {
     const output = parseNoveltyScanOutput(
       JSON.stringify({

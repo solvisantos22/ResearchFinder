@@ -59,6 +59,27 @@ function clampUnitScore(value: unknown): number {
   return 0.5;
 }
 
+// Codex emits `null` for "not applicable" optional fields (e.g. a metric's
+// baseline), but the schemas use `.optional()` — which accepts `undefined`, not
+// `null` — so a single null 400s the whole stage. Recursively drop null-valued
+// keys so the field becomes absent (optional-friendly). Safe for stage OUTPUT
+// schemas: none use a required `.nullable()` (the nullable fields live only in
+// the JobInput schemas, validated elsewhere).
+function stripNulls(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stripNulls);
+  }
+  if (value !== null && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value)) {
+      if (nested === null) continue;
+      result[key] = stripNulls(nested);
+    }
+    return result;
+  }
+  return value;
+}
+
 // Codex's free-form citations frequently violate the schema's strict CitationSchema
 // in ways that 400 the entire stage and discard hours of real work: an out-of-union
 // sourceType (e.g. "dataset"/"preprint"), a missing claim/confidence/title, a
@@ -165,7 +186,7 @@ export function parseResearchStageOutput(
   if (!schema) {
     throw new Error(`No worker output schema for research stage "${stageType}"`);
   }
-  let value = normalizeCitations(JSON.parse(raw));
+  let value = normalizeCitations(stripNulls(JSON.parse(raw)));
   if (sourcePaper) {
     value = groundCitationsToSourcePaper(value, sourcePaper);
   }
