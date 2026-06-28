@@ -232,6 +232,40 @@ export function parseResearchStageOutput(
   return schema.parse(value);
 }
 
+// Coerce a field the schema wants as a string but Codex returned as an array
+// (e.g. feedback as a list of points) or an object. Arrays join to lines; objects
+// stringify; strings and other scalars pass through for the schema to judge.
+function coerceStringField(value: unknown): unknown {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item : JSON.stringify(item)))
+      .join("\n");
+  }
+  if (value !== null && typeof value === "object") return JSON.stringify(value);
+  return value;
+}
+
+// The critic verdict has the same structural-drift risk as producer outputs:
+// Codex returns feedback (and scorecard notes/criteria) as arrays/objects rather
+// than strings. Coerce the string fields so a sloppy verdict isn't discarded.
+function normalizeCriticVerdict(parsed: unknown): unknown {
+  if (parsed === null || typeof parsed !== "object") return parsed;
+  const record = { ...(parsed as Record<string, unknown>) };
+  if ("feedback" in record) record.feedback = coerceStringField(record.feedback);
+  if (Array.isArray(record.scorecard)) {
+    record.scorecard = record.scorecard.map((entry) => {
+      if (entry === null || typeof entry !== "object") return entry;
+      const e = { ...(entry as Record<string, unknown>) };
+      if ("criterion" in e) e.criterion = coerceStringField(e.criterion);
+      if ("note" in e) e.note = coerceStringField(e.note);
+      return e;
+    });
+  }
+  return record;
+}
+
 export function parseCriticVerdict(raw: string) {
-  return CriticVerdictSchema.parse(JSON.parse(raw));
+  const normalized = normalizeCriticVerdict(stripNulls(JSON.parse(raw)));
+  return CriticVerdictSchema.parse(pruneUnrecognizedKeys(CriticVerdictSchema, normalized));
 }

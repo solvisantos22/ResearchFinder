@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MAX_DAILY_IDEAS } from "@/lib/v2/domain";
 import {
+  parseCriticVerdict,
   parseInboxGenerationOutput,
   parseNoveltyScanOutput,
   parseResearchStageOutput,
@@ -364,6 +365,25 @@ describe("worker output validation", () => {
     expect(parsed.citations.every((c) =>
       ["paper", "related_work", "web", "generated_analysis"].includes(c.sourceType)
     )).toBe(true);
+  });
+
+  it("coerces critic-verdict feedback/notes returned as arrays into strings", () => {
+    // The critic agent returned feedback (and scorecard criterion/note) as arrays;
+    // CriticVerdictSchema wants strings, so without coercion the verdict 400s.
+    const verdict = {
+      researchProjectId: "proj-1",
+      stageType: "plan",
+      verdict: "REDO",
+      scorecard: [{ criterion: ["Feasible?", "Rigorous?"], pass: false, note: ["Too vague.", "No seeds."] }],
+      feedback: ["Name real datasets.", "Add multiple seeds and ablations."]
+    };
+
+    const parsed = parseCriticVerdict(JSON.stringify(verdict));
+
+    expect(typeof parsed.feedback).toBe("string");
+    expect(parsed.feedback).toContain("Name real datasets.");
+    expect(typeof parsed.scorecard[0].criterion).toBe("string");
+    expect(typeof parsed.scorecard[0].note).toBe("string");
   });
 
   it("parses novelty scan output", () => {
