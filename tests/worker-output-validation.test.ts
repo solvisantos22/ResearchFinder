@@ -4,6 +4,7 @@ import { MAX_DAILY_IDEAS } from "@/lib/v2/domain";
 import {
   parseInboxGenerationOutput,
   parseNoveltyScanOutput,
+  parseResearchStageOutput,
   parseViabilityOutput
 } from "@/worker/output-validation";
 
@@ -170,6 +171,35 @@ describe("worker output validation", () => {
         )
       )
     ).toThrow();
+  });
+
+  it("coerces unknown research-stage citation sourceTypes instead of rejecting the stage", () => {
+    // Codex labeled citations 2 and 3 with types outside the 4-value union. The
+    // strict schema would 400 the whole plan; the worker must coerce them.
+    const plan = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper's method to a new regime.",
+      hypotheses: ["The method improves accuracy."],
+      experimentalDesign: "Controlled comparison across seeds and baselines.",
+      protocolSteps: ["Obtain the dataset.", "Train baselines.", "Run ablations."],
+      datasets: ["CIFAR-10"],
+      baselines: ["ResNet-18"],
+      metrics: ["accuracy"],
+      successCriteria: ["Beats the baseline by >=2 points (p<0.05)."],
+      computeEstimate: "A few GPU-hours.",
+      risks: ["Dataset access may be rate-limited."],
+      citations: [
+        createCitation(),
+        createCitation({ sourceType: "dataset", title: "CIFAR-10 dataset" }),
+        createCitation({ sourceType: "preprint", title: "A related preprint" })
+      ]
+    };
+
+    const parsed = parseResearchStageOutput("plan", JSON.stringify(plan));
+
+    expect(parsed.citations[0].sourceType).toBe("paper");
+    expect(parsed.citations[1].sourceType).toBe("generated_analysis");
+    expect(parsed.citations[2].sourceType).toBe("generated_analysis");
   });
 
   it("parses novelty scan output", () => {
