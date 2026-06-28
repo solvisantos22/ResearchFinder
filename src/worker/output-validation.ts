@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { clampGeneratedInboxIdeas } from "@/lib/v2/clamp-inbox";
 import {
   AnalysisResultSchema,
@@ -177,6 +179,42 @@ function groundCitationsToSourcePaper<T>(parsed: T, sourcePaper: SourcePaperRef)
   return { ...(parsed as Record<string, unknown>), citations: grounded } as T;
 }
 
+function getAtPath(root: unknown, path: ReadonlyArray<string | number>): unknown {
+  let current: unknown = root;
+  for (const segment of path) {
+    if (current === null || typeof current !== "object") return undefined;
+    current = (current as Record<string | number, unknown>)[segment];
+  }
+  return current;
+}
+
+// The stage schemas are strictObject, so an extra key Codex invents on a nested
+// object (e.g. "partialScienceWorldDirection" on a hypothesisOutcome) 400s the
+// whole stage. Rather than relax every schema (a server change needing a deploy),
+// let Zod report exactly which keys are unrecognized and prune just those, then
+// re-validate — schema-driven, works for any nested object on any stage, and the
+// worker submits the pruned output so the server's strict schema accepts it.
+function pruneUnrecognizedKeys(schema: z.ZodTypeAny, value: unknown): unknown {
+  let current = value;
+  for (let pass = 0; pass < 8; pass++) {
+    const result = schema.safeParse(current);
+    if (result.success) return current;
+    const unknownKeyIssues = result.error.issues.filter(
+      (issue): issue is z.ZodIssue & { keys: string[] } => issue.code === "unrecognized_keys"
+    );
+    if (unknownKeyIssues.length === 0) return current; // other errors: let the caller's parse throw
+    for (const issue of unknownKeyIssues) {
+      const target = getAtPath(current, issue.path);
+      if (target !== null && typeof target === "object") {
+        for (const key of issue.keys) {
+          delete (target as Record<string, unknown>)[key];
+        }
+      }
+    }
+  }
+  return current;
+}
+
 export function parseResearchStageOutput(
   stageType: string,
   raw: string,
@@ -190,6 +228,7 @@ export function parseResearchStageOutput(
   if (sourcePaper) {
     value = groundCitationsToSourcePaper(value, sourcePaper);
   }
+  value = pruneUnrecognizedKeys(schema, value);
   return schema.parse(value);
 }
 

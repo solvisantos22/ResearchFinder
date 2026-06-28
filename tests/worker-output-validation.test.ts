@@ -326,6 +326,46 @@ describe("worker output validation", () => {
     )).toBe(true);
   });
 
+  it("prunes unrecognized keys on nested objects instead of rejecting the stage", () => {
+    // Codex added an extra "partialScienceWorldDirection" key to hypothesisOutcomes
+    // (strictObject rejects it) and used out-of-union citation sourceTypes. The extra
+    // key made schema.parse throw → raw fallback → server 400 on everything.
+    const experiment = {
+      researchProjectId: "proj-1",
+      relationToSourcePaper: "Extends the source paper.",
+      implementationSummary: "Ran the full study.",
+      environment: "Python 3.11.",
+      hypothesisOutcomes: [
+        { hypothesis: "H1.", outcome: "supported", evidence: "Beats baseline.", partialScienceWorldDirection: "extra" },
+        { hypothesis: "H2.", outcome: "inconclusive", evidence: "Noisy.", partialScienceWorldDirection: "extra" }
+      ],
+      metrics: [{ name: "accuracy", value: "0.91" }],
+      findings: ["It works."],
+      limitations: ["One dataset."],
+      artifacts: [{ path: "experiment/out.csv", bytes: 10 }],
+      logsExcerpt: "ok",
+      reproductionSteps: ["Run."],
+      verdict: "success",
+      summary: "Works.",
+      citations: [
+        { sourceType: "paper", url: "https://arxiv.org/abs/2606.00001", sourceId: "2606.00001", title: "Src", claim: "Basis.", confidence: 0.9 },
+        { sourceType: "dataset", url: "https://example.com/data", title: "Data", claim: "Used.", confidence: 0.8 }
+      ]
+    };
+
+    const parsed = parseResearchStageOutput(
+      "experiment",
+      JSON.stringify(experiment),
+      SOURCE_PAPER
+    ) as { hypothesisOutcomes: Record<string, unknown>[]; citations: { sourceType: string }[] };
+
+    expect(parsed.hypothesisOutcomes[0].partialScienceWorldDirection).toBeUndefined();
+    expect(parsed.hypothesisOutcomes[0].hypothesis).toBe("H1.");
+    expect(parsed.citations.every((c) =>
+      ["paper", "related_work", "web", "generated_analysis"].includes(c.sourceType)
+    )).toBe(true);
+  });
+
   it("parses novelty scan output", () => {
     const output = parseNoveltyScanOutput(
       JSON.stringify({
