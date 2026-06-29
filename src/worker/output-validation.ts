@@ -17,8 +17,31 @@ export function parseInboxGenerationOutput(raw: string) {
   return GeneratedInboxSchema.parse(clampGeneratedInboxIdeas(JSON.parse(raw)));
 }
 
-export function parseNoveltyScanOutput(raw: string) {
-  return NoveltyScanResultSchema.parse(JSON.parse(raw));
+export function parseNoveltyScanOutput(
+  raw: string,
+  context: { jobId: string; generatedForUserId: string; inboxDate: string }
+) {
+  const parsed = stripNulls(JSON.parse(raw));
+  const record =
+    parsed !== null && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  // Codex sometimes renames the scans array ("results") and drops the job-context
+  // fields (jobId/generatedForUserId/inboxDate). Pin those from the job (they are
+  // authoritative) and accept either key for the array; null-strip + key-pruning
+  // clean the rest so a sloppy wrapper doesn't 400 the whole scan.
+  const scans = Array.isArray(record.scans)
+    ? record.scans
+    : Array.isArray(record.results)
+      ? record.results
+      : [];
+  const normalized = {
+    jobId: context.jobId,
+    generatedForUserId: context.generatedForUserId,
+    inboxDate: context.inboxDate,
+    scans
+  };
+  return NoveltyScanResultSchema.parse(
+    pruneUnrecognizedKeys(NoveltyScanResultSchema, normalized)
+  );
 }
 
 export function parseViabilityOutput(raw: string) {

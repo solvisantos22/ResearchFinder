@@ -416,9 +416,52 @@ describe("worker output validation", () => {
             ]
           }
         ]
-      })
+      }),
+      { jobId: "novelty-job-1", generatedForUserId: "user-1", inboxDate: "2026-06-25" }
     );
 
     expect(output.scans[0].label).toBe("likely_novel");
+  });
+
+  it("rescues a novelty scan that renamed scans to 'results' and dropped the context fields", () => {
+    // The real failure: Codex returned { status, results, overallNotes } with no
+    // generatedForUserId/inboxDate/scans. Pin context from the job, alias results→scans,
+    // and prune the extra wrapper keys.
+    const output = parseNoveltyScanOutput(
+      JSON.stringify({
+        status: "completed",
+        overallNotes: "Scanned all ideas.",
+        results: [
+          {
+            generatedIdeaId: "idea-1",
+            status: "completed",
+            label: "crowded",
+            confidence: 0.4,
+            summary: "Several adjacent systems exist.",
+            overlapExplanation: "Multiple papers target the same gap.",
+            queries: ["query"],
+            adaptersAttempted: ["arxiv"],
+            adaptersFailed: [],
+            evidence: [
+              {
+                sourceType: "arxiv",
+                title: "Adjacent source",
+                url: "https://arxiv.org/abs/2606.00002",
+                sourceId: "2606.00002",
+                claim: "Adjacent work exists.",
+                overlapLevel: "adjacent",
+                confidence: 0.6
+              }
+            ]
+          }
+        ]
+      }),
+      { jobId: "novelty-job-2", generatedForUserId: "user-9", inboxDate: "2026-06-29" }
+    );
+
+    expect(output.generatedForUserId).toBe("user-9");
+    expect(output.inboxDate).toBe("2026-06-29");
+    expect(output.scans).toHaveLength(1);
+    expect(output.scans[0].label).toBe("crowded");
   });
 });

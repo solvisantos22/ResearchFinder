@@ -1147,7 +1147,13 @@ async function runNoveltyScanJob(
     }
 
     try {
-      return { output: parseNoveltyScanOutput(rawOutput) };
+      return {
+        output: parseNoveltyScanOutput(rawOutput, {
+          jobId: input.jobId,
+          generatedForUserId: input.userId,
+          inboxDate: input.inboxDate
+        })
+      };
     } catch (error) {
       return {
         output: parseRawCodexOutputForCompletion(rawOutput),
@@ -1220,13 +1226,27 @@ function buildNoveltyScanPrompt(
   return [
     "You are running a bounded ResearchFinder daily novelty scan.",
     "Return only valid JSON. Do not wrap the result in Markdown.",
-    "Do not force label variety. Use the evidence.",
+    "The JSON must match the NoveltyScanResult schema EXACTLY and use ONLY these keys:",
+    '{ "generatedForUserId": <userId>, "inboxDate": <inboxDate>, "scans": [ {',
+    '  "generatedIdeaId": <idea id>, "status": "completed"|"partial"|"failed",',
+    '  "label": "likely_novel"|"unclear"|"crowded"|"near_duplicate"|"not_checked",',
+    '  "confidence": <0..1>, "summary": <string>, "overlapExplanation": <string>,',
+    '  "queries": [<string>], "adaptersAttempted": [<string>], "adaptersFailed": [<string>],',
+    '  "evidence": [ { "sourceType": "arxiv"|"scholarly"|"web"|"github"|"generated_analysis",',
+    '    "title": <string>, "url": <string or "">, "sourceId": <optional string>, "claim": <string>,',
+    '    "overlapLevel": "exact"|"close"|"adjacent"|"weak", "confidence": <0..1> } ] } ] }',
+    "Contract rules:",
+    "- Return EXACTLY one scans entry per idea in the job input; generatedIdeaId must be that idea's id.",
+    "- The array key is \"scans\". Do NOT use alternate keys such as 'results', 'status', or 'overallNotes'.",
+    "- evidence is required (>=1) unless label is \"not_checked\".",
+    "- every confidence is a number from 0 to 1; all string fields are plain strings, not arrays.",
+    "Label guidance — do not force label variety; use the evidence:",
     "Use likely_novel only when the idea has a concrete differentiator and no close match.",
     "Use unclear when evidence is insufficient or adjacent overlap is unresolved.",
     "Use crowded when many adjacent sources exist.",
     "Use near_duplicate when a close paper, repo, benchmark, or project already does the same thing.",
     "Use not_checked only if evidence collection did not run.",
-    `The JSON jobId must be exactly ${JSON.stringify(jobId)}.`,
+    `The worker pins jobId to ${JSON.stringify(jobId)}; you may omit it.`,
     "",
     "Claimed job input:",
     JSON.stringify(input, null, 2),
