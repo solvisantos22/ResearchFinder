@@ -98,8 +98,13 @@ describe("WorkerSetupContent", () => {
     );
 
     expect(screen.getByText("Connect my Codex worker")).toBeInTheDocument();
-    expect(screen.getByText("PowerShell setup command")).toBeInTheDocument();
+    expect(screen.getByText("Setup commands")).toBeInTheDocument();
     expect(screen.getByText("Your workers")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "bash scripts/install-worker.sh --app-url 'https://research.example.com' --worker-token 'plain-worker-token' --task-name 'ResearchFinder Worker'"
+      )
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl 'https://research.example.com' -WorkerToken 'plain-worker-token' -TaskName 'ResearchFinder Worker'"
@@ -107,7 +112,7 @@ describe("WorkerSetupContent", () => {
     ).toBeInTheDocument();
   });
 
-  it("single-quotes PowerShell arguments and escapes embedded single quotes", () => {
+  it("single-quotes setup arguments and escapes embedded single quotes", () => {
     render(
       <WorkerSetupContent
         appUrl="https://research.example.com/a'b"
@@ -117,6 +122,11 @@ describe("WorkerSetupContent", () => {
       />
     );
 
+    expect(
+      screen.getByText(
+        "bash scripts/install-worker.sh --app-url 'https://research.example.com/a'\\''b' --worker-token 'token'\\''with'\\''quotes' --task-name 'ResearchFinder Worker'"
+      )
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl 'https://research.example.com/a''b' -WorkerToken 'token''with''quotes' -TaskName 'ResearchFinder Worker'"
@@ -173,6 +183,7 @@ describe("WorkerSetupContent", () => {
 
     expect(screen.getByText("Register a worker to reveal the one-time setup command.")).toBeInTheDocument();
     expect(screen.queryByText(/-WorkerToken/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/--worker-token/)).not.toBeInTheDocument();
   });
 
   it("does not reveal a worker token from GET page state", async () => {

@@ -40,8 +40,9 @@ Authentication is handled by Google sign-in through Auth.js. Configure
 ## Worker
 
 After signing in, open `/workers` to register and connect a local worker. Run
-the one-time PowerShell installer command shown on that page; it writes the
-worker config in the install directory and sets up the connected worker runner.
+the one-time macOS or Windows installer command shown on that page; it writes
+the worker config in the install directory and sets up the connected worker
+runner.
 
 For manual local development, `npm run worker:local` starts a polling worker
 loop. It requires either a repo-local `.worker.json` file or

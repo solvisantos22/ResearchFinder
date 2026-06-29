@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const installerScript = readFileSync(join(process.cwd(), "scripts", "install-worker.ps1"), "utf8");
+const macInstallerScript = readFileSync(join(process.cwd(), "scripts", "install-worker.sh"), "utf8");
 
 describe("worker installer", () => {
   it("runs the scheduled worker through a wrapper that points at the installed config", () => {
@@ -81,5 +82,23 @@ describe("worker installer resilience", () => {
   it("uses the task name parameter for the scheduled task and defaults to ResearchFinder Worker", () => {
     expect(installerScript).toContain('-TaskName $TaskName');
     expect(installerScript).toContain('[string]$TaskName = "ResearchFinder Worker"');
+  });
+});
+
+describe("macOS worker installer", () => {
+  it("installs a launchd agent that runs the worker with the installed config", () => {
+    expect(macInstallerScript).toContain("--worker-token|-WorkerToken");
+    expect(macInstallerScript).toContain('config_path="$install_dir/.worker.json"');
+    expect(macInstallerScript).toContain("RESEARCHFINDER_WORKER_CONFIG");
+    expect(macInstallerScript).toContain("RESEARCHFINDER_CODEX_COMMAND");
+    expect(macInstallerScript).toContain("scripts/researchfinder-worker.ts");
+    expect(macInstallerScript).toContain("launchctl bootstrap");
+  });
+
+  it("uses Application Support and LaunchAgents without requiring PowerShell", () => {
+    expect(macInstallerScript).toContain("ResearchFinderWorker");
+    expect(macInstallerScript).toContain("$HOME/Library/Application Support");
+    expect(macInstallerScript).toContain("$HOME/Library/LaunchAgents");
+    expect(macInstallerScript).not.toContain("powershell");
   });
 });

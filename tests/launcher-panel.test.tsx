@@ -21,9 +21,10 @@ describe("LauncherPanel", () => {
     expect(screen.getByText("offline")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Register launcher" })).toBeInTheDocument();
     expect(screen.queryByText(/install-launcher\.ps1/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/install-launcher\.sh/)).not.toBeInTheDocument();
   });
 
-  it("shows the install command after registering", async () => {
+  it("shows macOS and Windows install commands after registering", async () => {
     const registerLauncherAction = vi.fn().mockResolvedValue({ token: "plain-launcher-token" });
 
     render(
@@ -39,6 +40,9 @@ describe("LauncherPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Register launcher" }));
 
+    await screen.findByText(
+      "bash scripts/install-launcher.sh --app-url 'https://research.example.com' --launcher-token 'plain-launcher-token'"
+    );
     await screen.findByText(
       "powershell -ExecutionPolicy Bypass -File scripts/install-launcher.ps1 -AppUrl 'https://research.example.com' -LauncherToken 'plain-launcher-token'"
     );

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const installerScript = readFileSync(join(process.cwd(), "scripts", "install-launcher.ps1"), "utf8");
+const macInstallerScript = readFileSync(join(process.cwd(), "scripts", "install-launcher.sh"), "utf8");
 
 describe("launcher installer", () => {
   it("runs the scheduled launcher through a wrapper that points at the installed config", () => {
@@ -98,5 +99,23 @@ describe("launcher installer resilience", () => {
     const registerIndex = installerScript.indexOf("Register-ScheduledTask");
     const startIndex = installerScript.indexOf("Start-ScheduledTask -TaskName $TaskName");
     expect(startIndex).toBeGreaterThan(registerIndex);
+  });
+});
+
+describe("macOS launcher installer", () => {
+  it("installs a launchd agent that runs the launcher with the installed config", () => {
+    expect(macInstallerScript).toContain("--launcher-token|-LauncherToken");
+    expect(macInstallerScript).toContain('config_path="$install_dir/.launcher.json"');
+    expect(macInstallerScript).toContain("RESEARCHFINDER_LAUNCHER_CONFIG");
+    expect(macInstallerScript).toContain("RESEARCHFINDER_CODEX_COMMAND");
+    expect(macInstallerScript).toContain("scripts/researchfinder-launcher.ts");
+    expect(macInstallerScript).toContain("launchctl bootstrap");
+  });
+
+  it("uses Application Support and LaunchAgents without requiring PowerShell", () => {
+    expect(macInstallerScript).toContain("ResearchFinderLauncher");
+    expect(macInstallerScript).toContain("$HOME/Library/Application Support");
+    expect(macInstallerScript).toContain("$HOME/Library/LaunchAgents");
+    expect(macInstallerScript).not.toContain("powershell");
   });
 });

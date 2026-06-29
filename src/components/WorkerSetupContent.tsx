@@ -24,8 +24,15 @@ function quotePowerShellLiteral(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-function setupCommand(appUrl: string, token: string, taskName: string) {
-  return `powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl ${quotePowerShellLiteral(appUrl)} -WorkerToken ${quotePowerShellLiteral(token)} -TaskName ${quotePowerShellLiteral(taskName)}`;
+function quoteShellLiteral(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function setupCommands(appUrl: string, token: string, taskName: string) {
+  return {
+    mac: `bash scripts/install-worker.sh --app-url ${quoteShellLiteral(appUrl)} --worker-token ${quoteShellLiteral(token)} --task-name ${quoteShellLiteral(taskName)}`,
+    windows: `powershell -ExecutionPolicy Bypass -File scripts/install-worker.ps1 -AppUrl ${quotePowerShellLiteral(appUrl)} -WorkerToken ${quotePowerShellLiteral(token)} -TaskName ${quotePowerShellLiteral(taskName)}`
+  };
 }
 
 export function WorkerSetupContent({
@@ -36,6 +43,7 @@ export function WorkerSetupContent({
   overviewAction
 }: WorkerSetupContentProps) {
   const [state, formAction, isPending] = useActionState(registrationAction, registrationResult);
+  const commands = state?.token ? setupCommands(appUrl, state.token, state.label) : null;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
@@ -52,7 +60,7 @@ export function WorkerSetupContent({
       <section className="mb-6 rounded-md border border-rf-border bg-rf-panel p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-rf-white">PowerShell setup command</h2>
+            <h2 className="text-xl font-semibold text-rf-white">Setup commands</h2>
             <p className="mt-1 text-sm text-rf-muted">
               The worker token is shown only immediately after registration.
             </p>
@@ -77,10 +85,21 @@ export function WorkerSetupContent({
           </form>
         </div>
 
-        {state?.token ? (
-          <pre className="mt-4 overflow-x-auto rounded-md bg-rf-surface p-4 text-sm text-rf-white">
-            <code>{setupCommand(appUrl, state.token, state.label)}</code>
-          </pre>
+        {commands ? (
+          <div className="mt-4 space-y-3">
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-rf-muted">macOS</p>
+              <pre className="overflow-x-auto rounded-md bg-rf-surface p-4 text-sm text-rf-white">
+                <code>{commands.mac}</code>
+              </pre>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-rf-muted">Windows</p>
+              <pre className="overflow-x-auto rounded-md bg-rf-surface p-4 text-sm text-rf-white">
+                <code>{commands.windows}</code>
+              </pre>
+            </div>
+          </div>
         ) : (
           <div className="mt-4 rounded-md border border-rf-border bg-rf-surface p-4 text-sm text-rf-muted">
             Register a worker to reveal the one-time setup command.
