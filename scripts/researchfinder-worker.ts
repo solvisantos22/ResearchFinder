@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
@@ -1011,8 +1011,76 @@ function buildStageCriticPrompt(input: StageCriticJobInput) {
     input.criteria,
     "",
     "The artifact to judge and the source paper are in ARTIFACT.json and SOURCE.json in this directory.",
+    "The deliverable files referenced by ARTIFACT.json (its texPath/pdfPath and artifacts[].path —",
+    "e.g. paper/main.tex, paper/main.pdf, and the analysis figures/tables) have been copied into this",
+    "working directory at those same relative paths. Open and verify them directly (the PDF exists and",
+    "is non-empty, figures/tables are present, byte counts match the artifact) rather than assuming absent.",
     upstreamLine
   ].join("\n");
+}
+
+// Keys whose string values point at a producer's on-disk deliverable file.
+const ARTIFACT_PATH_KEYS = new Set(["path", "texPath", "pdfPath"]);
+
+// A stage critic judges ARTIFACT.json from inside its own `<stage>-critic` workspace, but
+// the artifact references deliverables (main.tex, main.pdf, figures, tables) by
+// PROJECT-ROOT-relative paths (e.g. "paper/main.tex", "analysis/figure_1.png") that live
+// in the sibling producer workspaces. Collect those referenced relative paths so we can
+// stage them where the critic actually looks. Restricted to known path-bearing keys and
+// to safe relative file paths (no absolute, no parent-dir traversal) so a stray string or
+// a crafted path can't pull in unrelated files.
+export function collectArtifactDeliverablePaths(artifact: unknown): string[] {
+  const paths = new Set<string>();
+  const visit = (value: unknown, key?: string) => {
+    if (typeof value === "string") {
+      if (
+        key !== undefined &&
+        ARTIFACT_PATH_KEYS.has(key) &&
+        value.length > 0 &&
+        !value.startsWith("/") &&
+        !value.split(/[\\/]/).includes("..") &&
+        /\.\w+$/.test(value)
+      ) {
+        paths.add(value);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, key);
+      return;
+    }
+    if (value !== null && typeof value === "object") {
+      for (const [k, v] of Object.entries(value)) visit(v, k);
+    }
+  };
+  visit(artifact);
+  return [...paths];
+}
+
+// Copy the artifact's referenced deliverable files from the project workspace root (the
+// parent of the critic workspace) into the critic workspace, mirroring their declared
+// relative paths. This makes "paper/main.tex", "analysis/figure_1.png", etc. resolve from
+// the critic's cwd so it can verify the compiled PDF, figures, and tables it was told
+// exist. A referenced-but-absent source is skipped (the critic should still flag a
+// genuinely missing deliverable). Returns the relative paths actually copied.
+export async function provisionCriticDeliverables(
+  criticWorkspaceDir: string,
+  artifact: unknown
+): Promise<string[]> {
+  const projectRoot = dirname(criticWorkspaceDir);
+  const copied: string[] = [];
+  for (const rel of collectArtifactDeliverablePaths(artifact)) {
+    const src = join(projectRoot, rel);
+    const dest = join(criticWorkspaceDir, rel);
+    try {
+      await mkdir(dirname(dest), { recursive: true });
+      await copyFile(src, dest);
+      copied.push(rel);
+    } catch {
+      // Source missing/unreadable — leave it absent so the critic judges honestly.
+    }
+  }
+  return copied;
 }
 
 async function runStageCriticJob(
@@ -1032,6 +1100,10 @@ async function runStageCriticJob(
       "utf8"
     );
   }
+  // Stage the producer's referenced deliverables into the critic workspace so the
+  // artifact's declared relative paths (paper/main.tex, analysis/figure_*.png, …)
+  // resolve from the critic's cwd and it can verify the real files, not just the JSON.
+  await provisionCriticDeliverables(workspaceDir, input.artifactToJudge);
 
   const promptDir = await mkdtemp(join(tmpdir(), "researchfinder-critic-"));
   const promptFile = join(promptDir, `${job.id}.prompt.md`);

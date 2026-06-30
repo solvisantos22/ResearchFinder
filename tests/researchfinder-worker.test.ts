@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
 import { parseInboxGenerationOutput, parseViabilityOutput } from "@/worker/output-validation";
 import {
+  collectArtifactDeliverablePaths,
+  provisionCriticDeliverables,
   runResearchFinderWorker,
   runResearchFinderWorkerOnce
 } from "../scripts/researchfinder-worker";
@@ -1444,3 +1448,59 @@ function createViabilityCodexOutput(jobId: string) {
     ]
   };
 }
+
+describe("stage-critic deliverable provisioning", () => {
+  it("collects only safe relative file paths referenced by an artifact", () => {
+    const paths = collectArtifactDeliverablePaths({
+      texPath: "paper/main.tex",
+      pdfPath: "paper/main.pdf",
+      artifacts: [{ path: "analysis/figure_1.png" }, { path: "analysis/table.csv" }],
+      caption: "see the results in the table",
+      summary: "A prose summary that mentions notes.txt but is not a path field."
+    });
+
+    expect([...paths].sort()).toEqual(
+      ["analysis/figure_1.png", "analysis/table.csv", "paper/main.pdf", "paper/main.tex"].sort()
+    );
+  });
+
+  it("ignores absolute paths and parent-directory traversal", () => {
+    const paths = collectArtifactDeliverablePaths({
+      artifacts: [{ path: "/etc/passwd" }, { path: "../../secrets.txt" }, { path: "paper/ok.tex" }]
+    });
+
+    expect(paths).toEqual(["paper/ok.tex"]);
+  });
+
+  it("copies referenced deliverables into the critic workspace so declared paths resolve", async () => {
+    const root = await mkdtemp(join(tmpdir(), "critic-deliverables-"));
+    const projectRoot = join(root, "proj-1");
+    await mkdir(join(projectRoot, "paper"), { recursive: true });
+    await mkdir(join(projectRoot, "analysis"), { recursive: true });
+    await writeFile(join(projectRoot, "paper", "main.tex"), "\\documentclass{article}", "utf8");
+    await writeFile(join(projectRoot, "paper", "main.pdf"), "%PDF-1.5 fake", "utf8");
+    await writeFile(join(projectRoot, "analysis", "figure_1.png"), "PNGDATA", "utf8");
+
+    const criticDir = join(projectRoot, "paper-critic");
+    await mkdir(criticDir, { recursive: true });
+
+    const artifact = {
+      texPath: "paper/main.tex",
+      pdfPath: "paper/main.pdf",
+      artifacts: [
+        { path: "paper/main.tex", kind: "tex" },
+        { path: "analysis/figure_1.png", kind: "figure" },
+        { path: "analysis/missing_table.csv", kind: "table" }
+      ]
+    };
+
+    const copied = await provisionCriticDeliverables(criticDir, artifact);
+
+    // The declared relative paths now resolve from inside the critic workspace.
+    expect(await readFile(join(criticDir, "paper", "main.pdf"), "utf8")).toBe("%PDF-1.5 fake");
+    expect(await readFile(join(criticDir, "analysis", "figure_1.png"), "utf8")).toBe("PNGDATA");
+    expect(copied.sort()).toEqual(["analysis/figure_1.png", "paper/main.pdf", "paper/main.tex"].sort());
+    // A referenced-but-absent source file is skipped, not fatal.
+    expect(copied).not.toContain("analysis/missing_table.csv");
+  });
+});
