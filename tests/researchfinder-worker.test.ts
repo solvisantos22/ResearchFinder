@@ -1491,6 +1491,17 @@ describe("producer prompts encode the Bucket 1 scientific-rigor gates (contribut
     expect(p).toMatch(/item pair|item-pair/); // benchmark branch
     expect(p).toMatch(/hyperparameter|compute budget|splits/); // method branch
   });
+
+  it("frames every producer prompt as subject-agnostic (benchmark/method are examples, not a closed enum)", () => {
+    for (const p of [
+      buildResearchPlanPrompt(base as unknown as ResearchPlanJobInput),
+      buildExperimentPrompt(base as unknown as ExperimentJobInput),
+      buildAnalysisPrompt(base as unknown as AnalysisJobInput),
+      buildPaperPrompt(base as unknown as PaperJobInput)
+    ]) {
+      expect(p.toLowerCase()).toContain("other contribution type");
+    }
+  });
 });
 
 describe("stage-critic deliverable provisioning", () => {

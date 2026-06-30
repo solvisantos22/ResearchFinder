@@ -109,4 +109,12 @@ describe("CRITIC_CRITERIA scientific-rigor gates (Bucket 1, contribution-type-aw
     expect(t).toMatch(/item-pair|item pair/); // benchmark branch retained
     expect(t).toMatch(/hyperparameter|compute budget|splits/); // method branch added
   });
+
+  it("frames the gates as subject-agnostic: benchmark/method are EXAMPLES, every stage admits other contribution types", () => {
+    // The gates must not read as a closed benchmark-OR-method enum: each names
+    // its specifics as examples and explicitly extends to any other research type.
+    for (const stage of ["plan", "experiment", "analysis", "paper"] as const) {
+      expect(criteriaText(stage)).toContain("other contribution type");
+    }
+  });
 });
