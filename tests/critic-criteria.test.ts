@@ -67,3 +67,32 @@ describe("CRITIC_CRITERIA.paper", () => {
     expect(paper.routingGuidance.toLowerCase()).toContain("backtrack to analysis");
   });
 });
+
+describe("CRITIC_CRITERIA scientific-rigor gates (Bucket 1)", () => {
+  const criteriaText = (stage: keyof typeof CRITIC_CRITERIA) =>
+    CRITIC_CRITERIA[stage].criteria.join(" \n ").toLowerCase();
+
+  it("plan requires a construct-validation protocol and a task-competence floor", () => {
+    const t = criteriaText("plan");
+    expect(t).toContain("construct");
+    expect(t).toMatch(/competence|majority-class|random-choice/);
+  });
+
+  it("experiment requires benchmark/manipulation construct validity", () => {
+    const t = criteriaText("experiment");
+    expect(t).toContain("construct validity");
+    expect(t).toMatch(/gold answer|lure/);
+  });
+
+  it("analysis requires scoring/parser validity, a competence interpretability gate, and a non-degenerate lure metric", () => {
+    const t = criteriaText("analysis");
+    expect(t).toMatch(/adjudicat|parse-method|parser/); // scoring validity
+    expect(t).toMatch(/competence|random|majority/); // interpretability gate
+    expect(t).toMatch(/excess|chance|binary/); // lure identification
+  });
+
+  it("paper requires an auditable benchmark write-up, not just reproducible-from-text", () => {
+    const t = criteriaText("paper");
+    expect(t).toMatch(/item-pair|representative|release card|auditab/);
+  });
+});

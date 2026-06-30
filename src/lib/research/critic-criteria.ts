@@ -42,8 +42,10 @@ export const CRITIC_CRITERIA: Record<ExecutableStage, StageCriteria> = {
     criteria: [
       "Feasibility: every step is genuinely executable here — a Codex agent with web access + local CPU/GPU + PUBLIC data/code. No step requires paid LLM API keys, proprietary data, or hardware we do not have.",
       "Named, real, available datasets/benchmarks: each dataset or benchmark is named and publicly obtainable (a resolvable URL or a well-known public source), not a placeholder or a to-be-fabricated toy.",
-      "Rigor: the design specifies baselines, multiple seeds/repetitions, ablations, and a concrete statistical-analysis plan — not a single one-shot run.",
-      "Measurable success criteria: quantitative, decidable pass/fail thresholds tied to the stated metrics.",
+      "Rigor: the design specifies baselines, multiple seeds/repetitions, ablations, and a concrete statistical-analysis plan that names the primary estimand, the unit of analysis and dependency structure (item/model/seed/family), a power or minimum-detectable-effect analysis, and a hierarchical/clustered model — not a single one-shot run or bare means.",
+      "Measurable success criteria: quantitative, decidable pass/fail thresholds tied to the stated metrics, including manipulation-validity and task-competence thresholds — not only downstream effect thresholds.",
+      "Construct-validation protocol: if the study introduces a new benchmark, paired prompts, transformed items, or lures, the plan specifies validation to run BEFORE the full study — gold-answer preservation across surfaces, lure salience under the conflict surface, absence of the same lure cue in controls, per-group answer/lure label balance, and representative item-pair examples per family.",
+      "Task-competence gate: the plan requires the evaluated (or a declared anchor) model to clear BOTH random-choice and majority-class baselines on the control condition by a preregistered margin before any downstream/strategy effect is interpreted; if the gate fails the study reports a benchmark-construction or feasibility result, not the headline claim.",
       "Grounded in the source paper: the plan states a concrete novel contribution relative to the source paper and cites it."
     ],
     routingGuidance:
@@ -63,6 +65,7 @@ export const CRITIC_CRITERIA: Record<ExecutableStage, StageCriteria> = {
     criteria: [
       "Real data with real provenance: data was obtained from real public sources with traceable provenance (download/build steps and source URLs). Self-reported artifact paths and sizes must look real — a few-hundred-byte fixture, or a name containing '_style_micro', '_toy', '_synthetic', or 'dummy', signals a fabricated stand-in and is disqualifying.",
       "Genuine, rigorous attempt at the planned study: the harness implements the planned conditions, datasets, baselines, and seeds from UPSTREAM_plan.json, and real runs were actually executed — not a convenience shortcut that skips the hard parts.",
+      "Benchmark/manipulation construct validity: if the study introduces paired prompts, transformed items, lures, or benchmark annotations, the artifact includes item-level validation proving control and conflict surfaces preserve the gold answer, conflict surfaces cue the preregistered lure, controls do not already cue the same lure, and answer/lure labels are balanced within family. Spot-check at least 10 random item pairs; fail if the manipulation is ambiguous, degenerate, or merely asserted.",
       "Real metrics vs baselines: every reported metric is computed from runs that actually executed against the planned baselines, with raw outputs/artifacts saved. No metric is invented, extrapolated, or back-filled.",
       experimentCompletenessCriterion,
       "Grounded in the source paper: results are framed against the source paper and cite it."
@@ -71,8 +74,10 @@ export const CRITIC_CRITERIA: Record<ExecutableStage, StageCriteria> = {
   },
   analysis: {
     criteria: [
-      "Appropriate, correct statistics: significance tests, effect sizes, confidence intervals, and multiple-comparison corrections appropriate to the design — not just raw means. Reporting an effect as null/inconclusive with proper uncertainty is correct statistics.",
-      "Claims supported by the data: every stated finding is backed by the experiment's actual results — cross-check against UPSTREAM_experiment.json. No claim exceeds what the data shows.",
+      "Design-faithful, correct statistics: significance tests, effect sizes, confidence intervals, and multiple-comparison corrections appropriate to the design — not bare means. The analysis must identify the primary estimand and handle item/model/seed/family/prompt-style dependence (e.g. a hierarchical or clustered/GEE model with item clustering), and report power or minimum-detectable-effect / sensitivity to sample size. Reporting an effect as null/inconclusive with proper uncertainty is correct statistics.",
+      "Scoring/parser validity: before hypothesis testing, the scorer/parser is validated against the raw outputs — report parse-method distribution, invalid/unmatched rates, and row-level changes vs upstream scoring, plus an independent adjudication sample stratified across gold-correct, lure-error, non-lure-wrong, unmatched-text, and parser-changed rows. If plausible adjudication disagreement could move any headline result by more than ~2 percentage points, mark the affected claims inconclusive.",
+      "Non-degenerate lure metric: a lure-error / strategy-misselection claim holds only if lure selection EXCEEDS the matched-control and chance wrong-answer base rates (an excess-lure metric). Binary/two-choice families where 'lure among incorrect' is mechanically just 'wrong answer' are excluded from the confirmatory lure claim or analyzed separately as wrong-label errors.",
+      "Claims supported AND interpretable: every stated finding is backed by the experiment's actual results (cross-check UPSTREAM_experiment.json) and no claim exceeds the data. If control-surface task competence is at or below random-choice/majority-class baselines, reject any strategy-level interpretation and require a framing limited to benchmark-construction / model-incompetence.",
       "Publication-quality figures/tables: reported artifacts are real (sensible sizes/paths) and referenced, with an honest assessment of each success criterion from UPSTREAM_plan.json (including criteria not met or not evaluable).",
       "Honest threats + comparison: limitations and comparison to baselines and the literature are stated honestly."
     ],
@@ -84,7 +89,7 @@ export const CRITIC_CRITERIA: Record<ExecutableStage, StageCriteria> = {
       "Every citation is real and verifiable: each reference resolves to a real paper (URL/DOI) — spot-check with web search — and the source paper is cited.",
       "Figures and tables are present and referenced: the artifacts the paper claims exist with sensible sizes and are referenced in the text.",
       "Novelty is explicit relative to the source paper: the paper states a concrete contribution beyond the source paper (the method, harness, or audit protocol counts), not a restatement.",
-      "Method is reproducible from the text: a reader could re-run the study from the described method and protocol.",
+      "Method is reproducible AND auditable from the text: a reader could re-run the study AND inspect whether the benchmark manipulation is valid. The paper includes representative control/conflict item-pair examples per family (with gold and lure), a qualitative error table with real model outputs (correct, lure-error, non-lure-wrong, parser-failure), a benchmark-validation summary (semantic-equivalence, lure-salience, label-balance, scoring-adjudication), and an artifact/release card — path-heavy artifact references alone are NOT sufficient.",
       "The LaTeX compiles to a PDF: a non-empty compiled PDF exists (compiled is true and a 'pdf' artifact / pdfPath with bytes > 0). If compilation failed, this criterion fails."
     ],
     routingGuidance: paperRouting

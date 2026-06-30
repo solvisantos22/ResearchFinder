@@ -6,11 +6,21 @@ import { join } from "node:path";
 import { VIABILITY_VERDICTS } from "@/lib/v2/domain";
 import { parseInboxGenerationOutput, parseViabilityOutput } from "@/worker/output-validation";
 import {
+  buildAnalysisPrompt,
+  buildExperimentPrompt,
+  buildPaperPrompt,
+  buildResearchPlanPrompt,
   collectArtifactDeliverablePaths,
   provisionCriticDeliverables,
   runResearchFinderWorker,
   runResearchFinderWorkerOnce
 } from "../scripts/researchfinder-worker";
+import type {
+  AnalysisJobInput,
+  ExperimentJobInput,
+  PaperJobInput,
+  ResearchPlanJobInput
+} from "@/lib/v2/schemas";
 
 const originalFetch = globalThis.fetch;
 
@@ -1448,6 +1458,34 @@ function createViabilityCodexOutput(jobId: string) {
     ]
   };
 }
+
+describe("producer prompts encode the Bucket 1 scientific-rigor gates", () => {
+  const base = { researchProjectId: "proj-1" };
+
+  it("plan prompt demands construct validation, a task-competence gate, and design-faithful stats", () => {
+    const p = buildResearchPlanPrompt(base as unknown as ResearchPlanJobInput).toLowerCase();
+    expect(p).toContain("construct-validation");
+    expect(p).toContain("task-competence gate");
+    expect(p).toMatch(/power\/mde|minimum-detectable/);
+  });
+
+  it("experiment prompt requires a benchmark validation artifact before the full run", () => {
+    const p = buildExperimentPrompt(base as unknown as ExperimentJobInput).toLowerCase();
+    expect(p).toContain("benchmark_validation.jsonl");
+  });
+
+  it("analysis prompt requires scoring validation and a non-degenerate lure metric", () => {
+    const p = buildAnalysisPrompt(base as unknown as AnalysisJobInput).toLowerCase();
+    expect(p).toMatch(/audit the parser|scoring validation|validate scoring/);
+    expect(p).toMatch(/exceeds|chance wrong-answer|non-lure/);
+  });
+
+  it("paper prompt requires benchmark-audit sections and a release card", () => {
+    const p = buildPaperPrompt(base as unknown as PaperJobInput).toLowerCase();
+    expect(p).toMatch(/item pair|item-pair/);
+    expect(p).toContain("release card");
+  });
+});
 
 describe("stage-critic deliverable provisioning", () => {
   it("collects only safe relative file paths referenced by an artifact", () => {

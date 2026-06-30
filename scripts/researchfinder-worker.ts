@@ -589,7 +589,7 @@ function buildPriorFeedbackSection(feedback?: string | null): string[] {
   ];
 }
 
-function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
+export function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
   return [
     "You are turning a viability-checked research idea into a concrete, FEASIBLE, RIGOROUS research plan",
     "for a publishable study — not a demo.",
@@ -603,12 +603,17 @@ function buildResearchPlanPrompt(input: ResearchPlanJobInput) {
     "and relationToSourcePaper are single plain strings. Example: \"hypotheses\": [\"X improves Y.\", \"...\"].",
     "Design the FULL study, not the smallest version:",
     "- Name REAL, publicly available datasets/benchmarks and how to obtain them — never invent toy data.",
-    "- Specify concrete baselines, MULTIPLE seeds/repetitions, and ablations.",
-    "- Include a concrete statistical-analysis plan (which tests, effect sizes, multiple-comparison handling).",
-    "- successCriteria must be quantitative, decidable thresholds tied to the metrics.",
+    "- For any new benchmark or prompt manipulation, specify a construct-validation protocol to run BEFORE the full run: (1) gold-answer preservation across control/conflict surfaces; (2) conflict-surface lure salience; (3) control-surface absence of the same lure cue; (4) answer-label and lure-label balance within each family; (5) at least one representative item-pair table per family for audit.",
+    "- Specify concrete baselines, MULTIPLE seeds/repetitions, ablations, and a task-competence gate.",
+    "- Include a concrete statistical-analysis plan: the primary estimand, unit of analysis, dependency structure (item/model/seed/family), effect sizes, confidence intervals, multiple-comparison handling, a power/MDE analysis, and a confirmatory hierarchical/clustered model for within-item paired designs.",
+    "- successCriteria must be quantitative, decidable thresholds tied to the metrics, and must include manipulation-validity and task-competence thresholds — not only downstream effect thresholds.",
     "Every step must be executable HERE: a Codex agent with web access + local CPU/GPU + PUBLIC data/code,",
     "with NO paid LLM API keys and NO proprietary data. If the most ambitious version is not feasible here,",
     "scope DOWN to what is genuinely runnable — but keep it rigorous (real data, seeds, ablations, statistics).",
+    "A scoped-down model set is acceptable ONLY with a task-competence gate: on control surfaces the evaluated",
+    "model set (or a declared anchor model) must exceed BOTH random-choice and majority-class baselines by a",
+    "preregistered margin in each analyzable family. If the gate fails, the study may report a benchmark-construction",
+    "or feasibility result, but must NOT interpret conflict penalties as evidence about strategy switching.",
     "Do NOT propose a toy or a single one-shot run.",
     "Ground the plan in the source paper: relationToSourcePaper must explain how this work extends it,",
     "and citations MUST include the source paper as sourceType \"paper\" with its exact url and sourceId.",
@@ -685,12 +690,19 @@ function experimentWorkspaceDir(researchProjectId: string) {
   return join(root, researchProjectId, "experiment");
 }
 
-function buildExperimentPrompt(input: ExperimentJobInput) {
+export function buildExperimentPrompt(input: ExperimentJobInput) {
   return [
     "You are running a REAL, COMPLETE research experiment in your current working directory.",
     "The full task input (idea, source paper, approved plan, literature positioning/gaps) is in INPUT.json in this directory — read it first.",
     "Obtain the REAL data the plan names: download it or build it from real public sources, and record its",
-    "provenance (source URLs + how you obtained it). Then implement the method and ACTUALLY RUN THE FULL STUDY —",
+    "provenance (source URLs + how you obtained it).",
+    "If you build or transform benchmark items, FIRST produce benchmark_validation.jsonl with one row per item:",
+    "source_id, family, control_surface, conflict_surface, gold_answer, lure_answer, gold_label, lure_label,",
+    "semantic_equivalence_check, lure_salience_check, control_lure_absence_check, label_balance_group, and",
+    "validation_rationale. Do NOT run the full model grid until this validation artifact exists; if fewer than",
+    "95% of items in any family pass the semantic-equivalence and lure-salience checks, report honestly that the",
+    "benchmark manipulation failed rather than treating the study as complete.",
+    "Then implement the method and ACTUALLY RUN THE FULL STUDY —",
     "all planned conditions, datasets, and baselines, with MULTIPLE seeds/repetitions. Save raw outputs and",
     "artifacts to disk. Take as long as you need: there is no time limit, and thoroughness matters more than speed.",
     "NEVER fabricate, synthesize, or stub the data, and never create toy/'_micro'/'_style'/dummy fixtures.",
@@ -780,16 +792,23 @@ function parseAnalysisJobInput(value: unknown) {
   }
 }
 
-function buildAnalysisPrompt(input: AnalysisJobInput) {
+export function buildAnalysisPrompt(input: AnalysisJobInput) {
   return [
     "You are analyzing the results of a completed research experiment in your current working directory.",
     "The experiment's raw outputs (code, data, logs, artifacts) are in the experiment/ subdirectory.",
     "The full task input (idea, source paper, plan success criteria, literature positioning, and the",
     "experiment's reported results) is in analysis/INPUT.json — read it first.",
-    "Do RIGOROUS statistics on the experiment's RAW outputs: report significance tests, effect sizes,",
+    "FIRST validate scoring: audit the parser/scorer against the raw generations — report parse-method counts,",
+    "invalid/unmatched outputs, changed labels vs upstream scoring, and an independent adjudication sample",
+    "stratified across gold-correct, lure-error, non-lure-wrong, unmatched-text, and parser-changed rows.",
+    "THEN do RIGOROUS, DESIGN-FAITHFUL statistics on the RAW outputs: significance tests, effect sizes,",
     "confidence intervals, and multiple-comparison corrections appropriate to the design, plus robustness",
-    "checks. Do not report bare means. Judge the results HONESTLY against the plan's successCriteria, and",
-    "generate publication-quality figures and tables.",
+    "checks and a power/MDE or sample-size sensitivity analysis. Identify the primary estimand and handle",
+    "item/model/seed/family dependence (e.g. a hierarchical or clustered/GEE model with item clustering); do",
+    "not report bare means. For lure-error claims, explicitly test whether lure selection EXCEEDS matched-control",
+    "and chance wrong-answer base rates, and flag binary/two-choice settings where 'lure among incorrect' is",
+    "mechanically 'wrong answer' — do not call those strategy-misselection. Judge the results HONESTLY against",
+    "the plan's successCriteria, and generate publication-quality figures and tables.",
     "Write every figure/table/data file you produce into the analysis/ subdirectory.",
     "When finished, output ONLY valid JSON matching the AnalysisResult schema as your final message. Do not wrap it in Markdown.",
     `The JSON researchProjectId must be exactly ${JSON.stringify(input.researchProjectId)}.`,
@@ -876,16 +895,21 @@ function parsePaperJobInput(value: unknown) {
   }
 }
 
-function buildPaperPrompt(input: PaperJobInput) {
+export function buildPaperPrompt(input: PaperJobInput) {
   return [
     "You are assembling a COMPLETE, submittable academic paper in your current working directory.",
     "The experiment and analysis raw outputs are in the experiment/ and analysis/ subdirectories",
     "(figures and tables the analysis produced are under analysis/). The full task input (idea, source",
     "paper, plan, literature, experiment + analysis results) is in paper/INPUT.json — read it first.",
     "Write the paper as LaTeX to paper/main.tex with the standard structure: Title, Abstract, Introduction,",
-    "Related Work, Method, Experiments, Results, Discussion, Limitations, Conclusion, References. Embed the",
-    "analysis figures/tables (reference the files under analysis/). State the novel contribution explicitly",
-    "relative to the source paper.",
+    "Related Work, Method, Experiments, Results, Discussion, Limitations, Conclusion, References.",
+    "For any benchmark or diagnostic contribution, ALSO include: (1) a table with at least one representative",
+    "control/conflict item pair per family, including gold and lure; (2) a qualitative error table with real",
+    "model outputs for correct, lure-error, non-lure-wrong, and parser-failure cases; (3) a benchmark-validation",
+    "subsection summarizing semantic-equivalence, lure-salience, label-balance, and scoring-adjudication results;",
+    "(4) an artifact/release card stating exactly what is released and how to reproduce the headline numbers.",
+    "Embed the analysis figures/tables (reference the files under analysis/) only after these auditability",
+    "requirements are met. State the novel contribution explicitly relative to the source paper.",
     "Then COMPILE it to a PDF locally: run `tectonic paper/main.tex` (preferred) or `pdflatex` in paper/.",
     "Every empirical claim and number MUST come from the analysis results — do not invent numbers. Every",
     "citation must be a real, resolvable reference, and you MUST cite the source paper.",
