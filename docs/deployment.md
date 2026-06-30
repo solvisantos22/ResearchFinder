@@ -48,12 +48,12 @@ Authorization: Bearer <CRON_SECRET>
 
 ## Worker Setup
 
-Sign in, open `/workers`, create a worker token, and run the displayed PowerShell installer once on the Windows machine that should run Codex jobs.
+Sign in, open `/workers`, create a worker token or launcher token, and run the displayed macOS or Windows installer once on the machine that should run Codex jobs.
 
 The `/workers` page registers an active worker and displays the one-time token setup command. The installed local worker runs a persistent polling loop, claims jobs from the hosted app, and drains queued jobs without waiting between successful completions. It uses Codex for both inbox generation and viability-check jobs. Set `RESEARCHFINDER_WORKER_POLL_MS` to tune the idle polling interval; the default is 30000 ms.
 
 ## Daily Novelty Scan
 
-After an inbox generation job completes, ResearchFinder queues a `novelty_scan` worker job. The local Windows worker claims it automatically after `inbox_generation` jobs and before `viability_check` jobs. The scan uses bounded arXiv/open-scholar/web evidence gathering and persists novelty labels plus evidence for the inbox UI.
+After an inbox generation job completes, ResearchFinder queues a `novelty_scan` worker job. The local worker claims it automatically after `inbox_generation` jobs and before `viability_check` jobs. The scan uses bounded arXiv/open-scholar/web evidence gathering and persists novelty labels plus evidence for the inbox UI.
 
 No paid search API key is required for the first version. If optional scholarly or web adapters are rate limited, the scan records adapter failures and continues with partial evidence.

@@ -18,6 +18,10 @@ function quotePowerShellLiteral(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
+function quoteShellLiteral(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 export function LauncherPanel({
   appUrl,
   initialStatus,
@@ -70,7 +74,10 @@ export function LauncherPanel({
     });
   }
 
-  const installCommand = token
+  const macInstallCommand = token
+    ? `bash scripts/install-launcher.sh --app-url ${quoteShellLiteral(appUrl)} --launcher-token ${quoteShellLiteral(token)}`
+    : null;
+  const windowsInstallCommand = token
     ? `powershell -ExecutionPolicy Bypass -File scripts/install-launcher.ps1 -AppUrl ${quotePowerShellLiteral(appUrl)} -LauncherToken ${quotePowerShellLiteral(token)}`
     : null;
 
@@ -100,11 +107,22 @@ export function LauncherPanel({
         >
           Register launcher
         </button>
-      ) : (
-        <pre className="overflow-x-auto rounded-md bg-rf-surface p-4 text-sm text-rf-white">
-          <code>{installCommand}</code>
-        </pre>
-      )}
+      ) : macInstallCommand && windowsInstallCommand ? (
+        <div className="space-y-3">
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-rf-muted">macOS</p>
+            <pre className="overflow-x-auto rounded-md bg-rf-surface p-4 text-sm text-rf-white">
+              <code>{macInstallCommand}</code>
+            </pre>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-rf-muted">Windows</p>
+            <pre className="overflow-x-auto rounded-md bg-rf-surface p-4 text-sm text-rf-white">
+              <code>{windowsInstallCommand}</code>
+            </pre>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-5">
         <p className="mb-2 text-sm font-medium text-rf-white">Lane toggles</p>
