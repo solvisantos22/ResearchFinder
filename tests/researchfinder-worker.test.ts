@@ -1459,31 +1459,37 @@ function createViabilityCodexOutput(jobId: string) {
   };
 }
 
-describe("producer prompts encode the Bucket 1 scientific-rigor gates", () => {
+describe("producer prompts encode the Bucket 1 scientific-rigor gates (contribution-type-aware)", () => {
   const base = { researchProjectId: "proj-1" };
 
-  it("plan prompt demands construct validation, a task-competence gate, and design-faithful stats", () => {
+  it("plan prompt demands a valid-comparison protocol with first-class method checks and a competence floor", () => {
     const p = buildResearchPlanPrompt(base as unknown as ResearchPlanJobInput).toLowerCase();
-    expect(p).toContain("construct-validation");
-    expect(p).toContain("task-competence gate");
+    expect(p).toContain("tuning budget"); // fair comparison for method contributions
+    expect(p).toContain("leakage"); // no train/test leakage
+    expect(p).toContain("ablation"); // ablations isolate the mechanism
+    expect(p).toMatch(/competence floor|task-competence/); // interpretability floor (either kind)
     expect(p).toMatch(/power\/mde|minimum-detectable/);
   });
 
-  it("experiment prompt requires a benchmark validation artifact before the full run", () => {
+  it("experiment prompt requires benchmark validation OR method comparison-validity before scaling up", () => {
     const p = buildExperimentPrompt(base as unknown as ExperimentJobInput).toLowerCase();
-    expect(p).toContain("benchmark_validation.jsonl");
+    expect(p).toContain("benchmark_validation.jsonl"); // benchmark branch
+    expect(p).toContain("tuning budget"); // method branch
+    expect(p).toContain("leakage");
   });
 
-  it("analysis prompt requires scoring validation and a non-degenerate lure metric", () => {
+  it("analysis prompt requires scoring/measurement validation and a non-degenerate metric for both kinds", () => {
     const p = buildAnalysisPrompt(base as unknown as AnalysisJobInput).toLowerCase();
     expect(p).toMatch(/audit the parser|scoring validation|validate scoring/);
-    expect(p).toMatch(/exceeds|chance wrong-answer|non-lure/);
+    expect(p).toMatch(/metric leakage|uncontaminated|denominator/); // method measurement validity
+    expect(p).toMatch(/exceeds|seed-to-seed|variance/); // non-degenerate (either kind)
   });
 
-  it("paper prompt requires benchmark-audit sections and a release card", () => {
+  it("paper prompt requires a release card plus benchmark item-pairs OR method reproducibility detail", () => {
     const p = buildPaperPrompt(base as unknown as PaperJobInput).toLowerCase();
-    expect(p).toMatch(/item pair|item-pair/);
     expect(p).toContain("release card");
+    expect(p).toMatch(/item pair|item-pair/); // benchmark branch
+    expect(p).toMatch(/hyperparameter|compute budget|splits/); // method branch
   });
 });
 

@@ -68,31 +68,45 @@ describe("CRITIC_CRITERIA.paper", () => {
   });
 });
 
-describe("CRITIC_CRITERIA scientific-rigor gates (Bucket 1)", () => {
+describe("CRITIC_CRITERIA scientific-rigor gates (Bucket 1, contribution-type-aware)", () => {
   const criteriaText = (stage: keyof typeof CRITIC_CRITERIA) =>
     CRITIC_CRITERIA[stage].criteria.join(" \n ").toLowerCase();
 
-  it("plan requires a construct-validation protocol and a task-competence floor", () => {
+  it("plan states a general valid-comparison + competence floor with ML-method checks first-class and benchmark checks conditional", () => {
     const t = criteriaText("plan");
-    expect(t).toContain("construct");
-    expect(t).toMatch(/competence|majority-class|random-choice/);
+    // ML-method contribution checks are first-class, not an afterthought
+    expect(t).toContain("tuning budget"); // fair comparison: matched compute/tuning
+    expect(t).toContain("leakage"); // no train/test leakage
+    expect(t).toContain("ablation"); // ablations isolate the claimed mechanism
+    expect(t).toContain("reproduce"); // baselines reproduce known numbers
+    // benchmark-specific language survives but is gated on the contribution type
+    expect(t).toMatch(/benchmark|dataset/);
+    expect(t).toContain("majority-class");
+    // a general interpretability/competence floor still exists
+    expect(t).toMatch(/floor|competen/);
   });
 
-  it("experiment requires benchmark/manipulation construct validity", () => {
+  it("experiment valid-comparison gate covers benchmark manipulation validity AND method matched-budget/leakage", () => {
     const t = criteriaText("experiment");
-    expect(t).toContain("construct validity");
-    expect(t).toMatch(/gold answer|lure/);
+    expect(t).toMatch(/gold answer|lure/); // benchmark branch retained
+    expect(t).toContain("tuning budget"); // method branch added
+    expect(t).toContain("leakage");
+    expect(t).toContain("ablation");
   });
 
-  it("analysis requires scoring/parser validity, a competence interpretability gate, and a non-degenerate lure metric", () => {
+  it("analysis requires measurement validity, a non-degenerate effect metric, and a contribution-appropriate competence floor", () => {
     const t = criteriaText("analysis");
-    expect(t).toMatch(/adjudicat|parse-method|parser/); // scoring validity
-    expect(t).toMatch(/competence|random|majority/); // interpretability gate
-    expect(t).toMatch(/excess|chance|binary/); // lure identification
+    expect(t).toMatch(/adjudicat|parse-method|parser/); // benchmark scoring validity retained
+    expect(t).toMatch(/metric leakage|uncontaminated|denominator/); // method measurement validity added
+    expect(t).toMatch(/excess|exceed/); // non-degenerate metric (general)
+    expect(t).toMatch(/seed-to-seed|variance/); // method version of non-degenerate
+    expect(t).toMatch(/crippled|known performance|competen/); // interpretability floor both ways
   });
 
-  it("paper requires an auditable benchmark write-up, not just reproducible-from-text", () => {
+  it("paper requires a release card for every contribution, with benchmark item-pairs and method reproducibility each conditional", () => {
     const t = criteriaText("paper");
-    expect(t).toMatch(/item-pair|representative|release card|auditab/);
+    expect(t).toContain("release card"); // general, unconditional
+    expect(t).toMatch(/item-pair|item pair/); // benchmark branch retained
+    expect(t).toMatch(/hyperparameter|compute budget|splits/); // method branch added
   });
 });
